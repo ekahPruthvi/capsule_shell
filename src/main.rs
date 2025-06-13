@@ -18,6 +18,7 @@ fn activate(app: &Application) {
     window.auto_exclusive_zone_enable();
     window.fullscreen();
     window.set_decorated(false);
+    window.set_namespace(Some("cynide"));
 
     for (edge, anchor) in [
         (Edge::Left, true),
@@ -34,7 +35,7 @@ fn activate(app: &Application) {
         "
         label.time {
             font-size: 100px;
-            font-weight: 100;
+            font-weight: 900;
             color: white;
         }
 
@@ -46,6 +47,13 @@ fn activate(app: &Application) {
         window {
             background-color: rgba(20, 20, 20, 0);
         }
+
+        #bob{
+            background-color: rgba(0, 0, 0, 0.2); 
+            padding: 10px;  
+            border-radius: 10px; 
+        }
+
     ",
     );
 
@@ -56,9 +64,11 @@ fn activate(app: &Application) {
     );
 
     let vbox = GtkBox::new(Orientation::Vertical, 30);
-    vbox.set_valign(Align::Center);
-    vbox.set_halign(Align::Center);
-
+    vbox.set_vexpand(true);
+    vbox.set_margin_bottom(200);
+    vbox.set_margin_top(200);
+    vbox.set_margin_end(100);
+    vbox.set_margin_start(100);
     let time_label = Label::new(None);
     time_label.set_css_classes(&["time"]);
 
@@ -66,15 +76,15 @@ fn activate(app: &Application) {
     date_label.set_css_classes(&["date"]);
 
     let now = Local::now();
-    time_label.set_text(&now.format("%I\n%M,%p").to_string());
-    date_label.set_text(&now.format("%A, %d %B %Y").to_string());
+    time_label.set_text(&now.format("%I\n%M").to_string());
+    date_label.set_text(&now.format("%p\n%A, %d %B %Y").to_string());
 
     let time_label_ref = Rc::new(RefCell::new(time_label));
     timeout_add_seconds_local(1, {
         let time_label = time_label_ref.clone();
         move || {
             let now = Local::now();
-            time_label.borrow().set_text(&now.format("%I\n%M,%p").to_string());
+            time_label.borrow().set_text(&now.format("%I\n%M").to_string());
             glib::ControlFlow::Continue
         }
     });
@@ -82,6 +92,7 @@ fn activate(app: &Application) {
     // Add widgets
     vbox.append(&*time_label_ref.borrow());
     vbox.append(&date_label);
+    vbox.set_widget_name("bob");
     window.set_child(Some(&vbox));
 
     window.show();
