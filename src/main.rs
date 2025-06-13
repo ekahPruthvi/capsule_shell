@@ -99,7 +99,7 @@ fn activate(app: &Application) {
 }
 
 fn main() {
-    let app = Application::new(Some("com.example.borderdashboard"), Default::default());
+    let app = Application::new(Some("com.ekah.cynideshell"), Default::default());
     app.connect_activate(activate);
     app.run();
 }
