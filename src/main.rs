@@ -10,6 +10,149 @@ use std::rc::Rc;
 use std::fs;
 use std::process::Command;
 use std::time::UNIX_EPOCH;
+use std::path::Path;
+use gtk4::glib::ControlFlow::Continue;
+
+pub fn start_status_icon_updater(container: &Rc<GtkBox>) {
+    // Initial population
+    append_status_icons(container);
+
+    // Set interval to refresh every 10 seconds
+    let container_clone = container.clone();
+    glib::timeout_add_seconds_local(10, move || {
+        // Clear existing icons
+        while let Some(child) = container_clone.first_child() {
+            container_clone.remove(&child);
+        }
+
+        // Re-add updated battery + network icons
+        append_status_icons(&container_clone);
+
+        Continue // keep repeating
+    });
+}
+
+fn get_battery_info() -> Option<(u8, String)> {
+    for bat in &["BAT1", "BAT0", "BAT2"] {
+        let base = format!("/sys/class/power_supply/{}", bat);
+        let cap_path = format!("{}/capacity", base);
+        let stat_path = format!("{}/status", base);
+
+        if Path::new(&cap_path).exists() && Path::new(&stat_path).exists() {
+            let cap = fs::read_to_string(&cap_path).ok()?.trim().parse::<u8>().ok()?;
+            let status = fs::read_to_string(&stat_path).ok()?.trim().to_string();
+            return Some((cap, status));
+        }
+    }
+    None
+}
+
+fn get_network_info() -> String {
+    let output = Command::new("nmcli")
+        .args(["-t", "-f", "DEVICE,TYPE,STATE"])
+        .output()
+        .unwrap_or_else(|_| panic!("Failed to run nmcli"));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    let mut active_type = None;
+
+    for line in stdout.lines() {
+        let parts: Vec<&str> = line.split(':').collect();
+        if parts.len() == 3 {
+            let dev_type = parts[1];
+            let state = parts[2];
+
+            if state == "connected" {
+                active_type = Some(dev_type.to_string());
+                break;
+            }
+        }
+    }
+
+    match active_type.as_deref() {
+        Some("ethernet") => "Wired Connection".to_string(),
+        Some("wifi") => {
+            let output_net = Command::new("nmcli")
+                .args(["-t", "-f", "NAME"])
+                .args(["connection", "show", "--active"])
+                .output()
+                .unwrap_or_else(|_| panic!("Failed to get active connection"));
+
+            let name_output = String::from_utf8_lossy(&output_net.stdout);
+            let name = name_output.lines().next().unwrap_or("Unknown");
+            format!("Connected to {}", name.trim())
+        }
+        _ => {
+            let output_wifi = Command::new("nmcli")
+                .args(["-fields", "WIFI"])
+                .arg("g")
+                .output()
+                .unwrap_or_else(|_| panic!("Failed to run nmcli"));
+            let wifi_status = String::from_utf8_lossy(&output_wifi.stdout);
+            if wifi_status.contains("enabled") {
+                "No Connection".to_string()
+            } else {
+                " Network Disabled".to_string()
+            }
+        }
+    }
+}
+
+
+fn create_icon_with_tooltip(icon_name: &str, tooltip: &str) -> Button {
+    let image = Image::from_icon_name(icon_name);
+    image.set_icon_size(gtk4::IconSize::Normal);
+
+    let button = Button::builder()
+        .child(&image)
+        .tooltip_text(tooltip)
+        .build();
+
+    button.set_widget_name("statusicon");
+    button.set_css_classes(&["statusicon"]);
+    button
+}
+
+pub fn append_status_icons(container: &GtkBox) {
+    // Network
+    let network_info = get_network_info();
+    let net_icon = if network_info.contains("Wired") {
+        "network-wired-symbolic"
+    } else if network_info.contains("Network Enabled") {
+        "network-wireless-signal-excellent-symbolic"
+    } else if network_info.contains("No Connection") {
+        "network-wireless-offline-symbolic"
+    } else {
+        "network-offline-symbolic"
+    };
+
+    let network_btn = create_icon_with_tooltip(net_icon, &network_info);
+    container.append(&network_btn);
+    
+    // Battery
+    if let Some((percent, status)) = get_battery_info() {
+        let icon_name = if status == "Charging" {
+            "sensors-voltage-symbolic"
+        } else if percent > 80 {
+            "battery-full-symbolic"
+        } else if percent > 60 {
+            "battery-good-symbolic"
+        } else if percent > 40 {
+            "battery-medium-symbolic"
+        } else if percent > 20 {
+            "battery-low-symbolic"
+        } else {
+            "battery-caution-symbolic"
+        };
+
+        let tooltip = format!("Battery: {}% ({})", percent, status);
+        let battery_btn = create_icon_with_tooltip(icon_name, &tooltip);
+        container.append(&battery_btn);
+    }
+
+    
+}
 
 
 fn create_icon_button(icon_name: &str, exec_command: String) -> Button {
@@ -156,6 +299,12 @@ fn activate(app: &Application) {
             border-radius: 12px;
         }
 
+        button.statusicon {
+            all: unset;
+            padding: 10px;
+            background-color: rgba(49, 49, 49, 0);
+        }
+
         #cynbar {
             background-color: rgba(0, 0, 0, 0.12);
             border-radius: 50px;
@@ -201,7 +350,12 @@ fn activate(app: &Application) {
     boxxy.set_halign(gtk4::Align::End);
     boxxy.set_margin_start(10);
     boxxy.set_widget_name("cynbar");
+    
+    let status_box = Rc::new(GtkBox::new(gtk4::Orientation::Vertical, 5));
+    start_status_icon_updater(&status_box);
+    
     boxxy.append(&qlbox);
+    boxxy.append(&*status_box);
 
     let time_label = Label::new(None);
     time_label.set_css_classes(&["time"]);
