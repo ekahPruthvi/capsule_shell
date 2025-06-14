@@ -1,5 +1,5 @@
 use gtk4::{
-    glib, prelude::*, Application, ApplicationWindow, Box as GtkBox, CssProvider, Label, Orientation, Button, Image, LevelBar
+    glib, prelude::*, Application, ApplicationWindow, Box as GtkBox, CssProvider, Label, Orientation, Button, Image
 };
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use gtk4::gdk::Display;
@@ -217,11 +217,11 @@ fn activate(app: &Application) {
     // Main full-screen dashboard
     let window = ApplicationWindow::new(app);
     window.init_layer_shell();
-    window.set_layer(Layer::Background);
+    window.set_layer(Layer::Bottom);
     window.auto_exclusive_zone_enable();
     window.fullscreen();
     window.set_decorated(false);
-    window.set_namespace(Some("cynide"));
+    window.set_namespace(Some("capsule"));
 
     for (edge, anchor) in [
         (Edge::Left, true),
@@ -316,16 +316,17 @@ fn activate(app: &Application) {
     timedatebox.set_halign(gtk4::Align::Center);
     timedatebox.set_valign(gtk4::Align::Center);
 
+    // for quicklaunch icons
     let qlbox = GtkBox::new(Orientation::Vertical, 0);
     qlbox.set_widget_name("qlbar");
 
     let commands = Rc::new(RefCell::new(Vec::new()));
     let last_hash = Rc::new(RefCell::new(0u64));
 
-    // Initial population
+    // for quicklauncher connected to alt. 
     ql_creator(&qlbox, commands.clone(), last_hash.clone());
 
-    // Poll every 1s to check for updates
+    // check every 1s to check for updates
     {
         let boxxy_clone = qlbox.clone();
         timeout_add_seconds_local(1, move || {
@@ -334,12 +335,13 @@ fn activate(app: &Application) {
         });
     }
 
+    // vertical bar 
     let boxxy = GtkBox::new(Orientation::Vertical, 2);
     boxxy.set_valign(gtk4::Align::Center);
     boxxy.set_halign(gtk4::Align::End);
     boxxy.set_margin_start(10);
     boxxy.set_widget_name("cynbar");
-    
+
     let status_box = Rc::new(GtkBox::new(gtk4::Orientation::Vertical, 5));
     start_status_icon_updater(&status_box);
     
@@ -370,18 +372,17 @@ fn activate(app: &Application) {
     timedatebox.append(&date_label);
     timedatebox.set_widget_name("bob");
     timedatebox.set_halign(gtk4::Align::Center);
-    
-
-    let dbox = GtkBox::new(Orientation::Horizontal, 10);
+    timedatebox.set_margin_end(69);
 
     let hdummy_start = GtkBox::new(Orientation::Horizontal, 0);
     hdummy_start.set_hexpand(true);
 
-
     let hdummy_end = GtkBox::new(Orientation::Horizontal, 0);
     hdummy_end.set_hexpand(true);
 
-    // dbox.set_halign(gtk4::Align::Center);
+
+    // main box window
+    let dbox = GtkBox::new(Orientation::Horizontal, 0);
     dbox.set_valign(gtk4::Align::Center);
 
     dbox.append(&boxxy);
@@ -395,6 +396,8 @@ fn activate(app: &Application) {
 }
 
 fn main() {
+    // Start reading from here dumbass
+
     let app = Application::new(Some("com.ekah.cynideshell"), Default::default());
     app.connect_activate(activate);
     app.run();
