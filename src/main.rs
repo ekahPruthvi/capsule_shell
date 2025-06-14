@@ -369,7 +369,7 @@ fn activate(app: &Application) {
     timedatebox.append(&*time_label_ref.borrow());
     timedatebox.append(&date_label);
     timedatebox.set_widget_name("bob");
-    timedatebox.set_margin_end(40);
+    timedatebox.set_halign(gtk4::Align::Center);
     
 
     let dbox = GtkBox::new(Orientation::Horizontal, 10);
