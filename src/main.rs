@@ -73,6 +73,7 @@ fn ql_creator(container: &GtkBox, commands: Rc<RefCell<Vec<String>>>, last_hash:
                 let button = create_icon_button(&icon_val, exec_clone);
                 button.set_margin_bottom(5);
                 button.set_widget_name("qlicons");
+                button.set_css_classes(&["qlicons"]);
                 container.append(&button);
 
                 exec = None;
@@ -122,7 +123,7 @@ fn activate(app: &Application) {
             background-color: rgba(20, 20, 20, 0);
         }
 
-        #bob{
+        #bob {
             background-color: rgba(0, 0, 0, 0.2); 
             padding-top: 100px; 
             padding-bottom: 100px;
@@ -132,20 +133,28 @@ fn activate(app: &Application) {
             border: 0.5px solid rgba(255, 255, 255, 0.12);
         }
         
-        #qlbar{
+        #qlbar {
             background-color: rgba(0, 0, 0, 0.2);
-            border-radius: 10px;
+            border-top-right-radius: 10px;
+            border-bottom-right-radius: 10px;
             padding: 5px;
             border: 0.5px solid rgba(255, 255, 255, 0.12);
         }
 
-        #qlicons{
+        button.qlicons {
             all: unset;
             border-radius: 10px;
             padding: 10px;
-            background-color: rgba(255, 255, 255, 0.17);
+            background-color: rgba(255, 255, 255, 0.06);
+            transition: background-color 0.2s ease, transform 0.2s ease;
+            transform: scale(1.0);
         }
 
+        button.qlicons:hover {
+            background-color: rgba(49, 49, 49, 0);
+            transform: scale(1.5);
+            border-radius: 12px;
+        }
     ",
     );
 
@@ -166,6 +175,7 @@ fn activate(app: &Application) {
 
     let boxxy = GtkBox::new(Orientation::Vertical, 0);
     boxxy.set_valign(gtk4::Align::Center);
+    boxxy.set_halign(gtk4::Align::End);
     boxxy.set_widget_name("qlbar");
 
     let commands = Rc::new(RefCell::new(Vec::new()));
@@ -208,13 +218,25 @@ fn activate(app: &Application) {
     vbox.append(&date_label);
     // vbox.append(&boxxy);
     vbox.set_widget_name("bob");
+    
 
     let dbox = GtkBox::new(Orientation::Horizontal, 30);
-    dbox.set_halign(gtk4::Align::Center);
+    // dbox.set_halign(gtk4::Align::Center);
+
+    let hdummy_start = GtkBox::new(Orientation::Horizontal, 0);
+    hdummy_start.set_hexpand(true);
+
+
+    let hdummy_end = GtkBox::new(Orientation::Horizontal, 0);
+    hdummy_end.set_hexpand(true);
+
+    dbox.set_hexpand(true);
     dbox.set_valign(gtk4::Align::Center);
 
     dbox.append(&boxxy);
+    dbox.append(&hdummy_start);
     dbox.append(&vbox);
+    dbox.append(&hdummy_end);
 
     window.set_child(Some(&dbox));
 
