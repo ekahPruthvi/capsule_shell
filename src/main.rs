@@ -171,7 +171,6 @@ fn activate(app: &Application) {
     // vbox.set_margin_end(100);
     // vbox.set_margin_start(100);
     vbox.set_halign(gtk4::Align::Center);
-    vbox.set_valign(gtk4::Align::Center);
 
     let boxxy = GtkBox::new(Orientation::Vertical, 0);
     boxxy.set_valign(gtk4::Align::Center);
