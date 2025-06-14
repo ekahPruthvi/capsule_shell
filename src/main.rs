@@ -1,5 +1,5 @@
 use gtk4::{
-    glib, prelude::*, Application, ApplicationWindow, Box as GtkBox, CssProvider, Label, Orientation, Button, Image
+    glib, prelude::*, Application, ApplicationWindow, Box as GtkBox, CssProvider, Label, Orientation, Button, Image, LevelBar
 };
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use gtk4::gdk::Display;
@@ -48,55 +48,37 @@ fn get_battery_info() -> Option<(u8, String)> {
 }
 
 fn get_network_info() -> String {
-    let output = Command::new("nmcli")
-        .args(["-t", "-f", "DEVICE,TYPE,STATE"])
+
+    let space = r#"
+        #!/bin/bash
+        wire=$(nmcli device status | grep Wired)
+        if [ -n "$wire" ]; then
+            printf "Wired"
+        else
+            state=$(nmcli -fields WIFI g)
+            test=$(echo "$state" | grep "enabled")
+            if [ $test = "enabled" ]; then
+                net=$(nmcli -t -f active,SSID device wifi | awk -F: '/^yes:/ {print $2}')
+                if [[ -z $net ]]; then
+                    printf "No Connection"
+                else
+                    printf "Network Enabled - $net"
+                fi
+            else
+                printf "Network Disabled"
+            fi
+        fi
+    "#;
+
+    let command = &space;
+    let output = Command::new("sh")
+        .args(["-c", command])
         .output()
         .unwrap_or_else(|_| panic!("Failed to run nmcli"));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
-    let mut active_type = None;
-
-    for line in stdout.lines() {
-        let parts: Vec<&str> = line.split(':').collect();
-        if parts.len() == 3 {
-            let dev_type = parts[1];
-            let state = parts[2];
-
-            if state == "connected" {
-                active_type = Some(dev_type.to_string());
-                break;
-            }
-        }
-    }
-
-    match active_type.as_deref() {
-        Some("ethernet") => "Wired Connection".to_string(),
-        Some("wifi") => {
-            let output_net = Command::new("nmcli")
-                .args(["-t", "-f", "NAME"])
-                .args(["connection", "show", "--active"])
-                .output()
-                .unwrap_or_else(|_| panic!("Failed to get active connection"));
-
-            let name_output = String::from_utf8_lossy(&output_net.stdout);
-            let name = name_output.lines().next().unwrap_or("Unknown");
-            format!("Connected to {}", name.trim())
-        }
-        _ => {
-            let output_wifi = Command::new("nmcli")
-                .args(["-fields", "WIFI"])
-                .arg("g")
-                .output()
-                .unwrap_or_else(|_| panic!("Failed to run nmcli"));
-            let wifi_status = String::from_utf8_lossy(&output_wifi.stdout);
-            if wifi_status.contains("enabled") {
-                "No Connection".to_string()
-            } else {
-                " Network Disabled".to_string()
-            }
-        }
-    }
+    return stdout.to_string();
 }
 
 
@@ -111,8 +93,10 @@ fn create_icon_with_tooltip(icon_name: &str, tooltip: &str) -> Button {
 
     button.set_widget_name("statusicon");
     button.set_css_classes(&["statusicon"]);
+    
     button
 }
+
 
 pub fn append_status_icons(container: &GtkBox) {
     // Network
@@ -296,13 +280,18 @@ fn activate(app: &Application) {
         button.qlicons:hover {
             background-color: rgba(49, 49, 49, 0);
             transform: scale(1.5);
-            border-radius: 12px;
         }
 
         button.statusicon {
             all: unset;
             padding: 10px;
             background-color: rgba(49, 49, 49, 0);
+            transition: color 0.2s ease;
+            color: rgb(197, 197, 197);
+        }
+
+        button.statusicon:hover {
+            color: rgb(255, 255, 255);
         }
 
         #cynbar {
