@@ -1,5 +1,5 @@
 use gtk4::{
-    glib, prelude::*, Application, ApplicationWindow, Box as GtkBox, CssProvider, Label, Orientation, EventControllerMotion, Button, Image
+    glib, prelude::*, Application, ApplicationWindow, Box as GtkBox, CssProvider, Label, Orientation, Button, Image
 };
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use gtk4::gdk::Display;
@@ -10,6 +10,7 @@ use std::rc::Rc;
 use std::fs;
 use std::process::Command;
 use std::time::UNIX_EPOCH;
+
 
 fn create_icon_button(icon_name: &str, exec_command: String) -> Button {
     // You can also use Image::from_icon_name if it's a known system icon
@@ -129,21 +130,20 @@ fn activate(app: &Application) {
             padding-bottom: 100px;
             padding-right: 20px;
             padding-left: 20px;  
-            border-radius: 140px; 
+            border-radius: 12px; 
             border: 0.5px solid rgba(255, 255, 255, 0.12);
         }
         
         #qlbar {
             background-color: rgba(0, 0, 0, 0.2);
-            border-top-right-radius: 10px;
-            border-bottom-right-radius: 10px;
+            border-radius: 50px;
             padding: 5px;
             border: 0.5px solid rgba(255, 255, 255, 0.12);
         }
 
         button.qlicons {
             all: unset;
-            border-radius: 10px;
+            border-radius: 50px;
             padding: 10px;
             background-color: rgba(255, 255, 255, 0.06);
             transition: background-color 0.2s ease, transform 0.2s ease;
@@ -155,6 +155,16 @@ fn activate(app: &Application) {
             transform: scale(1.5);
             border-radius: 12px;
         }
+
+        #cynbar {
+            background-color: rgba(0, 0, 0, 0.12);
+            border-radius: 50px;
+            padding-left: 5px;
+            padding-right: 5px;
+            padding-top: 5px;
+            padding-bottom: 10px;
+            border: 0.5px solid rgba(255, 255, 255, 0.12);
+        }
     ",
     );
 
@@ -164,33 +174,34 @@ fn activate(app: &Application) {
         gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
     );
 
-    let vbox = GtkBox::new(Orientation::Vertical, 30);
-    // // vbox.set_vexpand(true);
-    // vbox.set_margin_bottom(200);
-    // vbox.set_margin_top(200);
-    // vbox.set_margin_end(100);
-    // vbox.set_margin_start(100);
-    vbox.set_halign(gtk4::Align::Center);
+    let timedatebox = GtkBox::new(Orientation::Vertical, 30);
+    timedatebox.set_halign(gtk4::Align::Center);
+    timedatebox.set_valign(gtk4::Align::Center);
 
-    let boxxy = GtkBox::new(Orientation::Vertical, 0);
-    boxxy.set_valign(gtk4::Align::Center);
-    boxxy.set_halign(gtk4::Align::End);
-    boxxy.set_widget_name("qlbar");
+    let qlbox = GtkBox::new(Orientation::Vertical, 0);
+    qlbox.set_widget_name("qlbar");
 
     let commands = Rc::new(RefCell::new(Vec::new()));
     let last_hash = Rc::new(RefCell::new(0u64));
 
     // Initial population
-    ql_creator(&boxxy, commands.clone(), last_hash.clone());
+    ql_creator(&qlbox, commands.clone(), last_hash.clone());
 
     // Poll every 1s to check for updates
     {
-        let boxxy_clone = boxxy.clone();
+        let boxxy_clone = qlbox.clone();
         timeout_add_seconds_local(1, move || {
             ql_creator(&boxxy_clone, commands.clone(), last_hash.clone());
             glib::ControlFlow::Continue
         });
     }
+
+    let boxxy = GtkBox::new(Orientation::Vertical, 2);
+    boxxy.set_valign(gtk4::Align::Center);
+    boxxy.set_halign(gtk4::Align::End);
+    boxxy.set_margin_start(10);
+    boxxy.set_widget_name("cynbar");
+    boxxy.append(&qlbox);
 
     let time_label = Label::new(None);
     time_label.set_css_classes(&["time"]);
@@ -200,7 +211,7 @@ fn activate(app: &Application) {
 
     let now = Local::now();
     time_label.set_text(&now.format("%I\n%M").to_string());
-    date_label.set_text(&now.format("%p\n%A, %d %B %Y").to_string());
+    date_label.set_text(&now.format("%p\n%d %B %Y,\n%A").to_string());
 
     let time_label_ref = Rc::new(RefCell::new(time_label));
     timeout_add_seconds_local(1, {
@@ -212,15 +223,13 @@ fn activate(app: &Application) {
         }
     });
 
-    // Add widgets
-    vbox.append(&*time_label_ref.borrow());
-    vbox.append(&date_label);
-    // vbox.append(&boxxy);
-    vbox.set_widget_name("bob");
+    timedatebox.append(&*time_label_ref.borrow());
+    timedatebox.append(&date_label);
+    timedatebox.set_widget_name("bob");
+    timedatebox.set_margin_end(40);
     
 
-    let dbox = GtkBox::new(Orientation::Horizontal, 30);
-    // dbox.set_halign(gtk4::Align::Center);
+    let dbox = GtkBox::new(Orientation::Horizontal, 10);
 
     let hdummy_start = GtkBox::new(Orientation::Horizontal, 0);
     hdummy_start.set_hexpand(true);
@@ -229,12 +238,12 @@ fn activate(app: &Application) {
     let hdummy_end = GtkBox::new(Orientation::Horizontal, 0);
     hdummy_end.set_hexpand(true);
 
-    dbox.set_hexpand(true);
+    // dbox.set_halign(gtk4::Align::Center);
     dbox.set_valign(gtk4::Align::Center);
 
     dbox.append(&boxxy);
     dbox.append(&hdummy_start);
-    dbox.append(&vbox);
+    dbox.append(&timedatebox);
     dbox.append(&hdummy_end);
 
     window.set_child(Some(&dbox));
