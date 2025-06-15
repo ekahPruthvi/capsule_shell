@@ -1,5 +1,5 @@
 use gtk4::{
-    glib, prelude::*, Application, ApplicationWindow, Box as GtkBox, CssProvider, Label, Orientation, Button, Image, Frame
+    glib, prelude::*, Application, ApplicationWindow, Box as GtkBox, CssProvider, Label, Orientation, Button, Image
 };
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use gtk4::gdk::Display;
@@ -10,9 +10,7 @@ use std::fs;
 use std::process::Command;
 use std::time::UNIX_EPOCH;
 use std::path::Path;
-use zbus::{fdo, Connection};
-use zvariant::Structure;
-use glib::{MainContext, timeout_add_seconds_local, ControlFlow::Continue};
+use glib::{timeout_add_seconds_local, ControlFlow::{Continue, Break}};
 
 
 pub fn start_status_icon_updater(container: &Rc<GtkBox>) {
@@ -21,7 +19,7 @@ pub fn start_status_icon_updater(container: &Rc<GtkBox>) {
 
     // Set interval to refresh every 10 seconds
     let container_clone = container.clone();
-    glib::timeout_add_seconds_local(10, move || {
+    glib::timeout_add_seconds_local(5, move || {
         // Clear existing icons
         while let Some(child) = container_clone.first_child() {
             container_clone.remove(&child);
@@ -213,6 +211,107 @@ fn ql_creator(container: &GtkBox, commands: Rc<RefCell<Vec<String>>>, last_hash:
     }
 }
 
+fn check(container: &Rc<GtkBox>, prev: &Rc<RefCell<String>>){
+
+    let app = r#"
+        tac /tmp/notiv.dat | grep -m1 "appname:" | sed "s/.*appname: *'//; s/'.*//"
+    "#;
+
+    let command = &app;
+    let app_output = Command::new("sh")
+        .args(["-c", command])
+        .output()
+        .unwrap_or_else(|_| panic!("Failed to check notiv.dat"));
+    let app_stdout = String::from_utf8_lossy(&app_output.stdout);
+
+    let notification = r#"
+        #!/bin/bash
+        awk '
+        BEGIN { RS="}\n"; FS="\n" }
+        /formatted:/ { last=$0 }
+        END {
+            match(last, /formatted: *'\''([^'\'']*)'\'',?/, m)
+            if (m[1] != "") print m[1]
+        }
+        ' /tmp/notiv.dat
+    "#;
+
+    let command = &notification;
+    let notification_output = Command::new("sh")
+        .args(["-c", command])
+        .output()
+        .unwrap_or_else(|_| panic!("Failed to check notiv.dat"));
+    let notification_stdout = String::from_utf8_lossy(&notification_output.stdout);
+
+    if *prev.borrow() == notification_stdout {
+        return;
+    }
+
+    *prev.borrow_mut() = notification_stdout.to_string();
+
+    let notification_label = Label::new(None);
+    notification_label.set_markup(&format!("{}{}", notification_stdout, app_stdout));
+    notification_label.set_widget_name("notivlabel");
+    notification_label.set_vexpand(true);
+    notification_label.set_valign(gtk4::Align::Center); 
+    notification_label.set_justify(gtk4::Justification::Left);
+    
+
+    let mut width = 0;
+    container.set_height_request(49);
+    let container_clone = container.clone();
+    glib::timeout_add_local(std::time::Duration::from_millis(2), move || {
+        if width < 200 {
+            width += 1;
+            container_clone.set_width_request(width);
+            Continue
+        } else {
+            container_clone.append(&notification_label);
+            Break
+        }
+    });
+    
+
+}
+
+pub fn notiv_maker(container: &Rc<GtkBox>) {
+    // Initial population
+    let prev_noti = Rc::new(RefCell::new(String::new()));
+    check(container, &prev_noti);
+
+    // Set interval to refresh every 5 seconds
+    let container_clone = container.clone();
+    glib::timeout_add_seconds_local(5, move || {
+        // Clear existing notification
+        let mut _child_removed = false;
+        while let Some(child) = container_clone.first_child() {
+            container_clone.remove(&child);   
+            _child_removed = true;
+        }
+
+        if _child_removed {
+            let mut width = 200;
+            let container_clone_final = container_clone.clone();
+            glib::timeout_add_local(std::time::Duration::from_millis(2), move || {
+                if width > 0 {
+                    width -= 1;
+                    container_clone_final.set_width_request(width);
+                    Continue
+                } else {
+                    _child_removed = false;
+                    Break
+                }
+            });
+        }
+        
+
+        // Re-add updated notifications
+        check(&container_clone, &prev_noti);
+
+        Continue // keep repeating
+    });
+}
+
 
 fn activate(app: &Application) {
     
@@ -321,6 +420,17 @@ fn activate(app: &Application) {
             padding: 5px;
             border: 0.5px solid rgba(255, 255, 255, 0.12);
         }
+        
+        #notivlabel {
+            font-size: 12px;
+            font-weight: 300;
+            color:rgba(255, 255, 255, 0.83);
+        }
+
+        #notivbox {
+            padding-top: 10px;
+        }
+
     ",
     );
 
@@ -390,7 +500,7 @@ fn activate(app: &Application) {
         move || {
             let now = Local::now();
             time_label.borrow().set_text(&now.format("%I %M %p").to_string());
-            glib::ControlFlow::Continue
+            Continue
         }
     });
 
@@ -399,7 +509,12 @@ fn activate(app: &Application) {
     timedatebox.set_widget_name("timecapsule");
 
     // notifications ----------------------------------------------------------------------------------------------------------------------------- //
-    
+    let notiv_box = Rc::new(GtkBox::new(gtk4::Orientation::Horizontal, 0));
+    notiv_box.set_widget_name("notivbox");
+    notiv_box.set_halign(gtk4::Align::Center);
+
+
+    notiv_maker(&notiv_box);
 
     // cos logo only works with cynide iconpack -------------------------------------------------------------------------------------------------- //
     let cos=create_icon_button("cos", "kitty".to_string());
@@ -411,7 +526,7 @@ fn activate(app: &Application) {
     cos.set_css_classes(&["cos"]);
 
     noticapsule.append(&cos);
-    // noticapsule.append(&*notiv);
+    noticapsule.append(&*notiv_box);
     noticapsule.append(&timedatebox);
 
 
