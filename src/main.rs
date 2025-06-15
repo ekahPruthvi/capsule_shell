@@ -380,17 +380,23 @@ fn activate(app: &Application) {
             transform: scale(1.0);
         }
 
+        button.qlicons:hover {
+            background-color: rgb(29, 29, 29);
+            border-radius: 10px;
+            transform: scale(1.5);
+        }
+
         button.cos {
             all: unset;
             border-radius: 50px;
             padding: 10px;
             background-color: rgba(49, 49, 49, 0);
+            transition: transform 0.2s ease;
+            transform: scale(1.0);
         }
 
-        button.qlicons:hover {
-            background-color: rgb(29, 29, 29);
-            border-radius: 10px;
-            transform: scale(1.5);
+        button.cos:hover {
+            transform: scale(1.1);
         }
 
         button.statusicon {
@@ -511,6 +517,7 @@ fn activate(app: &Application) {
             image.set_icon_size(gtk4::IconSize::Large);
         }
     }
+    cos.set_tooltip_text(Some("CynageOS"));
     cos.set_css_classes(&["cos"]);
 
     noticapsule.append(&cos);
