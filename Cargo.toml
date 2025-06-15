@@ -2,6 +2,10 @@
 name = "capsule"
 version = "0.1.0"
 edition = "2024"
+authors = ["ekahPruthvi <ekahpdp@gmail.com>"]
+description = "An alternate dynamicLauncher"
+license = "GPL-3.0"
+repository = "https://github.com/ekahPruthvi/capsule.git"
 
 [dependencies]
 chrono = "0.4.41"
