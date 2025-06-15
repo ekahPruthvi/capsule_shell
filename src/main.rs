@@ -565,8 +565,8 @@ fn activate(app: &Application) {
     power.set_css_classes(&["statusicon"]);
     
     boxxy.append(&qlbox);
-    boxxy.append(&*status_box);
     boxxy.append(&power);
+    boxxy.append(&*status_box);
 
 
     revealer.set_child(Some(&boxxy));
