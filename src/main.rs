@@ -1,10 +1,11 @@
 use gtk4::{
-    glib, prelude::*, Application, ApplicationWindow, Box as GtkBox, CssProvider, Label, Orientation, Button, Image
+    glib, prelude::*, Application, ApplicationWindow, Box as GtkBox, CssProvider, Label, Orientation, Button, Image, Revealer
 };
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use gtk4::gdk::Display;
 use chrono::Local;
 use std::cell::RefCell;
+use std::cell::Cell;
 use std::rc::Rc;
 use std::fs;
 use std::process::Command;
@@ -459,19 +460,6 @@ fn activate(app: &Application) {
         });
     }
 
-    // vertical bar ----------------------------------------------------------------------------------------------------------------------------- //
-    let boxxy = GtkBox::new(Orientation::Vertical, 2);
-    boxxy.set_valign(gtk4::Align::Center);
-    boxxy.set_halign(gtk4::Align::End);
-    boxxy.set_margin_start(10);
-    boxxy.set_widget_name("cynbar");
-
-    let status_box = Rc::new(GtkBox::new(gtk4::Orientation::Vertical, 5));
-    start_status_icon_updater(&status_box);
-    
-    boxxy.append(&qlbox);
-    boxxy.append(&*status_box);
-
     // top bar ----------------------------------------------------------------------------------------------------------------------------- //
     let noticapsule = GtkBox::new(Orientation::Horizontal, 10);
     noticapsule.set_widget_name("noticapsule");
@@ -529,7 +517,49 @@ fn activate(app: &Application) {
     noticapsule.append(&*notiv_box);
     noticapsule.append(&timedatebox);
 
+    // verticcal bar revealer --------------------------------------------------------------------------------------------------------------------------------- //
+    let revealer = Revealer::builder()
+            .transition_type(gtk4::RevealerTransitionType::Crossfade)
+            .transition_duration(500)
+            .reveal_child(false)
+            .build();
+    
+    let hover = Rc::new(Cell::new(false));
+    let hover_clone = hover.clone();
+    let revealer_clone = revealer.clone();
 
+    let motion_controller = gtk4::EventControllerMotion::new();
+    motion_controller.connect_enter(move |_, _x, _y| {
+        hover_clone.set(true);
+        revealer_clone.set_reveal_child(true);
+    });
+
+    let revealer_clone2 = revealer.clone();
+    let hover_clone2 = hover.clone();
+    motion_controller.connect_leave(move |_| {
+        hover_clone2.set(false);
+        revealer_clone2.set_reveal_child(false);
+    });
+
+    window.add_controller(motion_controller);
+
+    // vertical bar ----------------------------------------------------------------------------------------------------------------------------- //
+    let boxxy = GtkBox::new(Orientation::Vertical, 2);
+    boxxy.set_valign(gtk4::Align::Center);
+    boxxy.set_halign(gtk4::Align::End);
+    boxxy.set_margin_start(10);
+    boxxy.set_widget_name("cynbar");
+
+    let status_box = Rc::new(GtkBox::new(gtk4::Orientation::Vertical, 5));
+    start_status_icon_updater(&status_box);
+    
+    boxxy.append(&qlbox);
+    boxxy.append(&*status_box);
+
+
+    revealer.set_child(Some(&boxxy));
+    
+    
     // main box window ----------------------------------------------------------------------------------------------------------------------------- //
     let hdummy_start = GtkBox::new(Orientation::Horizontal, 0);
     hdummy_start.set_hexpand(true);
@@ -540,7 +570,7 @@ fn activate(app: &Application) {
     let dbox = GtkBox::new(Orientation::Horizontal, 0);
     // dbox.set_valign(gtk4::Align::Center);
 
-    dbox.append(&boxxy);
+    dbox.append(&revealer);
     dbox.append(&hdummy_start);
     dbox.append(&noticapsule);
     dbox.append(&hdummy_end);
