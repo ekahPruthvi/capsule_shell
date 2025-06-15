@@ -505,7 +505,7 @@ fn activate(app: &Application) {
     notiv_maker(&notiv_box);
 
     // cos logo only works with cynide iconpack -------------------------------------------------------------------------------------------------- //
-    let cos=create_icon_button("cos", "altDot".to_string());
+    let cos=create_icon_button("cos", "mpv --no-video ~/.config/hypr/startup.mp3".to_string());
     if let Some(child) = cos.child() {
         if let Some(image) = child.downcast_ref::<Image>() {
             image.set_icon_size(gtk4::IconSize::Large);
