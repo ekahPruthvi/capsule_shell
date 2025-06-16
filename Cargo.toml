@@ -8,6 +8,7 @@ license = "GPL-3.0"
 repository = "https://github.com/ekahPruthvi/capsule.git"
 
 [dependencies]
+async-channel = "2.3.1"
 chrono = "0.4.41"
 gtk4 = "0.9.6"
 gtk4-layer-shell = "0.5.0"

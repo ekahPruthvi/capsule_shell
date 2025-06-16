@@ -1,5 +1,5 @@
 use gtk4::{
-    glib, prelude::*, Application, ApplicationWindow, Box as GtkBox, CssProvider, Label, Orientation, Button, Image, Revealer
+    glib, prelude::*, Application, ApplicationWindow, Box as GtkBox, CssProvider, Label, Orientation, Button, Image, Revealer, LevelBar
 };
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use gtk4::gdk::Display;
@@ -8,10 +8,12 @@ use std::cell::RefCell;
 use std::cell::Cell;
 use std::rc::Rc;
 use std::fs;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::UNIX_EPOCH;
 use std::path::Path;
+use std::io::{BufReader, BufRead};
 use glib::{timeout_add_seconds_local, ControlFlow::{Continue, Break}};
+use std::thread;
 
 
 pub fn start_status_icon_updater(container: &Rc<GtkBox>) {
@@ -438,6 +440,11 @@ fn activate(app: &Application) {
             padding-top: 10px;
         }
 
+        #volumelevel.muted {
+            background-color: crimson;
+            opacity: 0.6;
+        }
+
     ",
     );
 
@@ -520,7 +527,122 @@ fn activate(app: &Application) {
     cos.set_tooltip_text(Some("CynageOS"));
     cos.set_css_classes(&["cos"]);
 
+
+    // Create the OSD box
+    let osd_box = Rc::new(GtkBox::new(Orientation::Horizontal, 6));
+    osd_box.set_widget_name("osdbox");
+    osd_box.set_halign(gtk4::Align::Center);
+    osd_box.set_valign(gtk4::Align::Center);
+    osd_box.set_margin_top(10);
+    osd_box.set_margin_bottom(10);
+    osd_box.set_visible(false); // hidden initially
+
+    // Create the LevelBar
+    let level_bar = Rc::new(LevelBar::new());
+    level_bar.set_widget_name("volumelevel");
+    level_bar.set_min_value(0.0);
+    level_bar.set_max_value(100.0);
+    level_bar.set_value(0.0);
+    level_bar.set_size_request(200, 20);
+    level_bar.set_sensitive(false);
+
+    osd_box.append(&*level_bar);
     noticapsule.append(&cos);
+    noticapsule.append(&*osd_box);
+
+    // Spawn a background thread to listen for volume changes
+    let (tx, rx) = async_channel::unbounded::<(f64, bool)>();
+
+    // Thread: subscribe to pactl and send volumes
+    thread::spawn(move || {
+        let mut child = Command::new("pactl")
+            .arg("subscribe")
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("Failed to run pactl");
+
+        let mut last_vol: Option<u8> = None;
+        let mut last_mute: Option<bool> = None;
+
+        if let Some(stdout) = child.stdout.take() {
+            let reader = BufReader::new(stdout);
+            for line in reader.lines().flatten() {
+                if line.contains("Event 'change' on sink") {
+                    // Volume
+                    let vol_output = Command::new("pactl")
+                        .args(&["get-sink-volume", "@DEFAULT_SINK@"])
+                        .output()
+                        .ok()
+                        .and_then(|out| String::from_utf8(out.stdout).ok());
+
+                    let new_vol = vol_output
+                        .as_ref()
+                        .and_then(|txt| txt.split('/').nth(1))
+                        .and_then(|v| v.trim().trim_end_matches('%').parse::<u8>().ok())
+                        .unwrap_or(0);
+
+                    // Mute
+                    let mute_output = Command::new("pactl")
+                        .args(&["get-sink-mute", "@DEFAULT_SINK@"])
+                        .output()
+                        .ok()
+                        .and_then(|out| String::from_utf8(out.stdout).ok());
+
+                    let new_mute = mute_output
+                        .map(|txt| txt.contains("yes"))
+                        .unwrap_or(false);
+
+                    // Skip if nothing changed
+                    if Some(new_vol) == last_vol && Some(new_mute) == last_mute {
+                        continue;
+                    }
+
+                    last_vol = Some(new_vol);
+                    last_mute = Some(new_mute);
+
+                    let _ = tx.send_blocking((new_vol as f64, new_mute));
+                }
+            }
+        }
+    });
+
+    // to autohide the slider
+    let hide_timeout_id: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
+
+    let hide_timeout_id_clone = hide_timeout_id.clone();
+    let osd_box_clone = osd_box.clone();
+
+    // Main thread: receive and update UI
+    glib::MainContext::default().spawn_local(async move {
+        while let Ok((vol, is_muted)) = rx.recv().await {
+            // update level_bar as before
+            if is_muted {
+                level_bar.set_value(0.0);
+                level_bar.add_css_class("muted");
+            } else {
+                level_bar.set_value(vol);
+                level_bar.remove_css_class("muted");
+            }
+
+            osd_box.set_visible(true);
+
+            // cancel previous hide timeout if any
+            if let Some(id) = hide_timeout_id_clone.borrow_mut().take() {
+                id.remove();
+            }
+
+            // set new hide timeout
+            let osd_box_clone_inner = osd_box_clone.clone();
+            let id = glib::timeout_add_seconds_local(2, move || {
+                osd_box_clone_inner.set_visible(false);
+                Continue
+            });
+
+            *hide_timeout_id_clone.borrow_mut() = Some(id);
+        }
+    });
+
+
     noticapsule.append(&*notiv_box);
     noticapsule.append(&timedatebox);
 
@@ -592,10 +714,13 @@ fn activate(app: &Application) {
     window.show();
 }
 
+
 fn main() {
     // Start reading from here dumbass
 
     let app = Application::new(Some("com.ekah.cynideshell"), Default::default());
     app.connect_activate(activate);
+
     app.run();
+
 }
