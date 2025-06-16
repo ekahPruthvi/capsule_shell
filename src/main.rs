@@ -527,8 +527,7 @@ fn activate(app: &Application) {
     cos.set_tooltip_text(Some("CynageOS"));
     cos.set_css_classes(&["cos"]);
 
-
-    // Create the OSD box
+    // OSD volume ------------------------------------------------------------------------------------------------------------------------------- //
     let osd_box = Rc::new(GtkBox::new(Orientation::Horizontal, 6));
     osd_box.set_widget_name("osdbox");
     osd_box.set_halign(gtk4::Align::Center);
