@@ -214,7 +214,7 @@ fn ql_creator(container: &GtkBox, commands: Rc<RefCell<Vec<String>>>, last_hash:
     }
 }
 
-fn check(container: &Rc<GtkBox>, prev: &Rc<RefCell<String>>){
+fn check(container: &Rc<GtkBox>, prev: &Rc<RefCell<String>>, notiwidth: &Rc<RefCell<usize>>) {
 
     let app = r#"
         tac /tmp/notiv.dat | grep -m1 "appname:" | sed "s/.*appname: *'//; s/'.*//"
@@ -259,14 +259,17 @@ fn check(container: &Rc<GtkBox>, prev: &Rc<RefCell<String>>){
     notification_label.set_valign(gtk4::Align::Center); 
     notification_label.set_justify(gtk4::Justification::Left);
     
+    let (_min_width, nat_width, _min_baseline, _nat_baseline) = notification_label.measure(Orientation::Horizontal, -1);
+    *notiwidth.borrow_mut() = nat_width as usize;
 
     let mut width = 0;
     container.set_height_request(49);
     let container_clone = container.clone();
+    let notiwidth_clone = notiwidth.clone();
     glib::timeout_add_local(std::time::Duration::from_millis(2), move || {
-        if width < 200 {
+        if width < *notiwidth_clone.borrow() {
             width += 1;
-            container_clone.set_width_request(width);
+            container_clone.set_width_request(width as i32);
             Continue
         } else {
             container_clone.append(&notification_label);
@@ -279,8 +282,9 @@ fn check(container: &Rc<GtkBox>, prev: &Rc<RefCell<String>>){
 
 pub fn notiv_maker(container: &Rc<GtkBox>) {
     // Initial population
+    let notivwidth = Rc::new(RefCell::new(200));
     let prev_noti = Rc::new(RefCell::new(String::new()));
-    check(container, &prev_noti);
+    check(container, &prev_noti, &notivwidth);
 
     // Set interval to refresh every 5 seconds
     let container_clone = container.clone();
@@ -293,7 +297,7 @@ pub fn notiv_maker(container: &Rc<GtkBox>) {
         }
 
         if _child_removed {
-            let mut width = 200;
+            let mut width = *notivwidth.borrow() as i32;
             let container_clone_final = container_clone.clone();
             glib::timeout_add_local(std::time::Duration::from_millis(2), move || {
                 if width > 0 {
@@ -309,7 +313,7 @@ pub fn notiv_maker(container: &Rc<GtkBox>) {
         
 
         // Re-add updated notifications
-        check(&container_clone, &prev_noti);
+        check(&container_clone, &prev_noti, &notivwidth);
 
         Continue // keep repeating
     });
@@ -513,7 +517,6 @@ fn activate(app: &Application) {
     let notiv_box = Rc::new(GtkBox::new(gtk4::Orientation::Horizontal, 0));
     notiv_box.set_widget_name("notivbox");
     notiv_box.set_halign(gtk4::Align::Center);
-
 
     notiv_maker(&notiv_box);
 
