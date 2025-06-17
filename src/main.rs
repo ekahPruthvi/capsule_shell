@@ -545,6 +545,7 @@ fn activate(app: &Application) {
     enum OsdEvent {
         Volume { level: f64, muted: bool },
         Brightness { level: f64 },
+        MicMute { muted: bool },
     }
 
     let osd_box = Rc::new(GtkBox::new(Orientation::Horizontal, 6));
@@ -668,11 +669,49 @@ fn activate(app: &Application) {
         }
     });
 
+    //thread for mic
+    let tx_mic = tx.clone();
+    thread::spawn(move || {
+        let mut child = Command::new("pactl")
+            .arg("subscribe")
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("Failed to run pactl for mic");
+
+        let mut last_mute: Option<bool> = None;
+
+        if let Some(stdout) = child.stdout.take() {
+            let reader = BufReader::new(stdout);
+            for line in reader.lines().flatten() {
+                if line.contains("Event 'change' on source") {
+                    let mute_output = Command::new("pactl")
+                        .args(&["get-source-mute", "@DEFAULT_SOURCE@"])
+                        .output()
+                        .ok()
+                        .and_then(|out| String::from_utf8(out.stdout).ok());
+
+                    let new_mute = mute_output
+                        .map(|txt| txt.contains("yes"))
+                        .unwrap_or(false);
+
+                    if Some(new_mute) != last_mute {
+                        last_mute = Some(new_mute);
+                        let _ = tx_mic.send_blocking(OsdEvent::MicMute { muted: new_mute });
+                    }
+                }
+            }
+        }
+    });
+
     // to autohide the slider
     let hide_timeout_id: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
 
     let hide_timeout_id_clone = hide_timeout_id.clone();
     let osd_box_clone = osd_box.clone();
+    let mic_icon = gtk4::Image::from_icon_name("capsule_mic_mute");
+    mic_icon.set_pixel_size(24);
+    noticapsule.append(&mic_icon);
+    mic_icon.set_visible(false);
 
     // Main thread: receive and update UI
     glib::MainContext::default().spawn_local(async move {
@@ -681,23 +720,24 @@ fn activate(app: &Application) {
                 OsdEvent::Volume { level, muted } => {
                     if muted {
                         level_bar.set_value(0.0);
-                        level_bar.remove_css_class("vol");
                         level_bar.add_css_class("muted");
+                        osd_box.set_visible(true);
                     } else {
                         level_bar.set_value(level);
                         level_bar.remove_css_class("muted");
-                        level_bar.add_css_class("vol");   
+                        level_bar.add_css_class("vol");
+                        osd_box.set_visible(true);
                     }
                 }
                 OsdEvent::Brightness { level } => {
                     level_bar.set_value(level);
-                    level_bar.remove_css_class("vol");
-                    level_bar.remove_css_class("muted");
                     level_bar.add_css_class("blight");
+                    osd_box.set_visible(true);
+                }
+                OsdEvent::MicMute { muted } => {
+                    mic_icon.set_visible(muted);
                 }
             }
-
-            osd_box.set_visible(true);
 
             // cancel previous hide timeout if any
             if let Some(id) = hide_timeout_id_clone.borrow_mut().take() {
