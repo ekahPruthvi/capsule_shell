@@ -718,8 +718,10 @@ fn activate(app: &Application) {
         while let Ok(event) = rx.recv().await {
             match event {
                 OsdEvent::Volume { level, muted } => {
+                    level_bar.remove_css_class("blight");
                     if muted {
                         level_bar.set_value(0.0);
+                        level_bar.remove_css_class("vol");
                         level_bar.add_css_class("muted");
                         osd_box.set_visible(true);
                     } else {
@@ -731,6 +733,8 @@ fn activate(app: &Application) {
                 }
                 OsdEvent::Brightness { level } => {
                     level_bar.set_value(level);
+                    level_bar.remove_css_class("vol");  
+                    level_bar.remove_css_class("muted");
                     level_bar.add_css_class("blight");
                     osd_box.set_visible(true);
                 }
