@@ -506,7 +506,7 @@ fn activate(app: &Application) {
 
     let now = Local::now();
     time_label.set_text(&now.format("%I %M %p").to_string());
-    date_label.set_text(&now.format("%d %B %Y\n%A").to_string());
+    date_label.set_text(&now.format("%A\n%d %B %Y").to_string());
 
     let time_label_ref = Rc::new(RefCell::new(time_label));
     timeout_add_seconds_local(1, {
