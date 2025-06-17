@@ -14,6 +14,7 @@ use std::path::Path;
 use std::io::{BufReader, BufRead};
 use glib::{timeout_add_seconds_local, ControlFlow::{Continue, Break}};
 use std::thread;
+use inotify::{Inotify, WatchMask};
 
 
 pub fn start_status_icon_updater(container: &Rc<GtkBox>) {
@@ -449,6 +450,14 @@ fn activate(app: &Application) {
             opacity: 0.6;
         }
 
+        #volumelevel.blight trough block.filled {
+            background-color: rgba(255, 199, 69, 0.56);
+        }
+
+        #volumelevel.vol trough block.filled {
+            background-color: rgba(255, 255, 255, 0.81);
+        }
+
     ",
     );
 
@@ -530,7 +539,14 @@ fn activate(app: &Application) {
     cos.set_tooltip_text(Some("CynageOS"));
     cos.set_css_classes(&["cos"]);
 
-    // OSD volume ------------------------------------------------------------------------------------------------------------------------------- //
+    // OSD -------------------------------------------------------------------------------------------------------------------------------------- //
+
+    #[derive(Debug)]
+    enum OsdEvent {
+        Volume { level: f64, muted: bool },
+        Brightness { level: f64 },
+    }
+
     let osd_box = Rc::new(GtkBox::new(Orientation::Horizontal, 6));
     osd_box.set_widget_name("osdbox");
     osd_box.set_halign(gtk4::Align::Center);
@@ -553,9 +569,10 @@ fn activate(app: &Application) {
     noticapsule.append(&*osd_box);
 
     // Spawn a background thread to listen for volume changes
-    let (tx, rx) = async_channel::unbounded::<(f64, bool)>();
+    let (tx, rx) = async_channel::unbounded::<OsdEvent>();
 
     // Thread: subscribe to pactl and send volumes
+    let tx_volume = tx.clone();
     thread::spawn(move || {
         let mut child = Command::new("pactl")
             .arg("subscribe")
@@ -602,8 +619,51 @@ fn activate(app: &Application) {
                     last_vol = Some(new_vol);
                     last_mute = Some(new_mute);
 
-                    let _ = tx.send_blocking((new_vol as f64, new_mute));
+                    let _ = tx_volume.send_blocking(OsdEvent::Volume { level: new_vol as f64, muted: new_mute });
                 }
+            }
+        }
+    });
+    
+    // thread for brightness
+    let tx_brightness = tx.clone();
+    thread::spawn(move || {
+        let backlight_dir = "/sys/class/backlight";
+        let entries = fs::read_dir(backlight_dir).expect("No backlight device found");
+        let device = entries
+            .filter_map(Result::ok)
+            .map(|e| e.path())
+            .find(|p| p.join("brightness").exists() && p.join("max_brightness").exists())
+            .expect("No valid backlight device found");
+
+        let brightness_path = device.join("brightness");
+        let max_brightness_path = device.join("max_brightness");
+
+        let max_brightness = fs::read_to_string(&max_brightness_path)
+            .expect("Failed to read max_brightness")
+            .trim()
+            .parse::<u32>()
+            .expect("Invalid max_brightness");
+
+        let mut inotify = Inotify::init().expect("Failed to init inotify");
+        inotify
+            .watches()
+            .add(&brightness_path, WatchMask::MODIFY)
+            .expect("Failed to add watch");
+
+        let mut buffer = [0; 1024];
+
+        loop {
+            let events = inotify.read_events_blocking(&mut buffer).expect("Failed to read inotify events");
+
+            for _ in events {
+                let val = fs::read_to_string(&brightness_path)
+                    .ok()
+                    .and_then(|s| s.trim().parse::<u32>().ok())
+                    .unwrap_or(0);
+
+                let percent = (val as f64 / max_brightness as f64) * 100.0;
+                let _ = tx_brightness.send_blocking(OsdEvent::Brightness { level: percent });
             }
         }
     });
@@ -616,21 +676,32 @@ fn activate(app: &Application) {
 
     // Main thread: receive and update UI
     glib::MainContext::default().spawn_local(async move {
-        while let Ok((vol, is_muted)) = rx.recv().await {
-            // update level_bar as before
-            if is_muted {
-                level_bar.set_value(0.0);
-                level_bar.add_css_class("muted");
-            } else {
-                level_bar.set_value(vol);
-                level_bar.remove_css_class("muted");
+        while let Ok(event) = rx.recv().await {
+            match event {
+                OsdEvent::Volume { level, muted } => {
+                    if muted {
+                        level_bar.set_value(0.0);
+                        level_bar.remove_css_class("vol");
+                        level_bar.add_css_class("muted");
+                    } else {
+                        level_bar.set_value(level);
+                        level_bar.remove_css_class("muted");
+                        level_bar.add_css_class("vol");   
+                    }
+                }
+                OsdEvent::Brightness { level } => {
+                    level_bar.set_value(level);
+                    level_bar.remove_css_class("vol");
+                    level_bar.remove_css_class("muted");
+                    level_bar.add_css_class("blight");
+                }
             }
 
             osd_box.set_visible(true);
 
             // cancel previous hide timeout if any
             if let Some(id) = hide_timeout_id_clone.borrow_mut().take() {
-                id.remove();
+                let _ = id.remove();
             }
 
             // set new hide timeout
@@ -643,7 +714,6 @@ fn activate(app: &Application) {
             *hide_timeout_id_clone.borrow_mut() = Some(id);
         }
     });
-
 
     noticapsule.append(&*notiv_box);
     noticapsule.append(&timedatebox);
