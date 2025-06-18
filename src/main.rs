@@ -15,6 +15,8 @@ use std::io::{BufReader, BufRead};
 use glib::{timeout_add_seconds_local, ControlFlow::{Continue, Break}};
 use std::thread;
 use inotify::{Inotify, WatchMask};
+use rand::rng;
+use rand::prelude::IndexedRandom;
 
 
 pub fn start_status_icon_updater(container: &Rc<GtkBox>) {
@@ -530,14 +532,41 @@ fn activate(app: &Application) {
     notiv_maker(&notiv_box);
 
     // cos logo only works with cynide iconpack -------------------------------------------------------------------------------------------------- //
-    let cos=create_icon_button("cos", "mpv --no-video ~/.config/hypr/startup.mp3".to_string());
-    if let Some(child) = cos.child() {
-        if let Some(image) = child.downcast_ref::<Image>() {
-            image.set_icon_size(gtk4::IconSize::Large);
-        }
-    }
+    let cos = Button::new();
+    let cos_logo = Image::from_icon_name("cos");
+    cos_logo.set_icon_size(gtk4::IconSize::Large);
+    cos.set_child(Some(&cos_logo));
+
     cos.set_tooltip_text(Some("CynageOS"));
     cos.set_css_classes(&["cos"]);
+
+    let messages = vec![
+        ("hello", "im cynide from cynageOS"),
+        ("Tips:", "use cynidectl to dig deeper"),
+        ("alert", "system is stable"),
+        ("Oh do you know Bob the builder ?", "by anyy chance ???"),
+        ("Try pressing the wallpaper tab x times", " 2x + 5 = 15 "),
+        ("'penglins'", "not a typo"),
+        ("I'm a repetitive task, you see,My steps are the same, a sequence to be.The number of times,", "a personal clue is the day you arrived"),
+        ("make a cock a doodle do", "try super + g"),
+        ("cp77", "is sooo coool"),
+        ("Hint:", "Settings"),
+        ("CYNAGEOSSS", "is thaaa besstttt ?"),
+        ("Fun Fact", "capsule is written in rust"),
+        ("A strand on the beach ?", "Thats horrific")
+    ];
+
+    let messages_clone = messages.clone();
+    cos.connect_clicked(move |_| {
+        let mut rng = rng();
+        if let Some((title, body)) = messages_clone.choose(&mut rng) {
+            let _ = Command::new("notify-send")
+                .arg("--app-name=cynide")
+                .arg(title)
+                .arg(body)
+                .spawn();
+        }
+    });
 
     // OSD -------------------------------------------------------------------------------------------------------------------------------------- //
 
