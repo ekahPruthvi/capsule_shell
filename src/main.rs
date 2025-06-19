@@ -262,6 +262,9 @@ fn check(container: &Rc<GtkBox>, prev: &Rc<RefCell<String>>, notiwidth: &Rc<RefC
 
     let notification_label = Label::new(None);
     notification_label.set_markup(&format!("{}{}", notification_stdout, app_stdout));
+    notification_label.set_wrap(true);
+    notification_label.set_max_width_chars(170);
+    notification_label.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
     notification_label.set_widget_name("notivlabel");
     notification_label.set_vexpand(true);
     notification_label.set_valign(gtk4::Align::Center); 
