@@ -11,12 +11,17 @@ use std::fs;
 use std::process::{Command, Stdio};
 use std::time::UNIX_EPOCH;
 use std::path::Path;
+use std::env;
 use std::io::{BufReader, BufRead};
 use glib::{timeout_add_seconds_local, ControlFlow::{Continue, Break}};
 use std::thread;
 use inotify::{Inotify, WatchMask};
 use rand::rng;
 use rand::prelude::IndexedRandom;
+use gtk4::gio::File;
+use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+use signal_hook::consts::signal::*;
+use signal_hook::flag;
 
 
 pub fn start_status_icon_updater(container: &Rc<GtkBox>) {
@@ -276,12 +281,21 @@ fn check(container: &Rc<GtkBox>, prev: &Rc<RefCell<String>>, notiwidth: &Rc<RefC
             Continue
         } else {
             container_clone.append(&notification_label);
+            let home = std::env::var("HOME").unwrap();
+            let path = format!("{}/.config/hypr/sound/notiv/notiv.mp3", home);
+            if let Err(err) = Command::new("mpv")
+                .args(["--no-video", "--volume=60", &path])
+                .spawn() 
+            {
+                eprintln!("Failed to play sound: {}", err);
+            }
             Break
         }
     });
     
 
 }
+
 
 pub fn notiv_maker(container: &Rc<GtkBox>) {
     // Initial population
@@ -343,131 +357,32 @@ fn activate(app: &Application) {
         window.set_anchor(edge, anchor);
     }
 
+    // css auto reload 
 
     let css = CssProvider::new();
-    css.load_from_data(
-        "
-        label.time {
-            font-size: 16px;
-            font-weight: 900;
-            color:rgba(255, 255, 255, 0.83);
-        }
+    let home_dir = env::var("HOME").unwrap();
+    let css_path = format!("{}/.config/capsule/style.css", home_dir);
+    let file = File::for_path(css_path);
 
-        label.date {
-            font-size: 12px;
-            color:rgba(255, 255, 255, 0.75);
-            font-weight: 600;
-        }
-
-        window {
-            background-color: rgba(20, 20, 20, 0);
-        }
-
-        #timecapsule {
-            background-color: rgba(0, 0, 0, 0.2);
-            border-radius: 50px;
-            padding-left: 20px;
-            padding-right: 20px;
-            padding-top: 5px;
-            padding-bottom: 5px;
-            border: 0.5px solid rgba(255, 255, 255, 0.12);
-        }
-        
-        #qlbar {
-            background-color: rgba(0, 0, 0, 0.2);
-            border-radius: 50px;
-            padding: 5px;
-            border: 0.5px solid rgba(255, 255, 255, 0.12);
-        }
-
-        button.qlicons {
-            all: unset;
-            border-radius: 50px;
-            padding: 10px;
-            background-color: rgba(49, 49, 49, 0);
-            transition: background-color 0.2s ease, transform 0.2s ease;
-            transform: scale(1.0);
-        }
-
-        button.qlicons:hover {
-            background-color: rgb(29, 29, 29);
-            border-radius: 10px;
-            transform: scale(1.5);
-        }
-
-        button.cos {
-            all: unset;
-            border-radius: 50px;
-            padding: 10px;
-            background-color: rgba(49, 49, 49, 0);
-            transition: transform 0.2s ease;
-            transform: scale(1.0);
-        }
-
-        button.cos:hover {
-            transform: scale(1.1);
-        }
-
-        button.statusicon {
-            all: unset;
-            padding: 10px;
-            background-color: rgba(49, 49, 49, 0);
-            transition: color 0.2s ease;
-            color: rgb(197, 197, 197);
-        }
-
-        button.statusicon:hover {
-            color: rgb(255, 255, 255);
-        }
-
-        #cynbar {
-            background-color: rgba(0, 0, 0, 0.12);
-            border-radius: 50px;
-            padding-left: 5px;
-            padding-right: 5px;
-            padding-top: 5px;
-            padding-bottom: 10px;
-            border: 0.5px solid rgba(255, 255, 255, 0.12);
-        }
-
-        #noticapsule {
-            background-color: rgba(0, 0, 0, 0.12);
-            border-radius: 50px;
-            padding: 5px;
-            border: 0.5px solid rgba(255, 255, 255, 0.12);
-        }
-        
-        #notivlabel {
-            font-size: 12px;
-            font-weight: 300;
-            color:rgba(255, 255, 255, 0.83);
-        }
-
-        #notivbox {
-            padding-top: 10px;
-        }
-
-        #volumelevel.muted {
-            background-color: crimson;
-            opacity: 0.6;
-        }
-
-        #volumelevel.blight trough block.filled {
-            background-color: rgba(255, 199, 69, 0.56);
-        }
-
-        #volumelevel.vol trough block.filled {
-            background-color: rgba(255, 255, 255, 0.81);
-        }
-
-    ",
-    );
+    css.load_from_file(&file);
 
     gtk4::style_context_add_provider_for_display(
         &Display::default().unwrap(),
         &css,
         gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
     );
+
+    let reload_flag = Arc::new(AtomicBool::new(false));
+    flag::register(SIGUSR1, Arc::clone(&reload_flag)).unwrap();
+
+    // Periodic check loop (you can also use timeout_add)
+    gtk4::glib::timeout_add_seconds_local(1, move || {
+        if reload_flag.swap(false, Ordering::Relaxed) {
+            eprintln!("Reloading CSS...");
+            css.load_from_file(&file);
+        }
+        Continue
+    });
 
     // for quicklaunch icons ----------------------------------------------------------------------------------------------------------------------------- //
     let qlbox = GtkBox::new(Orientation::Vertical, 0);
