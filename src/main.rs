@@ -342,25 +342,7 @@ pub fn notiv_maker(container: &Rc<GtkBox>) {
 
 fn activate(app: &Application) {
     
-    // Main full-screen dashboard ----------------------------------------------------------------------------------------------------------------------------- //
-    let window = ApplicationWindow::new(app);
-    window.init_layer_shell();
-    window.set_layer(Layer::Bottom);
-    window.auto_exclusive_zone_enable();
-    window.fullscreen();
-    window.set_decorated(false);
-    window.set_namespace(Some("capsule"));
-
-    for (edge, anchor) in [
-        (Edge::Left, true),
-        (Edge::Right, true),
-        (Edge::Top, true),
-        (Edge::Bottom, true),
-    ] {
-        window.set_anchor(edge, anchor);
-    }
-
-    // css auto reload 
+        // css auto reload 
 
     let css = CssProvider::new();
     let home_dir = env::var("HOME").unwrap();
@@ -411,7 +393,7 @@ fn activate(app: &Application) {
     noticapsule.set_widget_name("noticapsule");
     noticapsule.set_halign(gtk4::Align::Center);
     noticapsule.set_valign(gtk4::Align::Start);
-    noticapsule.set_margin_end(69);
+    // noticapsule.set_margin_end(69);
     noticapsule.set_margin_top(10);
 
     // time capsule ----------------------------------------------------------------------------------------------------------------------------- //
@@ -709,6 +691,22 @@ fn activate(app: &Application) {
     noticapsule.append(&*notiv_box);
     noticapsule.append(&timedatebox);
 
+    let noticapsule_window = ApplicationWindow::new(app);
+    noticapsule_window.init_layer_shell();
+    noticapsule_window.set_layer(Layer::Top);
+    noticapsule_window.set_namespace(Some("capsule"));
+
+    
+    // No exclusive zone — it's an overlay
+    noticapsule_window.set_anchor(Edge::Top, true);
+    noticapsule_window.set_anchor(Edge::Right, true);
+    noticapsule_window.set_anchor(Edge::Left, true);
+    noticapsule_window.set_exclusive_zone(0);
+    noticapsule_window.set_decorated(false);
+    
+    noticapsule_window.set_child(Some(&noticapsule));
+    noticapsule_window.show();
+
     // verticcal bar revealer --------------------------------------------------------------------------------------------------------------------------------- //
     let revealer = Revealer::builder()
             .transition_type(gtk4::RevealerTransitionType::Crossfade)
@@ -733,7 +731,6 @@ fn activate(app: &Application) {
         revealer_clone2.set_reveal_child(false);
     });
 
-    window.add_controller(motion_controller);
 
     // vertical bar ----------------------------------------------------------------------------------------------------------------------------- //
     let boxxy = GtkBox::new(Orientation::Vertical, 2);
@@ -755,25 +752,51 @@ fn activate(app: &Application) {
 
 
     revealer.set_child(Some(&boxxy));
+
+    let quicky_window = ApplicationWindow::new(app);
+    quicky_window.init_layer_shell();
+    quicky_window.set_layer(Layer::Top);
+    quicky_window.set_namespace(Some("capsule"));
+
+    let overlay_method = GtkBox::new(Orientation::Horizontal, 0);
+    overlay_method.set_size_request(30, 100);
+    overlay_method.append(&revealer);
+    let dummylabel = Label::new(Some("."));
+    dummylabel.set_widget_name("dummy");
+
+    overlay_method.append(&dummylabel);
+    quicky_window.set_anchor(Edge::Top, true);
+    quicky_window.set_anchor(Edge::Bottom, true);
+    quicky_window.set_anchor(Edge::Left, true);
+    quicky_window.set_exclusive_zone(0);
+    quicky_window.set_decorated(false);
+    quicky_window.set_child(Some(&overlay_method));
+    quicky_window.set_width_request(30);
+
+    quicky_window.add_controller(motion_controller);
+    quicky_window.show();
     
-    
-    // main box window ----------------------------------------------------------------------------------------------------------------------------- //
-    let hdummy_start = GtkBox::new(Orientation::Horizontal, 0);
-    hdummy_start.set_hexpand(true);
+    // desktop window -------------------------------------------------------------------------------------------------------------------------------- //
+    let window = ApplicationWindow::new(app);
+    window.init_layer_shell();
+    window.set_layer(Layer::Bottom);
+    window.auto_exclusive_zone_enable();
+    window.fullscreen();
+    window.set_decorated(false);
+    window.set_namespace(Some("capsule"));
 
-    let hdummy_end = GtkBox::new(Orientation::Horizontal, 0);
-    hdummy_end.set_hexpand(true);
+    for (edge, anchor) in [
+        (Edge::Left, true),
+        (Edge::Right, true),
+        (Edge::Top, true),
+        (Edge::Bottom, true),
+    ] {
+        window.set_anchor(edge, anchor);
+    }
 
-    let dbox = GtkBox::new(Orientation::Horizontal, 0);
-    // dbox.set_valign(gtk4::Align::Center);
+    let desktop = GtkBox::new(Orientation::Horizontal, 0);
 
-    dbox.append(&revealer);
-    dbox.append(&hdummy_start);
-    dbox.append(&noticapsule);
-    dbox.append(&hdummy_end);
-
-    window.set_child(Some(&dbox));
-
+    window.set_child(Some(&desktop));
     window.show();
 }
 
