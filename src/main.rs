@@ -371,7 +371,7 @@ fn activate(app: &Application) {
 
     // for quicklaunch icons ----------------------------------------------------------------------------------------------------------------------------- //
     let qlbox = GtkBox::new(Orientation::Vertical, 0);
-    qlbox.set_widget_name("qlbar");
+    qlbox.set_css_classes(&["qlbar"]);
 
     let commands = Rc::new(RefCell::new(Vec::new()));
     let last_hash = Rc::new(RefCell::new(0u64));
