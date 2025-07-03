@@ -1,11 +1,10 @@
 use gtk4::{
-    glib, prelude::*, Application, ApplicationWindow, Box as GtkBox, CssProvider, Label, Orientation, Button, Image, Revealer, LevelBar
+    glib, prelude::*, Application, ApplicationWindow, Box as GtkBox, CssProvider, Label, Orientation, Button, Image, LevelBar
 };
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use gtk4::gdk::Display;
 use chrono::Local;
 use std::cell::RefCell;
-use std::cell::Cell;
 use std::rc::Rc;
 use std::fs;
 use std::process::{Command, Stdio};
