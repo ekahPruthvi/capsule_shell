@@ -26,7 +26,7 @@ window {
     border: 0.5px solid rgba(255, 255, 255, 0.12);
 }
 
-#qlbar {
+.qlbar {
     background-color: rgba(0, 0, 0, 0.2);
     border-radius: 50px;
     padding: 5px;
@@ -111,4 +111,8 @@ button.statusicon:hover {
 
 #volumelevel.vol trough block.filled {
     background-color: rgba(255, 255, 255, 0.81);
+}
+
+#dummy {
+    color: transparent; /*DONT CHNAGE THIS*/
 }
