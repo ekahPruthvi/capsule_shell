@@ -151,7 +151,6 @@ pub fn append_status_icons(container: &GtkBox) {
 
 
 fn create_icon_button(icon_name: &str, exec_command: String) -> Button {
-    // You can also use Image::from_icon_name if it's a known system icon
     let image = Image::from_icon_name(icon_name);
     image.set_icon_size(gtk4::IconSize::Normal);
 
@@ -263,6 +262,7 @@ fn check(container: &Rc<GtkBox>, prev: &Rc<RefCell<String>>, notiwidth: &Rc<RefC
     let notification_label = Label::new(None);
     notification_label.set_markup(&format!("{}{}", notification_stdout, app_stdout));
     notification_label.set_wrap(true);
+    notification_label.set_ellipsize(gtk4::pango::EllipsizeMode::End); 
     notification_label.set_max_width_chars(170);
     notification_label.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
     notification_label.set_widget_name("notivlabel");
@@ -708,28 +708,28 @@ fn activate(app: &Application) {
     noticapsule_window.show();
 
     // verticcal bar revealer --------------------------------------------------------------------------------------------------------------------------------- //
-    let revealer = Revealer::builder()
-            .transition_type(gtk4::RevealerTransitionType::Crossfade)
-            .transition_duration(500)
-            .reveal_child(false)
-            .build();
+    // let revealer = Revealer::builder()
+    //         .transition_type(gtk4::RevealerTransitionType::Crossfade)
+    //         .transition_duration(500)
+    //         .reveal_child(false)
+    //         .build();
     
-    let hover = Rc::new(Cell::new(false));
-    let hover_clone = hover.clone();
-    let revealer_clone = revealer.clone();
+    // let hover = Rc::new(Cell::new(false));
+    // let hover_clone = hover.clone();
+    // let revealer_clone = revealer.clone();
 
-    let motion_controller = gtk4::EventControllerMotion::new();
-    motion_controller.connect_enter(move |_, _x, _y| {
-        hover_clone.set(true);
-        revealer_clone.set_reveal_child(true);
-    });
+    // let motion_controller = gtk4::EventControllerMotion::new();
+    // motion_controller.connect_enter(move |_, _x, _y| {
+    //     hover_clone.set(true);
+    //     revealer_clone.set_reveal_child(true);
+    // });
 
-    let revealer_clone2 = revealer.clone();
-    let hover_clone2 = hover.clone();
-    motion_controller.connect_leave(move |_| {
-        hover_clone2.set(false);
-        revealer_clone2.set_reveal_child(false);
-    });
+    // let revealer_clone2 = revealer.clone();
+    // let hover_clone2 = hover.clone();
+    // motion_controller.connect_leave(move |_| {
+    //     hover_clone2.set(false);
+    //     revealer_clone2.set_reveal_child(false);
+    // });
 
 
     // vertical bar ----------------------------------------------------------------------------------------------------------------------------- //
@@ -751,29 +751,29 @@ fn activate(app: &Application) {
     boxxy.append(&*status_box);
 
 
-    revealer.set_child(Some(&boxxy));
+    // revealer.set_child(Some(&boxxy));
 
     let quicky_window = ApplicationWindow::new(app);
     quicky_window.init_layer_shell();
     quicky_window.set_layer(Layer::Top);
     quicky_window.set_namespace(Some("capsule"));
 
-    let overlay_method = GtkBox::new(Orientation::Horizontal, 0);
-    overlay_method.set_size_request(30, 100);
-    overlay_method.append(&revealer);
-    let dummylabel = Label::new(Some("."));
-    dummylabel.set_widget_name("dummy");
+    // let overlay_method = GtkBox::new(Orientation::Horizontal, 0);
+    // overlay_method.set_size_request(30, 100);
+    // overlay_method.append(&revealer);
+    // let dummylabel = Label::new(Some("."));
+    // dummylabel.set_widget_name("dummy");
+    // overlay_method.append(&dummylabel);
 
-    overlay_method.append(&dummylabel);
     quicky_window.set_anchor(Edge::Top, true);
     quicky_window.set_anchor(Edge::Bottom, true);
     quicky_window.set_anchor(Edge::Left, true);
     quicky_window.set_exclusive_zone(0);
     quicky_window.set_decorated(false);
-    quicky_window.set_child(Some(&overlay_method));
+    quicky_window.set_child(Some(&boxxy));
     quicky_window.set_width_request(30);
 
-    quicky_window.add_controller(motion_controller);
+    // quicky_window.add_controller(motion_controller);
     quicky_window.show();
     
     // desktop window -------------------------------------------------------------------------------------------------------------------------------- //
