@@ -24,7 +24,7 @@ window {
     padding-top: 5px;
     padding-bottom: 5px;
     border: 0.5px solid rgba(255, 255, 255, 0.12);
-    box-shadow: rgba(0, 0, 0, 0.2) 0px 0px 6px;
+    box-shadow: rgba(0, 0, 0, 0.425) 0px 0px 6px;
 }
 
 .qlbar {
@@ -32,7 +32,7 @@ window {
     border-radius: 50px;
     padding: 5px;
     border: 0.5px solid rgba(255, 255, 255, 0.12);
-    box-shadow: rgba(0, 0, 0, 0.2) 0px 0px 7px;
+    box-shadow: rgba(0, 0, 0, 0.425) 0px 0px 7px;
 }
 
 button.qlicons {

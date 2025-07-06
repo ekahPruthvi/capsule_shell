@@ -371,6 +371,9 @@ fn activate(app: &Application) {
     // for quicklaunch icons ----------------------------------------------------------------------------------------------------------------------------- //
     let qlbox = GtkBox::new(Orientation::Vertical, 0);
     qlbox.set_css_classes(&["qlbar"]);
+    qlbox.set_margin_top(2);
+    qlbox.set_margin_start(2);
+    qlbox.set_margin_end(2);
 
     let commands = Rc::new(RefCell::new(Vec::new()));
     let last_hash = Rc::new(RefCell::new(0u64));
@@ -392,12 +395,14 @@ fn activate(app: &Application) {
     noticapsule.set_widget_name("noticapsule");
     noticapsule.set_halign(gtk4::Align::Center);
     noticapsule.set_valign(gtk4::Align::Start);
-    // noticapsule.set_margin_end(69);
     noticapsule.set_margin_top(10);
 
     // time capsule ----------------------------------------------------------------------------------------------------------------------------- //
     let timedatebox = GtkBox::new(Orientation::Horizontal, 30);
     timedatebox.set_halign(gtk4::Align::Center);
+    timedatebox.set_margin_top(2);
+    timedatebox.set_margin_bottom(2);
+    timedatebox.set_margin_end(2);
 
     let time_label = Label::new(None);
     time_label.set_css_classes(&["time"]);
