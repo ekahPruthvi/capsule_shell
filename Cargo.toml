@@ -5,7 +5,7 @@ edition = "2024"
 authors = ["ekahPruthvi <ekahpdp@gmail.com>"]
 description = "An alternate dynamicLauncher"
 license = "GPL-3.0"
-repository = "https://github.com/ekahPruthvi/capsule.git"
+repository = "https://github.com/ekahPruthvi/capsule_shell.git"
 
 [dependencies]
 async-channel = "2.3.1"
