@@ -1,6 +1,7 @@
 use gtk4::{
     glib, prelude::*, Application, ApplicationWindow, Box as GtkBox, CssProvider, Label, Orientation, Button, Image
 };
+use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use gtk4::gdk::Display;
 use std::env;
 use gtk4::gio::File;
@@ -78,9 +79,10 @@ pub fn build_window(app: &Application) {
     });
 
     let window = ApplicationWindow::new(app);
-    window.set_title(Some("Notifications"));
+    window.init_layer_shell();
+    window.set_layer(Layer::Top);
     window.set_default_size(500, 600);
-    window.set_resizable(false);
+    window.set_namespace(Some("notification_bubble"));
 
     let main_box = GtkBox::new(Orientation::Vertical, 12);
     main_box.set_margin_top(20);
