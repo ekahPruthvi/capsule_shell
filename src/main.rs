@@ -1,3 +1,5 @@
+pub mod notification_extd;
+
 use gtk4::{
     glib, prelude::*, Application, ApplicationWindow, Box as GtkBox, CssProvider, Label, Orientation, Button, Image, LevelBar
 };
@@ -220,7 +222,7 @@ fn ql_creator(container: &GtkBox, commands: Rc<RefCell<Vec<String>>>, last_hash:
     }
 }
 
-fn check(container: &Rc<GtkBox>, prev: &Rc<RefCell<String>>, notiwidth: &Rc<RefCell<usize>>) {
+fn check(container: &Rc<GtkBox>, prev: &Rc<RefCell<String>>, notiwidth: &Rc<RefCell<usize>>, apppy: &Application) {
 
     let app = r#"
         tac /tmp/notiv.dat | grep -m1 "appname:" | sed "s/.*appname: *'//; s/'.*//"
@@ -268,6 +270,13 @@ fn check(container: &Rc<GtkBox>, prev: &Rc<RefCell<String>>, notiwidth: &Rc<RefC
     notification_label.set_vexpand(true);
     notification_label.set_valign(gtk4::Align::Center); 
     notification_label.set_justify(gtk4::Justification::Left);
+
+    let app_clone = apppy.clone();
+    let noti_button = Button::builder().child(&notification_label).build();
+    noti_button.set_css_classes(&["notification_btn"]);
+    noti_button.connect_clicked(move |_| {
+        notification_extd::build_window(&app_clone);
+    });
     
     let (_min_width, nat_width, _min_baseline, _nat_baseline) = notification_label.measure(Orientation::Horizontal, -1);
     *notiwidth.borrow_mut() = nat_width as usize;
@@ -282,7 +291,7 @@ fn check(container: &Rc<GtkBox>, prev: &Rc<RefCell<String>>, notiwidth: &Rc<RefC
             container_clone.set_width_request(width as i32);
             Continue
         } else {
-            container_clone.append(&notification_label);
+            container_clone.append(&noti_button);
             let home = std::env::var("HOME").unwrap();
             let path = format!("{}/.config/hypr/sound/notiv/notiv.mp3", home);
             if let Err(err) = Command::new("mpv")
@@ -299,14 +308,15 @@ fn check(container: &Rc<GtkBox>, prev: &Rc<RefCell<String>>, notiwidth: &Rc<RefC
 }
 
 
-pub fn notiv_maker(container: &Rc<GtkBox>) {
+pub fn notiv_maker(container: &Rc<GtkBox>, app: &Application) {
     // Initial population
     let notivwidth = Rc::new(RefCell::new(200));
     let prev_noti = Rc::new(RefCell::new(String::new()));
-    check(container, &prev_noti, &notivwidth);
+    check(container, &prev_noti, &notivwidth, app);
 
     // Set interval to refresh every 5 seconds
     let container_clone = container.clone();
+    let app_clone = app.clone();
     glib::timeout_add_seconds_local(5, move || {
         // Clear existing notification
         let mut _child_removed = false;
@@ -330,9 +340,8 @@ pub fn notiv_maker(container: &Rc<GtkBox>) {
             });
         }
         
-
         // Re-add updated notifications
-        check(&container_clone, &prev_noti, &notivwidth);
+        check(&container_clone, &prev_noti, &notivwidth, &app_clone);
 
         Continue // keep repeating
     });
@@ -341,7 +350,7 @@ pub fn notiv_maker(container: &Rc<GtkBox>) {
 
 fn activate(app: &Application) {
     
-        // css auto reload 
+    // css auto reload 
 
     let css = CssProvider::new();
     let home_dir = env::var("HOME").unwrap();
@@ -433,7 +442,7 @@ fn activate(app: &Application) {
     notiv_box.set_widget_name("notivbox");
     notiv_box.set_halign(gtk4::Align::Center);
 
-    notiv_maker(&notiv_box);
+    notiv_maker(&notiv_box, app);
 
     // cos logo only works with cynide iconpack -------------------------------------------------------------------------------------------------- //
     let cos = Button::new();
