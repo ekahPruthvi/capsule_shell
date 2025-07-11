@@ -771,13 +771,6 @@ fn activate(app: &Application) {
     quicky_window.set_layer(Layer::Top);
     quicky_window.set_namespace(Some("capsule"));
 
-    // let overlay_method = GtkBox::new(Orientation::Horizontal, 0);
-    // overlay_method.set_size_request(30, 100);
-    // overlay_method.append(&revealer);
-    // let dummylabel = Label::new(Some("."));
-    // dummylabel.set_widget_name("dummy");
-    // overlay_method.append(&dummylabel);
-
     quicky_window.set_anchor(Edge::Top, true);
     quicky_window.set_anchor(Edge::Bottom, true);
     quicky_window.set_anchor(Edge::Left, true);

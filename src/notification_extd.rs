@@ -81,8 +81,11 @@ pub fn build_window(app: &Application) {
     let window = ApplicationWindow::new(app);
     window.init_layer_shell();
     window.set_layer(Layer::Top);
-    window.set_default_size(500, 600);
-    window.set_namespace(Some("notification_bubble"));
+    window.set_namespace(Some("capsule"));
+
+    window.set_anchor(Edge::Top, true);
+    window.set_anchor(Edge::Right, true);
+    window.set_anchor(Edge::Left, true);
 
     let main_box = GtkBox::new(Orientation::Vertical, 12);
     main_box.set_margin_top(20);
@@ -125,6 +128,45 @@ pub fn build_window(app: &Application) {
 
     let scroll = gtk4::ScrolledWindow::new();
     scroll.set_child(Some(&main_box));
-    window.set_child(Some(&scroll));
+    scroll.set_vexpand(true);
+    scroll.set_hexpand(true);
+
+    let noti_bubble = GtkBox::new(Orientation::Vertical, 0);
+    noti_bubble.set_widget_name("notification_bubble");
+    noti_bubble.set_vexpand(true);
+    noti_bubble.set_hexpand(true);
+    noti_bubble.set_valign(gtk4::Align::Center);
+    noti_bubble.set_halign(gtk4::Align::Center);
+    noti_bubble.set_size_request(600, 600);
+    noti_bubble.append(&scroll);
+    noti_bubble.set_margin_top(90);
+
+    window.set_child(Some(&noti_bubble));
+
+
+    let noti_shadow = ApplicationWindow::new(app);
+    noti_shadow.init_layer_shell();
+    noti_shadow.set_layer(Layer::Top);
+    noti_shadow.set_namespace(Some("notification_bubble_shadow"));
+
+    noti_shadow.set_anchor(Edge::Top, true);
+    noti_shadow.set_anchor(Edge::Right, true);
+    noti_shadow.set_anchor(Edge::Left, true);
+
+    let shadow = GtkBox::new(Orientation::Vertical, 0);
+    shadow.append(&Label::new(Some("this is supposed to be transperent")));
+    shadow.set_widget_name("shadow");
+    shadow.set_vexpand(true);
+    shadow.set_hexpand(true);
+    shadow.set_valign(gtk4::Align::Center);
+    shadow.set_halign(gtk4::Align::Center);
+    shadow.set_size_request(600, 600);
+    shadow.append(&scroll);
+    shadow.set_margin_top(90);
+    shadow.set_margin_bottom(100);
+
+    noti_shadow.set_child(Some(&shadow));
+    noti_shadow.show();
+
     window.show();
 }
