@@ -72,7 +72,6 @@ pub fn build_window(app: &Application) {
     // Periodic check loop (you can also use timeout_add)
     gtk4::glib::timeout_add_seconds_local(1, move || {
         if reload_flag.swap(false, Ordering::Relaxed) {
-            eprintln!("Reloading CSS...");
             css.load_from_file(&file);
         }
         Continue
@@ -87,7 +86,7 @@ pub fn build_window(app: &Application) {
     window.set_anchor(Edge::Right, true);
     window.set_anchor(Edge::Left, true);
 
-    let main_box = GtkBox::new(Orientation::Vertical, 12);
+    let main_box = GtkBox::new(Orientation::Vertical, 7);
     main_box.set_margin_top(20);
     main_box.set_margin_bottom(20);
     main_box.set_margin_start(20);
@@ -111,6 +110,7 @@ pub fn build_window(app: &Application) {
         let text = format!("<b>{}</b>\n{}", note.summary, note.body);
         let label = Label::new(Some(&text));
         label.set_use_markup(true);
+        label.set_hexpand(true);
         label.set_wrap(true);
         label.set_xalign(0.0);
 
@@ -128,23 +128,51 @@ pub fn build_window(app: &Application) {
 
     let scroll = gtk4::ScrolledWindow::new();
     scroll.set_child(Some(&main_box));
+    scroll.set_widget_name("notification_scroller");
     scroll.set_vexpand(true);
     scroll.set_hexpand(true);
 
-    let noti_bubble = GtkBox::new(Orientation::Vertical, 0);
+    let noti_bubble = GtkBox::new(Orientation::Vertical, 5);
     noti_bubble.set_widget_name("notification_bubble");
     noti_bubble.set_vexpand(true);
     noti_bubble.set_hexpand(true);
     noti_bubble.set_valign(gtk4::Align::Center);
     noti_bubble.set_halign(gtk4::Align::Center);
     noti_bubble.set_size_request(600, 600);
-    noti_bubble.append(&scroll);
     noti_bubble.set_margin_top(90);
+
+    
+    let exit_button = Button::builder().child(&Label::new(Some("exit"))).build();
+    exit_button.set_widget_name("close_button");
+    exit_button.set_hexpand(true);
+    exit_button.set_margin_bottom(20);
+    exit_button.set_halign(gtk4::Align::Center);
+    exit_button.set_valign(gtk4::Align::Start);
+
+
+    let noti_shadow = ApplicationWindow::new(app);
+
+    let window_clone = window.clone();
+    let noti_shadow_clone = noti_shadow.clone();
+    exit_button.connect_clicked(move |_| {
+        window_clone.close();
+        noti_shadow_clone.close();
+    }); 
+
+    let noti_label = Label::new(Some("Notifications"));
+    noti_label.set_widget_name("notification_heading");
+    noti_label.set_hexpand(true);
+    noti_label.set_halign(gtk4::Align::Start);
+    noti_label.set_margin_start(10);
+    noti_label.set_margin_bottom(10);
+
+    noti_bubble.append(&exit_button);
+    noti_bubble.append(&noti_label);
+    noti_bubble.append(&scroll);
 
     window.set_child(Some(&noti_bubble));
 
 
-    let noti_shadow = ApplicationWindow::new(app);
     noti_shadow.init_layer_shell();
     noti_shadow.set_layer(Layer::Top);
     noti_shadow.set_namespace(Some("notification_bubble_shadow"));
@@ -161,7 +189,6 @@ pub fn build_window(app: &Application) {
     shadow.set_valign(gtk4::Align::Center);
     shadow.set_halign(gtk4::Align::Center);
     shadow.set_size_request(600, 600);
-    shadow.append(&scroll);
     shadow.set_margin_top(90);
     shadow.set_margin_bottom(100);
 
