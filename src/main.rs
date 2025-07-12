@@ -758,7 +758,7 @@ fn activate(app: &Application) {
     let power=create_icon_button("system-shutdown-symbolic", "terminatee".to_string());
     power.set_tooltip_text(Some("Power menu"));
     power.set_css_classes(&["statusicon"]);
-    
+
     boxxy.append(&qlbox);
     boxxy.append(&power);
     boxxy.append(&*status_box);

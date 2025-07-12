@@ -1,39 +1,52 @@
-/* light theme */
-
-label.time {
-    font-size: 16px;
-    font-weight: 900;
-    color:rgba(0, 0, 0, 0.83);
-}
-
-label.date {
-    font-size: 12px;
-    color:rgba(0, 0, 0, 0.75);
-    font-weight: 600;
-}
+/* Light Theme */
+/* BASE */
 
 window {
     background-color: rgba(20, 20, 20, 0);
 }
 
-#timecapsule {
-    background-color: rgba(255, 255, 255, 0.2);
-    border-radius: 50px;
-    padding-left: 20px;
-    padding-right: 20px;
-    padding-top: 5px;
-    padding-bottom: 5px;
-    border: 0.5px solid rgba(34, 34, 34, 0.12);
-    box-shadow: rgba(0, 0, 0, 0.425) 0px 0px 6px;
+/* Labels */
+
+label.time {
+    font-size: 16px;
+    font-weight: 900;
+    color: rgba(0, 0, 0, 0.83);
 }
 
-.qlbar {
-    background-color: rgba(255, 255, 255, 0.096);
-    border-radius: 50px;
-    padding: 5px;
-    border: 0.5px solid rgba(29, 29, 29, 0.12);
-    box-shadow: rgba(0, 0, 0, 0.425) 0px 0px 6px;
+label.date {
+    font-size: 12px;
+    font-weight: 600;
+    color: rgba(0, 0, 0, 0.75);
 }
+
+#notivlabel {
+    font-size: 12px;
+    font-weight: 300;
+    color: rgba(255, 255, 255, 0.83);
+}
+
+label.noti-low {
+    color: #000000;
+    border-radius: 10px;
+    padding: 10px;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.07);
+}
+
+label.noti-normal {
+    color: #000000;
+    border: none;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.07);
+    padding: 10px;
+}
+
+label.noti-critical {
+    color: #b00020;
+    font-weight: 800;
+    border-radius: 10px;
+    padding: 10px;
+}
+
+/* Buttons */
 
 button.qlicons {
     all: unset;
@@ -57,7 +70,7 @@ button.cos {
     background-color: rgba(49, 49, 49, 0);
     transition: transform 0.2s ease;
     transform: scale(1.0);
-    color: black
+    color: black;
 }
 
 button.cos:hover {
@@ -76,13 +89,59 @@ button.statusicon:hover {
     color: rgb(56, 56, 56);
 }
 
+.notification_btn {
+    all: unset;
+    font-size: 12px;
+    font-weight: 300;
+    color: rgba(0, 0, 0, 0.75);
+    transform: scale(1.0);
+    transition: font-weight 0.2s ease, transform 0.2s ease;
+}
+
+.notification_btn:hover {
+    font-weight: 900;
+    transform: scale(1.05);
+    color: rgba(0, 0, 0, 0.9);
+}
+
+#close_button {
+    all: unset;
+    min-height: 10px;
+    min-width: 100px;
+    font-size: 2px;
+    color: rgba(255, 255, 255, 0);
+    padding: 0px;
+    border-radius: 50px;
+    background-color: rgba(0, 0, 0, 0.05);
+    transition: background-color 300ms ease;
+}
+
+#close_button:hover {
+    background-color: rgba(255, 0, 102, 0.35);
+}
+
+/* COMPONENT STYLES */
+
+#timecapsule {
+    background-color: rgba(255, 255, 255, 0.2);
+    border-radius: 50px;
+    padding: 5px 20px;
+    border: 0.5px solid rgba(34, 34, 34, 0.12);
+    box-shadow: rgba(0, 0, 0, 0.425) 0px 0px 2px;
+}
+
+.qlbar {
+    background-color: rgba(255, 255, 255, 0.096);
+    border-radius: 50px;
+    padding: 5px;
+    border: 0.5px solid rgba(29, 29, 29, 0.12);
+    box-shadow: rgba(0, 0, 0, 0.425) 0px 0px 2px;
+}
+
 #cynbar {
     background-color: rgba(255, 255, 255, 0.12);
     border-radius: 50px;
-    padding-left: 5px;
-    padding-right: 5px;
-    padding-top: 5px;
-    padding-bottom: 10px;
+    padding: 5px 5px 10px 5px;
     border: 1px solid rgba(34, 34, 34, 0.12);
     box-shadow: rgba(10, 37, 64, 0.35) 0px -2px 6px 0px inset;
 }
@@ -95,15 +154,24 @@ button.statusicon:hover {
     box-shadow: rgba(10, 37, 64, 0.35) 0px -2px 6px 0px inset;
 }
 
-#notivlabel {
-    font-size: 12px;
-    font-weight: 300;
-    color:rgba(255, 255, 255, 0.83);
-}
-
 #notivbox {
     padding-top: 10px;
 }
+
+#notification_bubble {
+    border-radius: 50px;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    background-color: rgba(255, 255, 255, 0.55);
+    padding: 10px 30px 30px 30px;
+}
+
+#notification_heading {
+    color: rgba(0, 0, 0, 0.87);
+    font-size: 18px;
+    font-weight: 700;
+}
+
+/* Volume */
 
 #volumelevel.muted {
     background-color: crimson;
@@ -118,6 +186,49 @@ button.statusicon:hover {
     background-color: rgba(255, 255, 255, 0.81);
 }
 
-#dummy {
-    color: transparent; /*DONT CHNAGE THIS*/
+/* Scrollbars */
+
+#notification_scroller {
+    border-radius: 20px;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+#notification_scroller scrollbar {
+    background-color: transparent;
+    border-radius: 12px;
+    margin: 2px;
+    min-width: 6px;
+    min-height: 6px;
+}
+
+#notification_scroller scrollbar slider {
+    background-color: rgba(0, 0, 0, 0.12);
+    border-radius: 6px;
+    transition: background-color 150ms ease;
+}
+
+#notification_scroller scrollbar:hover slider {
+    background-color: rgba(0, 0, 0, 0.25);
+}
+
+#notification_scroller scrollbar.vertical {
+    margin-left: 2px;
+    margin-top: 50px;
+    margin-bottom: 50px;
+}
+
+#notification_scroller scrollbar.horizontal {
+    margin-top: 2px;
+}
+
+/* Shadow */
+
+#shadow {
+    color: transparent;
+    border-radius: 50px;
+    box-shadow: rgba(0, 0, 0, 0.25) 0px 54px 55px,
+                rgba(0, 0, 0, 0.12) 0px -12px 30px,
+                rgba(0, 0, 0, 0.12) 0px 4px 6px,
+                rgba(0, 0, 0, 0.17) 0px 12px 13px,
+                rgba(0, 0, 0, 0.09) 0px -3px 5px;
 }
