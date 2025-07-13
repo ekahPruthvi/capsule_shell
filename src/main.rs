@@ -235,6 +235,66 @@ fn check(container: &Rc<GtkBox>, prev: &Rc<RefCell<String>>, notiwidth: &Rc<RefC
         .unwrap_or_else(|_| panic!("Failed to check notiv.dat"));
     let app_stdout = String::from_utf8_lossy(&app_output.stdout);
 
+
+    let check_actions = r#"
+        tac /tmp/notiv.dat | awk '
+        BEGIN { RS="}\n"; found=0 }
+        !found && /appname:/ {
+            block = $0 "}"
+            found = 1
+        }
+        END {
+            if (block ~ /actions: *\{/ && block ~ /"[a-zA-Z0-9_]+":/) print "yes"
+        }'
+    "#;
+
+    let actions_output = Command::new("sh")
+        .args(["-c", check_actions])
+        .output()
+        .unwrap_or_else(|_| panic!("Failed to check for actions"));
+    let actions_present = String::from_utf8_lossy(&actions_output.stdout).trim() == "yes";
+
+    let actionsvec: Vec<(String, String)> = {
+        let cmd = r#"
+            awk '
+            BEGIN { RS="}\n" }
+            /actions: *\{/ { block=$0 }
+            END {
+                in_actions = 0
+                split("", keys)
+                n = 0
+                nlines = split(block, lines, "\n")
+                for (i = 1; i <= nlines; i++) {
+                    line = lines[i]
+                    gsub(/^[ \t]+/, "", line)
+                    if (line ~ /^actions: *\{/) {
+                        in_actions = 1
+                        continue
+                    }
+                    if (in_actions) {
+                        if (line ~ /^\}/) break
+                        if (match(line, /"([^"]+)"[ \t]*:[ \t]*"([^"]+)"/, m)) {
+                            print m[1] ":" m[2]
+                        }
+                    }
+                }
+            }' /tmp/notiv.dat
+        "#;
+
+        let output = Command::new("sh")
+            .args(["-c", cmd])
+            .output()
+            .expect("Failed to extract actions");
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        stdout
+            .lines()
+            .filter_map(|line| line.split_once(':'))
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    };
+    
     let notification = r#"
         #!/bin/bash
         awk '
@@ -259,6 +319,11 @@ fn check(container: &Rc<GtkBox>, prev: &Rc<RefCell<String>>, notiwidth: &Rc<RefC
     }
 
     *prev.borrow_mut() = notification_stdout.to_string();
+
+    if actions_present {
+        notification_extd::notification_with_actions(apppy, notification_stdout, app_stdout, actionsvec);
+        return;
+    }
 
     let notification_label = Label::new(None);
     notification_label.set_markup(&format!("{}{}", notification_stdout, app_stdout));

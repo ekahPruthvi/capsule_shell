@@ -3,13 +3,15 @@ use gtk4::{
 };
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use gtk4::gdk::Display;
-use std::env;
+use std::{env, process::Command};
 use gtk4::gio::File;
 use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use glib::ControlFlow::Continue;
 use signal_hook::consts::signal::*;
 use signal_hook::flag;
 use std::fs;
+use std::borrow::Cow;
+
 
 #[derive(Debug)]
 struct Notification {
@@ -195,5 +197,101 @@ pub fn build_window(app: &Application) {
     noti_shadow.set_child(Some(&shadow));
     noti_shadow.show();
 
+    window.show();
+}
+
+pub fn notification_with_actions (app: &Application, notification_stdout: Cow<'_, str>, app_stdout: Cow<'_, str>, actionsvec: Vec<(String, String)>) {
+    let css = CssProvider::new();
+    let home_dir = env::var("HOME").unwrap();
+    let css_path = format!("{}/.config/capsule/style.css", home_dir);
+    let file = File::for_path(css_path);
+
+    css.load_from_file(&file);
+
+    gtk4::style_context_add_provider_for_display(
+        &Display::default().unwrap(),
+        &css,
+        gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+    );
+
+    let reload_flag = Arc::new(AtomicBool::new(false));
+    flag::register(SIGUSR1, Arc::clone(&reload_flag)).unwrap();
+
+    // Periodic check loop (you can also use timeout_add)
+    gtk4::glib::timeout_add_seconds_local(1, move || {
+        if reload_flag.swap(false, Ordering::Relaxed) {
+            css.load_from_file(&file);
+        }
+        Continue
+    });
+
+    let window = ApplicationWindow::new(app);
+    window.init_layer_shell();
+    window.set_layer(Layer::Top);
+    window.set_namespace(Some("capsule"));
+
+    window.set_anchor(Edge::Top, true);
+    window.set_anchor(Edge::Right, true);
+    window.set_anchor(Edge::Left, true);
+
+    let mainbox = GtkBox::new(Orientation::Horizontal, 5);
+    mainbox.set_hexpand(true);
+    mainbox.set_halign(gtk4::Align::Center);
+    mainbox.set_margin_top(300);
+    mainbox.set_margin_bottom(20);
+    mainbox.set_margin_start(20);
+    mainbox.set_margin_end(20);
+
+    let notification_label = Label::new(None);
+    notification_label.set_markup(&format!("{}{}", notification_stdout, app_stdout));
+    notification_label.set_wrap(true);
+    notification_label.set_ellipsize(gtk4::pango::EllipsizeMode::End); 
+    notification_label.set_max_width_chars(170);
+    notification_label.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
+    notification_label.set_widget_name("notivlabel");
+    notification_label.set_vexpand(true);
+    notification_label.set_valign(gtk4::Align::Center); 
+    notification_label.set_justify(gtk4::Justification::Left);
+
+    mainbox.append(&notification_label);
+
+    let extract_id_cmd = r#"
+        tac /tmp/notiv.dat | awk 'BEGIN { RS="}\n" }
+        /appname:/ && /id:/ {
+            match($0, /id:[ \t]*([0-9]+)/, m)
+            if (m[1]) print m[1]
+            exit
+        }'
+    "#;
+
+    let id_output = Command::new("sh")
+        .args(["-c", extract_id_cmd])
+        .output()
+        .expect("Failed to extract notification ID");
+    
+    let id_str = String::from_utf8_lossy(&id_output.stdout).trim().to_string();
+    let id = id_str.parse::<u32>().unwrap_or(0);
+
+    for (action_key, action_label) in actionsvec {
+        let button = Button::with_label(&action_label);
+        let action_key_clone = action_key.clone();
+
+        button.connect_clicked(move |_| {
+            let _ = Command::new("dbus-send")
+                .args([
+                    "--session",
+                    "--type=signal",
+                    "--dest=org.freedesktop.Notifications",
+                    "/org/freedesktop/Notifications",
+                    "org.freedesktop.Notifications.ActionInvoked",
+                    &format!("uint32:{}", id),
+                    &format!("string:{}", action_key_clone),
+                ])
+                .output();
+        });
+        mainbox.append(&button);
+    }
+
+    window.set_child(Some(&mainbox));
     window.show();
 }
