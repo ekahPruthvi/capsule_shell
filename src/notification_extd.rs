@@ -1,5 +1,5 @@
 use gtk4::{
-    glib, prelude::*, Application, ApplicationWindow, Box as GtkBox, CssProvider, Label, Orientation, Button, Image
+    glib, prelude::*, Application, ApplicationWindow, Box as GtkBox, CssProvider, Label, Orientation, Button, Image, EventControllerMotion
 };
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use gtk4::gdk::Display;
@@ -10,7 +10,6 @@ use glib::ControlFlow::Continue;
 use signal_hook::consts::signal::*;
 use signal_hook::flag;
 use std::fs;
-
 
 #[derive(Debug)]
 struct Notification {
@@ -166,9 +165,38 @@ pub fn build_window(app: &Application) {
     noti_label.set_halign(gtk4::Align::Start);
     noti_label.set_margin_start(10);
     noti_label.set_margin_bottom(10);
+    
+
+    let noti_label_button = Button::builder().child(&noti_label).css_classes(["notification_heading_button"]).build();
+    noti_label_button.set_hexpand(false);
+    noti_label_button.set_halign(gtk4::Align::Start);
+    let controller = EventControllerMotion::new();
+    let con_clone = controller.clone();
+    noti_label_button.add_controller(controller);
+
+    let label_enter = noti_label.clone();
+    con_clone.connect_enter(move |_ctrl, _x, _y| {
+        label_enter.set_text("Clear Notifications");
+    });
+
+    let label_leave = noti_label.clone();
+    con_clone.connect_leave(move |_ctrl| {
+        label_leave.set_text("Notifications");
+    });
+
+    let window_clone2 = window.clone();
+    let noti_shadow_clone2 = noti_shadow.clone();
+    noti_label_button.connect_clicked(move |_| {
+        let _ = std::process::Command::new("sh")
+            .arg("-c")
+            .arg("truncate -s 0 /tmp/notiv.dat")
+            .output();
+        window_clone2.close();
+        noti_shadow_clone2.close();
+    });
 
     noti_bubble.append(&exit_button);
-    noti_bubble.append(&noti_label);
+    noti_bubble.append(&noti_label_button);
     noti_bubble.append(&scroll);
 
     window.set_child(Some(&noti_bubble));
