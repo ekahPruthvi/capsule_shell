@@ -200,7 +200,7 @@ pub fn build_window(app: &Application) {
     window.show();
 }
 
-pub fn notification_with_actions (app: &Application, notification_stdout: Cow<'_, str>, app_stdout: Cow<'_, str>, actionsvec: Vec<(String, String)>) {
+pub fn notification_with_actions (app: &Application, notification_stdout: Cow<'_, str>, app_stdout: Cow<'_, str>    ) {
     let css = CssProvider::new();
     let home_dir = env::var("HOME").unwrap();
     let css_path = format!("{}/.config/capsule/style.css", home_dir);
@@ -255,42 +255,15 @@ pub fn notification_with_actions (app: &Application, notification_stdout: Cow<'_
 
     mainbox.append(&notification_label);
 
-    let extract_id_cmd = r#"
-        tac /tmp/notiv.dat | awk 'BEGIN { RS="}\n" }
-        /appname:/ && /id:/ {
-            match($0, /id:[ \t]*([0-9]+)/, m)
-            if (m[1]) print m[1]
-            exit
-        }'
-    "#;
+    let button = Button::with_label("actions");
 
-    let id_output = Command::new("sh")
-        .args(["-c", extract_id_cmd])
-        .output()
-        .expect("Failed to extract notification ID");
-    
-    let id_str = String::from_utf8_lossy(&id_output.stdout).trim().to_string();
-    let id = id_str.parse::<u32>().unwrap_or(0);
+    button.connect_clicked(move |_| {
+        let _ = Command::new("dunstctl")
+            .arg("context")
+            .output();
+    });
+    mainbox.append(&button);
 
-    for (action_key, action_label) in actionsvec {
-        let button = Button::with_label(&action_label);
-        let action_key_clone = action_key.clone();
-
-        button.connect_clicked(move |_| {
-            let _ = Command::new("dbus-send")
-                .args([
-                    "--session",
-                    "--type=signal",
-                    "--dest=org.freedesktop.Notifications",
-                    "/org/freedesktop/Notifications",
-                    "org.freedesktop.Notifications.ActionInvoked",
-                    &format!("uint32:{}", id),
-                    &format!("string:{}", action_key_clone),
-                ])
-                .output();
-        });
-        mainbox.append(&button);
-    }
 
     window.set_child(Some(&mainbox));
     window.show();
