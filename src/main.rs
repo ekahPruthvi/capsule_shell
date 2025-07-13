@@ -10,11 +10,11 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::fs;
 use std::process::{Command, Stdio};
-use std::time::UNIX_EPOCH;
+use std::time::{UNIX_EPOCH, Duration};
 use std::path::Path;
 use std::env;
 use std::io::{BufReader, BufRead};
-use glib::{timeout_add_seconds_local, ControlFlow::{Continue, Break}};
+use glib::{timeout_add_seconds_local, ControlFlow::{Continue, Break}, idle_add_local};
 use std::thread;
 use inotify::{Inotify, WatchMask};
 use rand::rng;
@@ -222,7 +222,7 @@ fn ql_creator(container: &GtkBox, commands: Rc<RefCell<Vec<String>>>, last_hash:
     }
 }
 
-fn check(container: &Rc<GtkBox>, prev: &Rc<RefCell<String>>, notiwidth: &Rc<RefCell<usize>>, apppy: &Application) {
+fn check(container: &Rc<GtkBox>, prev: &Rc<RefCell<String>>, notiwidth: &Rc<RefCell<usize>>, apppy: &Application, timedatebox: &GtkBox) {
 
     let app = r#"
         tac /tmp/notiv.dat | grep -m1 "appname:" | sed "s/.*appname: *'//; s/'.*//"
@@ -234,7 +234,6 @@ fn check(container: &Rc<GtkBox>, prev: &Rc<RefCell<String>>, notiwidth: &Rc<RefC
         .output()
         .unwrap_or_else(|_| panic!("Failed to check notiv.dat"));
     let app_stdout = String::from_utf8_lossy(&app_output.stdout);
-
 
     let check_actions = r#"
         tac /tmp/notiv.dat | awk '
@@ -279,9 +278,32 @@ fn check(container: &Rc<GtkBox>, prev: &Rc<RefCell<String>>, notiwidth: &Rc<RefC
 
     *prev.borrow_mut() = notification_stdout.to_string();
 
+    let cont_time_clone = timedatebox.clone();
     if actions_present {
-        notification_extd::notification_with_actions(apppy, notification_stdout, app_stdout);
-        return;
+        cont_time_clone.remove_css_class("scale-in");
+        while let Some(child) = cont_time_clone.first_child() {
+            cont_time_clone.remove(&child);
+        }
+        let actions_btn = Button::builder().child(&Label::new(Some("Actions"))).build();
+        actions_btn.set_css_classes(&["notification_btn"]);
+        actions_btn.connect_clicked(move |_| {
+            thread::spawn(move || {
+                let _ = Command::new("dunstctl")
+                    .arg("context")
+                    .output();
+
+                thread::sleep(Duration::from_secs(40));
+
+                let _ = Command::new("dunstctl")
+                    .arg("close-all")
+                    .output();
+            });
+        });
+        cont_time_clone.append(&actions_btn);
+            idle_add_local(move || {
+            cont_time_clone.add_css_class("scale-in");
+            Break
+        });
     }
 
     let notification_label = Label::new(None);
@@ -332,20 +354,23 @@ fn check(container: &Rc<GtkBox>, prev: &Rc<RefCell<String>>, notiwidth: &Rc<RefC
 }
 
 
-pub fn notiv_maker(container: &Rc<GtkBox>, app: &Application) {
+pub fn notiv_maker(container: &Rc<GtkBox>, app: &Application, timedatebox: &GtkBox) {
     // Initial population
     let notivwidth = Rc::new(RefCell::new(200));
     let prev_noti = Rc::new(RefCell::new(String::new()));
-    check(container, &prev_noti, &notivwidth, app);
+    check(container, &prev_noti, &notivwidth, app, timedatebox);
 
     // Set interval to refresh every 5 seconds
     let container_clone = container.clone();
     let app_clone = app.clone();
-    glib::timeout_add_seconds_local(5, move || {
+    let time_box_clone = timedatebox.clone();
+    glib::timeout_add_seconds_local(8, move || {
         // Clear existing notification
         let mut _child_removed = false;
         while let Some(child) = container_clone.first_child() {
-            container_clone.remove(&child);   
+            let cont_time_clone = time_box_clone.clone();
+            container_clone.remove(&child);
+            append_time_and_date_labels(&cont_time_clone, &app_clone);
             _child_removed = true;
         }
 
@@ -365,9 +390,57 @@ pub fn notiv_maker(container: &Rc<GtkBox>, app: &Application) {
         }
         
         // Re-add updated notifications
-        check(&container_clone, &prev_noti, &notivwidth, &app_clone);
+        check(&container_clone, &prev_noti, &notivwidth, &app_clone, &time_box_clone);
 
         Continue // keep repeating
+    });
+}
+
+fn append_time_and_date_labels(timedatebox: &GtkBox, app: &Application) {
+    // Clear old children
+    let container_clone = timedatebox.clone();
+    timedatebox.remove_css_class("scale-in");
+    while let Some(child) = container_clone.first_child() {
+        container_clone.remove(&child);
+    }
+
+    let time_label = Label::new(None);
+    time_label.add_css_class("time");
+
+    let date_label = Label::new(None);
+    date_label.add_css_class("date");
+
+    let now = Local::now();
+    time_label.set_text(&now.format("%I:%M %p").to_string());
+    date_label.set_text(&now.format("%A\n%d %B %Y").to_string());
+
+    let time_label_ref = Rc::new(RefCell::new(time_label));
+    let time_date_inner_box = GtkBox::new(Orientation::Horizontal, 30);
+    time_date_inner_box.append(&*time_label_ref.borrow());
+    time_date_inner_box.append(&date_label);
+    let time_date_button = Button::builder().child(&time_date_inner_box).css_classes(["notification_btn"]).build();
+    let app_clone = app.clone();
+    time_date_button.connect_clicked(move |_| {
+        notification_extd::build_window(&app_clone);
+    });
+    
+    timedatebox.append(&time_date_button);
+
+    // Animate with CSS after adding to widget tree
+    let time_clone = timedatebox.clone();
+    idle_add_local(move || {
+        time_clone.add_css_class("scale-in");
+        Break
+    });
+
+    // Live clock update
+    timeout_add_seconds_local(1, {
+        let time_label = time_label_ref.clone();
+        move || {
+            let now = Local::now();
+            time_label.borrow().set_text(&now.format("%I:%M %p").to_string());
+            Continue
+        }
     });
 }
 
@@ -431,34 +504,13 @@ fn activate(app: &Application) {
     noticapsule.set_margin_top(10);
 
     // time capsule ----------------------------------------------------------------------------------------------------------------------------- //
-    let timedatebox = GtkBox::new(Orientation::Horizontal, 30);
+    let timedatebox = GtkBox::new(Orientation::Horizontal, 0);
     timedatebox.set_halign(gtk4::Align::Center);
     timedatebox.set_margin_top(2);
     timedatebox.set_margin_bottom(2);
     timedatebox.set_margin_end(2);
 
-    let time_label = Label::new(None);
-    time_label.set_css_classes(&["time"]);
-
-    let date_label = Label::new(None);
-    date_label.set_css_classes(&["date"]);
-
-    let now = Local::now();
-    time_label.set_text(&now.format("%I %M %p").to_string());
-    date_label.set_text(&now.format("%A\n%d %B %Y").to_string());
-
-    let time_label_ref = Rc::new(RefCell::new(time_label));
-    timeout_add_seconds_local(1, {
-        let time_label = time_label_ref.clone();
-        move || {
-            let now = Local::now();
-            time_label.borrow().set_text(&now.format("%I %M %p").to_string());
-            Continue
-        }
-    });
-
-    timedatebox.append(&*time_label_ref.borrow());
-    timedatebox.append(&date_label);
+    append_time_and_date_labels(&timedatebox, &app);
     timedatebox.set_widget_name("timecapsule");
 
     // notifications ----------------------------------------------------------------------------------------------------------------------------- //
@@ -466,7 +518,7 @@ fn activate(app: &Application) {
     notiv_box.set_widget_name("notivbox");
     notiv_box.set_halign(gtk4::Align::Center);
 
-    notiv_maker(&notiv_box, app);
+    notiv_maker(&notiv_box, app, &timedatebox);
 
     // cos logo only works with cynide iconpack -------------------------------------------------------------------------------------------------- //
     let cos = Button::new();
