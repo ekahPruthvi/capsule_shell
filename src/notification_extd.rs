@@ -81,7 +81,7 @@ pub fn build_window(app: &Application) {
     let window = ApplicationWindow::new(app);
     window.init_layer_shell();
     window.set_layer(Layer::Top);
-    window.set_namespace(Some("capsule"));
+    window.set_namespace(Some("capsule_notifications"));
 
     window.set_anchor(Edge::Top, true);
     window.set_anchor(Edge::Right, true);
@@ -176,7 +176,7 @@ pub fn build_window(app: &Application) {
 
     noti_shadow.init_layer_shell();
     noti_shadow.set_layer(Layer::Top);
-    noti_shadow.set_namespace(Some("notification_bubble_shadow"));
+    noti_shadow.set_namespace(Some("capsule_notifications_shadow"));
 
     noti_shadow.set_anchor(Edge::Top, true);
     noti_shadow.set_anchor(Edge::Right, true);
