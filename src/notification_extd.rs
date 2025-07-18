@@ -138,21 +138,34 @@ pub fn build_window(app: &Application) {
     for note in notifications {
         let hbox = GtkBox::new(Orientation::Horizontal, 8);
 
-        let text = format!("<b>{}</b>\n{}", note.summary, note.body);
-        let label = Label::new(Some(&text));
-        label.set_use_markup(true);
-        label.set_hexpand(true);
-        label.set_wrap(true);
-        label.set_xalign(0.0);
+        if note.summary.is_empty() && note.body.is_empty() {
+            let label = Label::new(Some(""));
+            label.set_markup("no <i>new</i> notifications");
+            label.set_vexpand(true);
+            label.set_hexpand(true);
+            label.set_valign(gtk4::Align::Center);
+            label.set_halign(gtk4::Align::Fill);
+            label.set_justify(gtk4::Justification::Center);
+            label.set_widget_name("notification_heading");
+            label.set_opacity(0.5);
+            hbox.append(&label);
+        } else {
+            let text = format!("<b>{}</b>\n{}", note.summary, note.body);
+            let label = Label::new(Some(&text));
+            label.set_use_markup(true);
+            label.set_hexpand(true);
+            label.set_wrap(true);
+            label.set_xalign(0.0);
 
-        // Apply urgency CSS class
-        let urgency_class = match note.urgency.to_lowercase().as_str() {
-            "low" => "noti-low",
-            "critical" => "noti-critical",
-            _ => "noti-normal",
-        };
-        label.add_css_class(urgency_class);
-        hbox.append(&label);
+            // Apply urgency CSS class
+            let urgency_class = match note.urgency.to_lowercase().as_str() {
+                "low" => "noti-low",
+                "critical" => "noti-critical",
+                _ => "noti-normal",
+            };
+            label.add_css_class(urgency_class);
+            hbox.append(&label);
+        }
 
         main_box.append(&hbox);
     }
