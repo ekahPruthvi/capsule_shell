@@ -1,5 +1,5 @@
 use gtk4::{
-    glib, prelude::*, Application, ApplicationWindow, Box as GtkBox, CssProvider, Label, Orientation, Button, Image, EventControllerMotion
+    glib, prelude::*, Application, ApplicationWindow, Box as GtkBox, CssProvider, Label, Orientation, Button, EventControllerMotion
 };
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use gtk4::gdk::Display;
@@ -9,18 +9,16 @@ use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use glib::ControlFlow::Continue;
 use signal_hook::consts::signal::*;
 use signal_hook::flag;
-use std::fs;
 
 #[derive(Debug)]
 struct Notification {
     summary: String,
     body: String,
-    icon_id: Option<String>,
     urgency: String,
 }
 
 fn read_notifications() -> Vec<Notification> {
-    let content = fs::read_to_string("/tmp/notiv.dat").unwrap_or_default();
+    let content = std::fs::read_to_string("/tmp/notiv.dat").unwrap_or_default();
     let entries: Vec<&str> = content.split("}\n{").collect();
 
     entries
@@ -28,29 +26,72 @@ fn read_notifications() -> Vec<Notification> {
         .map(|raw| {
             let clean = raw.replace("{", "").replace("}", "");
             let mut summary = String::new();
-            let mut body = String::new();
-            let mut icon_id = None;
+            let mut body_lines = Vec::new();
             let mut urgency = "NORMAL".to_string();
 
+            let mut in_body = false;
+
             for line in clean.lines() {
-                if line.trim_start().starts_with("summary:") {
-                    summary = line.splitn(2, ':').nth(1).unwrap_or("").trim().trim_matches('\'').to_string();
-                } else if line.trim_start().starts_with("body:") {
-                    body = line.splitn(2, ':').nth(1).unwrap_or("").trim().trim_matches('\'').to_string();
-                } else if line.trim_start().starts_with("icon_id:") {
-                    let val = line.splitn(2, ':').nth(1).unwrap_or("").trim().trim_matches('\'');
-                    if !val.is_empty() && val != "(null)" {
-                        icon_id = Some(val.to_string());
-                    }
-                } else if line.trim_start().starts_with("urgency:") {
-                    urgency = line.splitn(2, ':').nth(1).unwrap_or("").trim().to_string();
+                let trimmed = line.trim_start();
+
+                if trimmed.starts_with("summary:") {
+                    summary = trimmed
+                        .splitn(2, ':')
+                        .nth(1)
+                        .unwrap_or("")
+                        .trim()
+                        .trim_matches('\'')
+                        .to_string();
+                    in_body = false;
+                } else if trimmed.starts_with("body:") {
+                    let first_line = trimmed
+                        .splitn(2, ':')
+                        .nth(1)
+                        .unwrap_or("")
+                        .trim_start()
+                        .to_string();
+                    body_lines.push(first_line);
+                    in_body = true;
+                } else if trimmed.starts_with("urgency:") {
+                    urgency = trimmed
+                        .splitn(2, ':')
+                        .nth(1)
+                        .unwrap_or("")
+                        .trim()
+                        .to_string();
+                    in_body = false;
+                } else if trimmed.starts_with("icon:") {
+                    break; // Stop parsing after `icon:`
+                } else if in_body {
+                    body_lines.push(trimmed.to_string());
                 }
             }
 
-            Notification { summary, body, icon_id, urgency }
+            // Now clean up the first and last lines
+            if let Some(first) = body_lines.first_mut() {
+                if first.starts_with('\'') {
+                    *first = first[1..].to_string();
+                }
+            }
+
+            if let Some(last) = body_lines.last_mut() {
+                if last.ends_with('\'') {
+                    let len = last.len();
+                    *last = last[..len - 1].to_string();
+                }
+            }
+
+            let body = body_lines.join("\n");
+
+            Notification {
+                summary,
+                body,
+                urgency,
+            }
         })
         .collect()
 }
+
 
 pub fn build_window(app: &Application) {
     let css = CssProvider::new();
@@ -69,7 +110,6 @@ pub fn build_window(app: &Application) {
     let reload_flag = Arc::new(AtomicBool::new(false));
     flag::register(SIGUSR1, Arc::clone(&reload_flag)).unwrap();
 
-    // Periodic check loop (you can also use timeout_add)
     gtk4::glib::timeout_add_seconds_local(1, move || {
         if reload_flag.swap(false, Ordering::Relaxed) {
             css.load_from_file(&file);
@@ -97,15 +137,6 @@ pub fn build_window(app: &Application) {
 
     for note in notifications {
         let hbox = GtkBox::new(Orientation::Horizontal, 8);
-        
-        if let Some(id) = &note.icon_id {
-            let path = format!("/tmp/icons/{}.png", id); // You can adapt this
-            if std::path::Path::new(&path).exists() {
-                let image = Image::from_file(path);
-                image.set_pixel_size(32);
-                hbox.append(&image);
-            }
-        }
 
         let text = format!("<b>{}</b>\n{}", note.summary, note.body);
         let label = Label::new(Some(&text));

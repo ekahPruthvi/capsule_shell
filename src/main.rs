@@ -225,7 +225,7 @@ fn ql_creator(container: &GtkBox, commands: Rc<RefCell<Vec<String>>>, last_hash:
 fn check(container: &Rc<GtkBox>, prev: &Rc<RefCell<String>>, notiwidth: &Rc<RefCell<usize>>, apppy: &Application, timedatebox: &GtkBox) {
 
     let app = r#"
-        tac /tmp/notiv.dat | grep -m1 "appname:" | sed "s/.*appname: *'//; s/'.*//"
+        tr -d '\000' < /tmp/notiv.dat | tac | grep -m1 "appname:" | sed "s/.*appname: *'//; s/'.*//"
     "#;
 
     let command = &app;
@@ -364,7 +364,7 @@ pub fn notiv_maker(container: &Rc<GtkBox>, app: &Application, timedatebox: &GtkB
     let container_clone = container.clone();
     let app_clone = app.clone();
     let time_box_clone = timedatebox.clone();
-    glib::timeout_add_seconds_local(8, move || {
+    glib::timeout_add_seconds_local(3, move || {
         // Clear existing notification
         let mut _child_removed = false;
         while let Some(child) = container_clone.first_child() {
