@@ -158,17 +158,37 @@ button.statusicon:hover {
     padding-top: 10px;
 }
 
-#notification_bubble {
+#bubble {
     border-radius: 50px;
     border: 1px solid rgba(0, 0, 0, 0.1);
     background-color: rgba(255, 255, 255, 0.55);
     padding: 10px 30px 30px 30px;
+    transition: 
+        transform 500ms cubic-bezier(0.68, -0.55, 0.27, 1.55),
+        opacity   400ms cubic-bezier(0.53, 0, 0.38, 1);
+    transform: scale(1.0);
+    opacity: 1.0;
+}
+
+#bubble.scale-out {
+    transform: scale(0.7);
+    opacity: 0.0;
+}
+
+#bubble.scale-in {
+    transform: scale(1.0);
+    opacity: 1.0;
 }
 
 #notification_heading {
     color: rgba(0, 0, 0, 0.87);
     font-size: 18px;
     font-weight: 700;
+}
+
+.notification_heading_button {
+    all: unset;
+    background-color: transparent;
 }
 
 /* Volume */
@@ -251,4 +271,8 @@ button.statusicon:hover {
 .scale-in {
   animation: scale-in 1s cubic-bezier(0.34, 1.56, 0.64, 1) both;
   transform-origin: center;
+}
+
+#dummy {
+    color: transparent;
 }
