@@ -1,7 +1,8 @@
 pub mod notification_extd;
 
 use gtk4::{
-    glib, prelude::*, Application, ApplicationWindow, Box as GtkBox, CssProvider, Label, Orientation, Button, Image, LevelBar
+    glib, prelude::*, Application, ApplicationWindow, Box as GtkBox, CssProvider, Label, Orientation, Button, Image, LevelBar, EventControllerScroll, 
+    EventControllerScrollFlags
 };
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use gtk4::gdk::Display;
@@ -796,31 +797,6 @@ fn activate(app: &Application) {
     noticapsule_window.set_child(Some(&noticapsule));
     noticapsule_window.show();
 
-    // verticcal bar revealer --------------------------------------------------------------------------------------------------------------------------------- //
-    // let revealer = Revealer::builder()
-    //         .transition_type(gtk4::RevealerTransitionType::Crossfade)
-    //         .transition_duration(500)
-    //         .reveal_child(false)
-    //         .build();
-    
-    // let hover = Rc::new(Cell::new(false));
-    // let hover_clone = hover.clone();
-    // let revealer_clone = revealer.clone();
-
-    // let motion_controller = gtk4::EventControllerMotion::new();
-    // motion_controller.connect_enter(move |_, _x, _y| {
-    //     hover_clone.set(true);
-    //     revealer_clone.set_reveal_child(true);
-    // });
-
-    // let revealer_clone2 = revealer.clone();
-    // let hover_clone2 = hover.clone();
-    // motion_controller.connect_leave(move |_| {
-    //     hover_clone2.set(false);
-    //     revealer_clone2.set_reveal_child(false);
-    // });
-
-
     // vertical bar ----------------------------------------------------------------------------------------------------------------------------- //
     let boxxy = GtkBox::new(Orientation::Vertical, 2);
     boxxy.set_valign(gtk4::Align::Center);
@@ -839,9 +815,6 @@ fn activate(app: &Application) {
     boxxy.append(&power);
     boxxy.append(&*status_box);
 
-
-    // revealer.set_child(Some(&boxxy));
-
     let quicky_window = ApplicationWindow::new(app);
     quicky_window.init_layer_shell();
     quicky_window.set_layer(Layer::Top);
@@ -855,13 +828,12 @@ fn activate(app: &Application) {
     quicky_window.set_child(Some(&boxxy));
     quicky_window.set_width_request(30);
 
-    // quicky_window.add_controller(motion_controller);
     quicky_window.show();
     
     // desktop window -------------------------------------------------------------------------------------------------------------------------------- //
     let window = ApplicationWindow::new(app);
     window.init_layer_shell();
-    window.set_layer(Layer::Bottom);
+    window.set_layer(Layer::Background);
     window.auto_exclusive_zone_enable();
     window.fullscreen();
     window.set_decorated(false);
@@ -876,9 +848,54 @@ fn activate(app: &Application) {
         window.set_anchor(edge, anchor);
     }
 
-    let desktop = GtkBox::new(Orientation::Horizontal, 0);
+    let desktop_conrtol_box = GtkBox::new(Orientation::Vertical, 0);
+    desktop_conrtol_box.set_halign(gtk4::Align::Fill);
+    desktop_conrtol_box.set_valign(gtk4::Align::Fill);
+    desktop_conrtol_box.set_widget_name("dummy");
 
-    window.set_child(Some(&desktop));
+    let desktop = GtkBox::new(Orientation::Horizontal, 0);
+    desktop.append(&Label::new(Some("")));
+    desktop.set_halign(gtk4::Align::Fill);
+    desktop.set_valign(gtk4::Align::Fill);
+    desktop.set_vexpand(true);
+    desktop.set_hexpand(true);
+    desktop.set_margin_top(50);
+    desktop.set_margin_bottom(50);
+    desktop.set_margin_start(50);
+    desktop.set_margin_end(50);
+    desktop.set_widget_name("bubble");
+    desktop.set_visible(false);
+    
+    desktop_conrtol_box.append(&desktop);
+    desktop_conrtol_box.append(&Label::new(Some("scroll")));
+
+    let desktop_clone = desktop.clone();
+
+    let controllerr = EventControllerScroll::new(EventControllerScrollFlags::VERTICAL);
+    controllerr.connect_scroll(move |_, _dx, dy| {
+        if dy < 0.0 {
+            if desktop_clone.is_visible() {
+                desktop_clone.remove_css_class("scale-in");
+                desktop_clone.add_css_class("scale-out");
+
+                let widget_clone = desktop_clone.clone();
+                glib::timeout_add_local_once(Duration::from_millis(500), move || {
+                    widget_clone.set_visible(false);
+                });
+            }
+        } else if dy > 0.0 {
+            if !desktop_clone.is_visible() {
+                desktop_clone.set_visible(true);
+                desktop_clone.remove_css_class("scale-out");
+                desktop_clone.add_css_class("scale-in");
+            }
+        }
+
+        glib::Propagation::Proceed
+    });
+
+    window.add_controller(controllerr);
+    window.set_child(Some(&desktop_conrtol_box));
     window.show();
 }
 

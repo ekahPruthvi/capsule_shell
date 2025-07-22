@@ -177,7 +177,7 @@ pub fn build_window(app: &Application) {
     scroll.set_hexpand(true);
 
     let noti_bubble = GtkBox::new(Orientation::Vertical, 5);
-    noti_bubble.set_widget_name("notification_bubble");
+    noti_bubble.set_widget_name("bubble");
     noti_bubble.set_vexpand(true);
     noti_bubble.set_hexpand(true);
     noti_bubble.set_valign(gtk4::Align::Center);
