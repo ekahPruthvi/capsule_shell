@@ -1,5 +1,5 @@
 pub mod notification_extd;
-
+pub mod desktoppy;
 use gtk4::{
     glib, prelude::*, Application, ApplicationWindow, Box as GtkBox, CssProvider, Label, Orientation, Button, Image, LevelBar, EventControllerScroll, 
     EventControllerScrollFlags
@@ -853,8 +853,7 @@ fn activate(app: &Application) {
     desktop_conrtol_box.set_valign(gtk4::Align::Fill);
     desktop_conrtol_box.set_widget_name("dummy");
 
-    let desktop = GtkBox::new(Orientation::Horizontal, 0);
-    desktop.append(&Label::new(Some("")));
+    let desktop = GtkBox::new(Orientation::Vertical, 5);
     desktop.set_halign(gtk4::Align::Fill);
     desktop.set_valign(gtk4::Align::Fill);
     desktop.set_vexpand(true);
@@ -881,11 +880,15 @@ fn activate(app: &Application) {
                 let widget_clone = desktop_clone.clone();
                 glib::timeout_add_local_once(Duration::from_millis(500), move || {
                     widget_clone.set_visible(false);
+                    while let Some(child) = widget_clone.first_child() {
+                        widget_clone.remove(&child);
+                    }
                 });
             }
         } else if dy > 0.0 {
             if !desktop_clone.is_visible() {
                 desktop_clone.set_visible(true);
+                desktoppy::build(desktop_clone.clone());
                 desktop_clone.remove_css_class("scale-out");
                 desktop_clone.add_css_class("scale-in");
             }
