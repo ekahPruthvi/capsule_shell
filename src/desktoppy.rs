@@ -139,6 +139,7 @@ pub fn build(mainbox :GtkBox) {
                                 .build();
 
                             let path = path.to_string();
+                            let mainbox_clone = mainbox_clone.clone();
                             guesture.connect_pressed(move |guesture, _, _, _| {
                                 match guesture.current_button() {
                                     1 => {
@@ -167,6 +168,16 @@ pub fn build(mainbox :GtkBox) {
                                         eprintln!("click not registered");
                                     }
                                 }
+                                mainbox_clone.remove_css_class("scale-in");
+                                mainbox_clone.add_css_class("scale-out");
+
+                                let widget_clone = mainbox_clone.clone();
+                                glib::timeout_add_local_once(std::time::Duration::from_millis(500), move || {
+                                    widget_clone.set_visible(false);
+                                    while let Some(child) = widget_clone.first_child() {
+                                        widget_clone.remove(&child);
+                                    }
+                                });
                             });
 
                             button.add_controller(guesture);
