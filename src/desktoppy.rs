@@ -1,6 +1,10 @@
 use gtk4::{
-    glib, prelude::*, Box as GtkBox, Button, Entry, Grid, Label, Orientation, Revealer
+    glib, prelude::*, Box as GtkBox, Button, Entry, Grid, Label, Orientation, Revealer, GestureClick
 };
+use std::env;
+use std::fs::{self, File };
+use std::io::{self, Read, Write};
+use std::path::PathBuf;
 
 fn cal_matrix(box_width: u32, box_height: u32) -> (u32, u32) {
     let margin = 80;
@@ -25,6 +29,32 @@ fn cal_matrix(box_width: u32, box_height: u32) -> (u32, u32) {
     (max_rows, max_columns)
 }
 
+fn config_control() -> io::Result<String> {
+    let home_dir = env::var("HOME").map(PathBuf::from).expect("HOME env not set");
+
+    let path: PathBuf = home_dir
+        .join(".config")
+        .join("capsule")
+        .join("desktop")
+        .join("widgets.dat");
+
+    if let Some(parent) = path.parent() {
+        if !parent.exists() {
+            fs::create_dir_all(parent)?;
+        }
+    }
+
+    if !path.exists() {
+        let mut file = File::create(&path)?;
+        file.write_all(b"fill")?;
+        return Ok("fill".to_string());
+    }
+
+    let mut contents = String::new();
+    File::open(&path)?.read_to_string(&mut contents)?;
+    Ok(contents)
+}
+
 pub fn build(mainbox :GtkBox) {
     let dummy = GtkBox::new(Orientation::Horizontal, 0);
     dummy.append(&Label::new(Some("dummy")));
@@ -44,28 +74,114 @@ pub fn build(mainbox :GtkBox) {
     let grid_clone = grid.clone();
     glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
         let (rows, cols) = cal_matrix(mainbox_clone.width().try_into().unwrap(), mainbox_clone.height().try_into().unwrap());
-        let mut count = 1;
-        // let skip_indices = [6, 7, 13, 14];
+        match config_control() {
+            Ok(config) => {
+                let grid_clone_inner = grid_clone.clone();
+                for line in config.lines() {
+                    let grid_clone_inner2 = grid_clone_inner.clone();
+                    if line.contains("fill") {
+                        let mut count = 1;
+                        // let skip_indices = [6, 7, 13, 14];
 
-        for row in 0..rows {
-            for col in 0..cols {
-                // if skip_indices.contains(&count) {
-                //     count+= 1;
-                // } else {
-                    let button = Button::with_label(&format!("{}", count));
-                    button.set_size_request(200, 200);
-                    grid_clone.attach(&button, col as i32, row as i32, 1, 1);
-                    count += 1;
-                // }
+                        for row in 0..rows {
+                            for col in 0..cols {
+                                // if skip_indices.contains(&count) {
+                                //     count+= 1;
+                                // } else {
+                                    let button = Button::with_label(&format!("{}", count));
+                                    button.set_size_request(200, 200);
+                                    grid_clone_inner2.attach(&button, col as i32, row as i32, 1, 1);
+                                    count += 1;
+                                // }
+                            }
+                        }
+
+                        // let button = Button::with_label(&format!("{}", count));
+                        // button.set_size_request(400, 400);
+                        // grid_clone.attach(&button, 5, 0, 2, 2);       
+                    }
+                    if line.starts_with("file|") {
+                    let parts: Vec<&str> = line.split('|').collect();
+                        if parts.len() >= 8 {
+                            let width: i32 = parts[1].parse().unwrap_or(200);
+                            let height: i32 = parts[2].parse().unwrap_or(200);
+                            let colspan: i32 = parts[3].parse().unwrap_or(1);
+                            let rowspan: i32 = parts[4].parse().unwrap_or(1);
+                            let col: i32 = parts[5].parse().unwrap_or(0);
+                            let row: i32 = parts[6].parse().unwrap_or(0);
+                            let path = parts[7].trim();
+
+                            let button = Button::builder()
+                                .tooltip_text(format!("Open folder: {}", path).as_str())
+                                .build();
+                            button.set_size_request(width, height);
+                            if width != height {
+                                let button_box = GtkBox::new(
+                                    if width > height {
+                                        Orientation::Horizontal
+                                    } else {
+                                        Orientation::Vertical
+                                    }, 20);
+                                
+                                let image = gtk4::Image::from_icon_name("folder");
+                                image.set_pixel_size(100);
+                                button_box.append(&image);
+                                button_box.append(&Label::new(Some(format!("{}",path).as_str())));
+                                button.set_child(Some(&button_box));
+                            } else {
+                                let image = gtk4::Image::from_icon_name("folder");
+                                image.set_pixel_size(100);
+                                button.set_child(Some(&image));
+                            }
+
+                            let guesture = GestureClick::builder()
+                                .button(0)
+                                .build();
+
+                            let path = path.to_string();
+                            guesture.connect_pressed(move |guesture, _, _, _| {
+                                match guesture.current_button() {
+                                    1 => {
+                                        // left click
+                                        if let Err(e) = std::process::Command::new("nautilus")
+                                            .arg(&path)
+                                            .spawn()
+                                        {
+                                            eprintln!("Failed to open folder: {}", e);
+                                        }
+                                    }
+                                    3 => {
+                                        // right click
+                                        eprintln!("Right click detected!");
+                                    }
+                                    2 => {
+                                        // middle click
+                                        if let Err(e) = std::process::Command::new("xdg-open")
+                                            .arg(&path)
+                                            .spawn()
+                                        {
+                                            eprintln!("Failed to open folder: {}", e);
+                                        }
+                                    }
+                                    _ => {
+                                        eprintln!("click not registered");
+                                    }
+                                }
+                            });
+
+                            button.add_controller(guesture);
+                            grid_clone_inner2.attach(&button, col, row, colspan, rowspan);
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("Failed to load config: {}", e);
             }
         }
-
-        // let button = Button::with_label(&format!("{}", count));
-        // button.set_size_request(400, 400);
-        // grid_clone.attach(&button, 5, 0, 2, 2);
         glib::ControlFlow::Break
     });
-
+    
 
 
     let widgets_page = Revealer::builder()
@@ -84,12 +200,13 @@ pub fn build(mainbox :GtkBox) {
     search.set_halign(gtk4::Align::Center);
 
     hbox.append(&search);
-    hbox.append(&Button::builder()
-        .icon_name("open-menu-symbolic")
+    let menu = &Button::builder()
+        .icon_name("edit-symbolic")
         .halign(gtk4::Align::End)
         .valign(gtk4::Align::Baseline)
-        .build()
-    );
+        .build();
+    menu.set_css_classes(&["menu"]);
+    hbox.append(menu);
 
     let search_page = Revealer::builder()
         .transition_type(gtk4::RevealerTransitionType::SlideRight)
