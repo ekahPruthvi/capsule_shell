@@ -1,5 +1,5 @@
 use gtk4::{
-    glib, prelude::*, Box as GtkBox, Button, Entry, Grid, Label, Orientation, Revealer, GestureClick
+    glib, prelude::*, Box as GtkBox, Button, Grid, Label, Orientation, Revealer, GestureClick
 };
 use std::env;
 use std::fs::{self, File };
@@ -65,7 +65,7 @@ pub fn build(mainbox :GtkBox) {
     grid.set_column_spacing(30);
     grid.set_row_spacing(30);
     grid.set_margin_start(80);
-    grid.set_margin_end(80);
+    grid.set_margin_end(90);
     grid.set_hexpand(true);
     grid.set_vexpand(true);
     grid.set_halign(gtk4::Align::Center);
@@ -89,6 +89,7 @@ pub fn build(mainbox :GtkBox) {
                                 //     count+= 1;
                                 // } else {
                                     let button = Button::with_label(&format!("{}", count));
+                                    button.set_css_classes(&["widgets_grid"]);
                                     button.set_size_request(200, 200);
                                     grid_clone_inner2.attach(&button, col as i32, row as i32, 1, 1);
                                     count += 1;
@@ -112,8 +113,9 @@ pub fn build(mainbox :GtkBox) {
                             let path = parts[7].trim();
 
                             let button = Button::builder()
-                                .tooltip_text(format!("Open folder: {}", path).as_str())
+                                .tooltip_text(format!("Open: {}", path).as_str())
                                 .build();
+                            button.set_css_classes(&["widgets_grid"]);
                             button.set_size_request(width, height);
                             if width != height {
                                 let button_box = GtkBox::new(
@@ -122,14 +124,27 @@ pub fn build(mainbox :GtkBox) {
                                     } else {
                                         Orientation::Vertical
                                     }, 20);
-                                
-                                let image = gtk4::Image::from_icon_name("folder");
+                                let path_abs :PathBuf = path.into();
+                                let image = gtk4::Image::from_icon_name(
+                                    if path_abs.is_file() {
+                                        "capsule_file"
+                                    } else {
+                                        "capsule_folder"
+                                    }
+                                );
                                 image.set_pixel_size(100);
                                 button_box.append(&image);
                                 button_box.append(&Label::new(Some(format!("{}",path).as_str())));
                                 button.set_child(Some(&button_box));
                             } else {
-                                let image = gtk4::Image::from_icon_name("folder");
+                                let path_abs :PathBuf = path.into();
+                                let image = gtk4::Image::from_icon_name(
+                                    if path_abs.is_file() {
+                                        "capsule_file"
+                                    } else {
+                                        "capsule_folder"
+                                    }
+                                );
                                 image.set_pixel_size(100);
                                 button.set_child(Some(&image));
                             }
@@ -138,13 +153,19 @@ pub fn build(mainbox :GtkBox) {
                                 .button(0)
                                 .build();
 
+                            let path_abs :PathBuf = path.into();
                             let path = path.to_string();
                             let mainbox_clone = mainbox_clone.clone();
                             guesture.connect_pressed(move |guesture, _, _, _| {
                                 match guesture.current_button() {
                                     1 => {
                                         // left click
-                                        if let Err(e) = std::process::Command::new("nautilus")
+                                        if let Err(e) = std::process::Command::new(
+                                            if path_abs.is_file() {
+                                                        "xdg-open"
+                                                    } else {
+                                                        "nautilus"
+                                                    })
                                             .arg(&path)
                                             .spawn()
                                         {
@@ -201,14 +222,9 @@ pub fn build(mainbox :GtkBox) {
         .build();
 
     let hbox = GtkBox::new(Orientation::Horizontal, 6);
-    let search = Entry::new();
-    search.set_text("search");
-    search.set_hexpand(true);
-    search.set_halign(gtk4::Align::Center);
-
-    hbox.append(&search);
     let menu = &Button::builder()
         .icon_name("edit-symbolic")
+        .hexpand(true)
         .halign(gtk4::Align::End)
         .valign(gtk4::Align::Baseline)
         .build();
