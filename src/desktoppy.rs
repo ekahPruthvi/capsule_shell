@@ -153,10 +153,6 @@ pub fn build(mainbox :GtkBox) {
                                     }
                                     3 => {
                                         // right click
-                                        eprintln!("Right click detected!");
-                                    }
-                                    2 => {
-                                        // middle click
                                         if let Err(e) = std::process::Command::new("xdg-open")
                                             .arg(&path)
                                             .spawn()
