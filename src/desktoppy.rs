@@ -1,5 +1,5 @@
 use gtk4::{
-    glib, prelude::*, Box as GtkBox, Button, Grid, Label, Orientation, Revealer, GestureClick
+    glib, prelude::*, Box as GtkBox, Button, Calendar, GestureClick, Grid, Label, Orientation, Revealer
 };
 use std::env;
 use std::fs::{self, File };
@@ -102,7 +102,7 @@ pub fn build(mainbox :GtkBox) {
                         // grid_clone.attach(&button, 5, 0, 2, 2);       
                     }
                     if line.starts_with("file|") {
-                    let parts: Vec<&str> = line.split('|').collect();
+                        let parts: Vec<&str> = line.split('|').collect();
                         if parts.len() >= 8 {
                             let width: i32 = parts[1].parse().unwrap_or(200);
                             let height: i32 = parts[2].parse().unwrap_or(200);
@@ -125,26 +125,46 @@ pub fn build(mainbox :GtkBox) {
                                         Orientation::Vertical
                                     }, 20);
                                 let path_abs :PathBuf = path.into();
-                                let image = gtk4::Image::from_icon_name(
-                                    if path_abs.is_file() {
-                                        "capsule_file"
-                                    } else {
-                                        "capsule_folder"
+                                let icon_name = if path_abs.is_file() {
+                                    match std::path::Path::new(&path).extension().and_then(|e| e.to_str()) {
+                                        Some("py") => "text-python",   
+                                        Some("xls") => "text-xls",
+                                        Some("xlsx") => "text-xlsx",
+                                        Some("css") => "text-css",
+                                        Some("csv") => "text-csv",
+                                        Some("cpp") => "text-c++",
+                                        Some("c") => "text-c",
+                                        Some("rs") => "text-rust",
+                                        Some("md") => "text-markdown",
+                                        _ => "text-x-generic",
                                     }
-                                );
+                                } else {
+                                    "folder"
+                                };
+                                let image = gtk4::Image::from_icon_name(&icon_name);
                                 image.set_pixel_size(100);
                                 button_box.append(&image);
                                 button_box.append(&Label::new(Some(format!("{}",path).as_str())));
                                 button.set_child(Some(&button_box));
                             } else {
                                 let path_abs :PathBuf = path.into();
-                                let image = gtk4::Image::from_icon_name(
-                                    if path_abs.is_file() {
-                                        "capsule_file"
-                                    } else {
-                                        "capsule_folder"
+                                let icon_name = if path_abs.is_file() {
+                                    match std::path::Path::new(&path).extension().and_then(|e| e.to_str()) {
+                                        Some("py") => "text-python",   
+                                        Some("xls") => "text-xls",
+                                        Some("xlsx") => "text-xlsx",
+                                        Some("css") => "text-css",
+                                        Some("csv") => "text-csv",
+                                        Some("cpp") => "text-c++",
+                                        Some("c") => "text-c",
+                                        Some("rs") => "text-rust",
+                                        Some("md") => "text-markdown",
+                                        _ => "text-x-generic",
                                     }
-                                );
+                                } else {
+                                    "folder"
+                                };
+                                let image = gtk4::Image::from_icon_name(&icon_name);
                                 image.set_pixel_size(100);
                                 button.set_child(Some(&image));
                             }
@@ -199,6 +219,20 @@ pub fn build(mainbox :GtkBox) {
 
                             button.add_controller(guesture);
                             grid_clone_inner2.attach(&button, col, row, colspan, rowspan);
+                        }
+                    }
+                    if line.starts_with("cal|") {
+                        let parts: Vec<&str> = line.split('|').collect();
+                        if parts.len() >= 7 {
+                            let width: i32 = parts[1].parse().unwrap_or(200);
+                            let height: i32 = parts[2].parse().unwrap_or(200);
+                            let colspan: i32 = parts[3].parse().unwrap_or(1);
+                            let rowspan: i32 = parts[4].parse().unwrap_or(1);
+                            let col: i32 = parts[5].parse().unwrap_or(0);
+                            let row: i32 = parts[6].parse().unwrap_or(0);
+                            let cal = Calendar::new();
+                            cal.set_size_request(width, height);
+                            grid_clone_inner2.attach(&cal, col, row, colspan, rowspan);
                         }
                     }
                 }
