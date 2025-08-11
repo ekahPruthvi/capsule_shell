@@ -270,6 +270,98 @@ button.statusicon:hover {
   transform-origin: center;
 }
 
+/* widgets */
+
 #dummy {
     color: transparent;
+}
+
+button.widgets_grid {
+    border-radius: 20px;
+    padding: 50px;
+    background-color: rgba(56, 56, 56, 0.384);
+    color: rgba(255, 255, 255, 0.356);
+    text-shadow: 0px 4px 18px #000000;
+    font-weight: 800;
+    font-size: large;
+    box-shadow: rgba(0, 0, 0, 0.4) 0px 2px 4px, rgba(0, 0, 0, 0.3) 0px 7px 13px -3px, rgba(0, 0, 0, 0.2) 0px -3px 0px inset;
+}
+
+button.widgets_grid:hover {
+    background-color: rgba(0, 0, 0, 0.308);
+}
+
+.menu {
+    color: rgba(255, 255, 255, 0.384);
+    border-radius: 50%;
+}
+
+calendar.view {
+    border: none;
+    border-radius: 25px;
+    background-color: rgba(167, 167, 167, 0.048);
+    padding: 4px;
+}
+
+calendar.view > header {
+    background-color: #ffffff48;
+    border-radius: 50px;
+    padding: 2px;
+    box-shadow: rgba(0, 0, 0, 0.24) 0px 3px 8px;
+}
+
+calendar.view > header > button {
+    background-color: #ffffff18;
+    border-radius: 100px;
+    border: none;
+    color: #333;
+    margin: 6px;
+}
+
+calendar.view > header > button:hover {
+    background-color: #ffffff3d;
+}
+
+calendar.view > header > label.year {
+    font-weight: bold;
+    color: #000000;
+}
+
+calendar.view header stack.month {
+    color: rgb(0, 0, 0);
+    font-size: 16px;
+}
+
+calendar.view > grid > label.day-name {
+    font-weight: 600;
+    color: #a0a0a0;
+}
+
+calendar.view > grid > label.week-number {
+    color: #ffffff;
+    font-style: italic;
+}
+
+calendar.view > grid > label.day-number {
+    color: #ffffffa6;
+    background: transparent;
+}
+
+calendar.view > grid > label.other-month {
+    color: #ffffff5d;
+    opacity: 0.6;
+}
+
+calendar.view > grid > label.today {
+    background-color: #00000056;
+    border-radius: 50px;
+    font-weight: 900;
+    color: #ffffff;
+}
+
+calendar.view > grid > label:selected {
+    background-color: #00000034;
+    border-radius: 50px;
+    font-weight: 500;
+    color: #ffffff;
 }
