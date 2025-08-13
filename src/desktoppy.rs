@@ -231,6 +231,64 @@ pub fn build(mainbox :GtkBox) {
                             grid_clone_inner2.attach(&cal, col, row, colspan, rowspan);
                         }
                     }
+                    if line.starts_with("bat|") {
+                        let parts: Vec<&str> = line.split('|').collect();
+                        if parts.len() >= 7 {
+                            let width: i32 = parts[1].parse().unwrap_or(200);
+                            let height: i32 = parts[2].parse().unwrap_or(200);
+                            let colspan: i32 = parts[3].parse().unwrap_or(1);
+                            let rowspan: i32 = parts[4].parse().unwrap_or(1);
+                            let col: i32 = parts[5].parse().unwrap_or(0);
+                            let row: i32 = parts[6].parse().unwrap_or(0);
+                            let output = std::process::Command::new("cat")
+                                .args(["/sys/class/power_supply/BAT1/capacity"])
+                                .output()                            
+                                .unwrap_or_else(|_| panic!("pc? failed to get battery"));
+                            let app_stdout = String::from_utf8_lossy(&output.stdout);
+
+                            let output_status = std::process::Command::new("cat")
+                                .args(["/sys/class/power_supply/BAT1/status"])
+                                .output()                            
+                                .unwrap_or_else(|_| panic!("pc? failed to get battery"));
+                            let app_stdout_status = String::from_utf8_lossy(&output_status.stdout);
+
+                            let chargin_label = Label::new(Some(""));
+                            chargin_label.set_visible(false);
+                            if app_stdout_status.contains("Charging"){
+                                eprint!("yes");
+                                chargin_label.set_markup("Charging...");
+                                chargin_label.set_visible(true);
+                            }
+
+                            let bat_label = Label::builder()
+                                .use_markup(true)
+                                .label(format!("{}",app_stdout))
+                                .build();
+
+
+                            let battery_level = app_stdout.trim().parse::<u32>().unwrap_or(0) as f64;
+
+                            let level_bar = gtk4::LevelBar::builder()
+                                .min_value(0.0)
+                                .max_value(100.0)
+                                .value(battery_level)
+                                .orientation(Orientation::Horizontal)
+                                .build();
+
+                            let bat_box = GtkBox::new(Orientation::Vertical, 5);
+                            bat_box.append(&chargin_label);
+                            bat_box.append(&bat_label);
+                            bat_box.append(&level_bar);
+
+                            let bat_button = Button::builder()
+                                .child(&bat_box)
+                                .width_request(width)
+                                .height_request(height)
+                                .build();
+
+                            grid_clone_inner2.attach(&bat_button, col, row, colspan, rowspan);
+                        }
+                    }
                 }
             }
             Err(e) => {
