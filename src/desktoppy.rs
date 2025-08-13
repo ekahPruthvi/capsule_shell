@@ -127,9 +127,7 @@ pub fn build(mainbox :GtkBox) {
                                 let path_abs :PathBuf = path.into();
                                 let icon_name = if path_abs.is_file() {
                                     match std::path::Path::new(&path).extension().and_then(|e| e.to_str()) {
-                                        Some("py") => "text-python",   
-                                        Some("xls") => "text-xls",
-                                        Some("xlsx") => "text-xlsx",
+                                        Some("py") => "text-x-python",
                                         Some("css") => "text-css",
                                         Some("csv") => "text-csv",
                                         Some("cpp") => "text-c++",
@@ -150,9 +148,7 @@ pub fn build(mainbox :GtkBox) {
                                 let path_abs :PathBuf = path.into();
                                 let icon_name = if path_abs.is_file() {
                                     match std::path::Path::new(&path).extension().and_then(|e| e.to_str()) {
-                                        Some("py") => "text-python",   
-                                        Some("xls") => "text-xls",
-                                        Some("xlsx") => "text-xlsx",
+                                        Some("py") => "text-x-python",
                                         Some("css") => "text-css",
                                         Some("csv") => "text-csv",
                                         Some("cpp") => "text-c++",
