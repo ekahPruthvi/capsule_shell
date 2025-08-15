@@ -253,6 +253,7 @@ pub fn build(mainbox :GtkBox) {
                             let app_stdout_status = String::from_utf8_lossy(&output_status.stdout);
 
                             let chargin_label = Label::new(Some(""));
+                            chargin_label.set_halign(gtk4::Align::Start);
                             chargin_label.set_visible(false);
                             if app_stdout_status.contains("Charging"){
                                 eprint!("yes");
@@ -262,6 +263,8 @@ pub fn build(mainbox :GtkBox) {
 
                             let bat_label = Label::builder()
                                 .use_markup(true)
+                                .halign(gtk4::Align::Start)
+                                .css_classes(["batt_info"])
                                 .label(format!("{}",app_stdout))
                                 .build();
 
@@ -271,17 +274,27 @@ pub fn build(mainbox :GtkBox) {
                             let level_bar = gtk4::LevelBar::builder()
                                 .min_value(0.0)
                                 .max_value(100.0)
+                                .css_classes(["batt_lvl"])
                                 .value(battery_level)
                                 .orientation(Orientation::Horizontal)
+                                .build();
+
+                            let label = Label::builder()
+                                .use_markup(true)
+                                .css_classes(["batt_label"])
+                                .halign(gtk4::Align::Start)
+                                .label("<i>Battery</i>")
                                 .build();
 
                             let bat_box = GtkBox::new(Orientation::Vertical, 5);
                             bat_box.append(&chargin_label);
                             bat_box.append(&bat_label);
                             bat_box.append(&level_bar);
+                            bat_box.append(&label);
 
                             let bat_button = Button::builder()
                                 .child(&bat_box)
+                                .css_classes(["batt_widget"])
                                 .width_request(width)
                                 .height_request(height)
                                 .build();

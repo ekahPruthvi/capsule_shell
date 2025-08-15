@@ -732,6 +732,12 @@ fn activate(app: &Application) {
     noticapsule.append(&mic_icon);
     mic_icon.set_visible(false);
 
+    let noticapsule_window = ApplicationWindow::new(app);
+    noticapsule_window.init_layer_shell();
+    noticapsule_window.set_layer(Layer::Top);
+    noticapsule_window.set_namespace(Some("capsule"));
+
+
     // Main thread: receive and update UI
     glib::MainContext::default().spawn_local(async move {
         while let Ok(event) = rx.recv().await {
@@ -780,12 +786,6 @@ fn activate(app: &Application) {
 
     noticapsule.append(&*notiv_box);
     noticapsule.append(&timedatebox);
-
-    let noticapsule_window = ApplicationWindow::new(app);
-    noticapsule_window.init_layer_shell();
-    noticapsule_window.set_layer(Layer::Top);
-    noticapsule_window.set_namespace(Some("capsule"));
-
     
     // No exclusive zone — it's an overlay
     noticapsule_window.set_anchor(Edge::Top, true);
