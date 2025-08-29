@@ -352,17 +352,14 @@ fn check(container: &Rc<GtkBox>, prev: &Rc<RefCell<String>>, notiwidth: &Rc<RefC
 
 
 pub fn notiv_maker(container: &Rc<GtkBox>, app: &Application, timedatebox: &GtkBox) {
-    // Initial population
     let notivwidth = Rc::new(RefCell::new(200));
     let prev_noti = Rc::new(RefCell::new(String::new()));
     check(container, &prev_noti, &notivwidth, app, timedatebox);
 
-    // Set interval to refresh every 5 seconds
     let container_clone = container.clone();
     let app_clone = app.clone();
     let time_box_clone = timedatebox.clone();
     glib::timeout_add_seconds_local(3, move || {
-        // Clear existing notification
         let mut _child_removed = false;
         while let Some(child) = container_clone.first_child() {
             let cont_time_clone = time_box_clone.clone();
@@ -386,15 +383,13 @@ pub fn notiv_maker(container: &Rc<GtkBox>, app: &Application, timedatebox: &GtkB
             });
         }
         
-        // Re-add updated notifications
         check(&container_clone, &prev_noti, &notivwidth, &app_clone, &time_box_clone);
 
-        Continue // keep repeating
+        Continue
     });
 }
 
 fn append_time_and_date_labels(timedatebox: &GtkBox, app: &Application) {
-    // Clear old children
     let container_clone = timedatebox.clone();
     timedatebox.remove_css_class("scale-in");
     while let Some(child) = container_clone.first_child() {
@@ -423,14 +418,12 @@ fn append_time_and_date_labels(timedatebox: &GtkBox, app: &Application) {
     
     timedatebox.append(&time_date_button);
 
-    // Animate with CSS after adding to widget tree
     let time_clone = timedatebox.clone();
     idle_add_local(move || {
         time_clone.add_css_class("scale-in");
         Break
     });
 
-    // Live clock update
     timeout_add_seconds_local(1, {
         let time_label = time_label_ref.clone();
         move || {
@@ -462,7 +455,6 @@ fn activate(app: &Application) {
     let reload_flag = Arc::new(AtomicBool::new(false));
     flag::register(SIGUSR1, Arc::clone(&reload_flag)).unwrap();
 
-    // Periodic check loop (you can also use timeout_add)
     gtk4::glib::timeout_add_seconds_local(1, move || {
         if reload_flag.swap(false, Ordering::Relaxed) {
             eprintln!("Reloading CSS...");
