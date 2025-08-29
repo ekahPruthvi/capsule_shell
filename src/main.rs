@@ -157,7 +157,7 @@ fn create_icon_button(icon_name: &str, exec_command: String) -> Button {
         .tooltip_text(&exec_command)
         .build();
 
-    button.connect_clicked(move |butt| {
+    button.connect_clicked(move |_| {
         let _ = Command::new("sh")
             .arg("-c")
             .arg(&exec_command)
