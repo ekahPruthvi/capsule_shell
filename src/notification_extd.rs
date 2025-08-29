@@ -61,13 +61,12 @@ fn read_notifications() -> Vec<Notification> {
                         .to_string();
                     in_body = false;
                 } else if trimmed.starts_with("icon:") {
-                    break; // Stop parsing after `icon:`
+                    break;
                 } else if in_body {
                     body_lines.push(trimmed.to_string());
                 }
             }
 
-            // Now clean up the first and last lines
             if let Some(first) = body_lines.first_mut() {
                 if first.starts_with('\'') {
                     *first = first[1..].to_string();
@@ -157,7 +156,6 @@ pub fn build_window(app: &Application) {
             label.set_wrap(true);
             label.set_xalign(0.0);
 
-            // Apply urgency CSS class
             let urgency_class = match note.urgency.to_lowercase().as_str() {
                 "low" => "noti-low",
                 "critical" => "noti-critical",

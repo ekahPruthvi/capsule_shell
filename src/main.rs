@@ -27,21 +27,17 @@ use signal_hook::flag;
 
 
 pub fn start_status_icon_updater(container: &Rc<GtkBox>) {
-    // Initial population
     append_status_icons(container);
 
-    // Set interval to refresh every 10 seconds
     let container_clone = container.clone();
     glib::timeout_add_seconds_local(5, move || {
-        // Clear existing icons
         while let Some(child) = container_clone.first_child() {
             container_clone.remove(&child);
         }
 
-        // Re-add updated battery + network icons
         append_status_icons(&container_clone);
 
-        Continue // keep repeating
+        Continue
     });
 }
 
@@ -161,7 +157,7 @@ fn create_icon_button(icon_name: &str, exec_command: String) -> Button {
         .tooltip_text(&exec_command)
         .build();
 
-    button.connect_clicked(move |_| {
+    button.connect_clicked(move |butt| {
         let _ = Command::new("sh")
             .arg("-c")
             .arg(&exec_command)
@@ -172,7 +168,7 @@ fn create_icon_button(icon_name: &str, exec_command: String) -> Button {
 }
 
 fn ql_creator(container: &GtkBox, commands: Rc<RefCell<Vec<String>>>, last_hash: Rc<RefCell<u64>>) {
-     
+    
     let home = std::env::var("HOME").unwrap_or_default();
     let qlpath = format!("{}/.config/alt/ql.dat", home);
 
@@ -182,7 +178,7 @@ fn ql_creator(container: &GtkBox, commands: Rc<RefCell<Vec<String>>>, last_hash:
                 let new_hash = duration.as_secs();
                 let mut last = last_hash.borrow_mut();
                 if *last == new_hash {
-                    return; // No change
+                    return;
                 }
                 *last = new_hash;
             }
