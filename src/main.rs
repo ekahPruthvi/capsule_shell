@@ -169,8 +169,7 @@ fn create_icon_button(icon_name: &str, exec_command: String) -> Button {
 
 fn ql_creator(container: &GtkBox, commands: Rc<RefCell<Vec<String>>>, last_hash: Rc<RefCell<u64>>) {
     
-    let home = std::env::var("HOME").unwrap_or_default();
-    let qlpath = format!("{}/.config/alt/ql.dat", home);
+    let qlpath = format!("/var/lib/cynager/ql.dat");
 
     if let Ok(metadata) = fs::metadata(&qlpath) {
         if let Ok(modified) = metadata.modified() {
@@ -190,6 +189,8 @@ fn ql_creator(container: &GtkBox, commands: Rc<RefCell<Vec<String>>>, last_hash:
     }  
 
     commands.borrow_mut().clear();
+
+    let mut noneicon = true;
 
     if let Ok(contents) = fs::read_to_string(&qlpath) {
         let mut exec = None;
@@ -211,13 +212,22 @@ fn ql_creator(container: &GtkBox, commands: Rc<RefCell<Vec<String>>>, last_hash:
                 button.set_widget_name("qlicons");
                 button.set_css_classes(&["qlicons"]);
                 container.append(&button);
-
+                noneicon = false;
                 exec = None;
                 icon = None;
             }
         }
     }
+
+    if noneicon {
+        let button = create_icon_button("transperent","altDot".to_string() );
+        button.set_margin_bottom(5);
+        button.set_widget_name("qlicons");
+        button.set_css_classes(&["qlicons"]);
+        container.append(&button);
+    }
 }
+
 
 fn check(container: &Rc<GtkBox>, prev: &Rc<RefCell<String>>, notiwidth: &Rc<RefCell<usize>>, apppy: &Application, timedatebox: &GtkBox) {
 
