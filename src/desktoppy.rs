@@ -1,7 +1,6 @@
 use gtk4::{
     glib, prelude::*, Box as GtkBox, Button, Calendar, GestureClick, Grid, Label, Orientation, Revealer
 };
-use std::env;
 use std::fs::{self, File };
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
@@ -30,13 +29,12 @@ fn cal_matrix(box_width: u32, box_height: u32) -> (u32, u32) {
 }
 
 fn config_control() -> io::Result<String> {
-    let home_dir = env::var("HOME").map(PathBuf::from).expect("HOME env not set");
 
-    let path: PathBuf = home_dir
-        .join(".config")
-        .join("capsule")
-        .join("desktop")
-        .join("widgets.dat");
+    let path: PathBuf = PathBuf::from("/var")
+    .join("lib")
+    .join("cynager")
+    .join("desktop")
+    .join("widgets.dat");
 
     if let Some(parent) = path.parent() {
         if !parent.exists() {
