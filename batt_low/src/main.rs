@@ -258,7 +258,7 @@ fn activate(app: &Application) {
 fn main() {
     // Start reading from here dumbass
 
-    let app = Application::new(Some("com.ekah.battlow"), Default::default());
+    let app = Application::new(Some("ekah.scu.battlow"), Default::default());
     app.connect_activate(activate);
 
     app.run();
