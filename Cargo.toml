@@ -1,9 +1,9 @@
 [package]
 name = "capsule"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
 authors = ["ekahPruthvi <ekahpdp@gmail.com>"]
-description = "An alternate dynamicLauncher"
+description = "cynageos shell"
 license = "GPL-3.0"
 repository = "https://github.com/ekahPruthvi/capsule_shell.git"
 
