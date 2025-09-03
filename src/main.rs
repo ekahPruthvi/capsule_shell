@@ -904,7 +904,7 @@ fn activate(app: &Application) {
 fn main() {
     // Start reading from here dumbass
 
-    let app = Application::new(Some("com.ekah.cynideshell"), Default::default());
+    let app = Application::new(Some("ekah.scu.cynideshell"), Default::default());
     app.connect_activate(activate);
 
     app.run();
