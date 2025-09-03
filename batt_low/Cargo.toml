@@ -1,6 +1,6 @@
 [package]
 name = "batt_low"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
 authors = ["ekahPruthvi <ekahpdp@gmail.com>"]
 description = "battery error window"
