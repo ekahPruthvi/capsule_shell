@@ -805,7 +805,7 @@ fn activate(app: &Application) {
     let status_box = Rc::new(GtkBox::new(gtk4::Orientation::Vertical, 5));
     start_status_icon_updater(&status_box);
 
-    let power=create_icon_button("system-shutdown-symbolic", "terminatee".to_string());
+    let power=create_icon_button("cos-shutdown", "terminatee".to_string());
     power.set_tooltip_text(Some("Power menu"));
     power.set_css_classes(&["statusicon"]);
 
