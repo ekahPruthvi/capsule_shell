@@ -147,9 +147,13 @@ pub fn append_status_icons(container: &GtkBox) {
     
 }
 
-
-fn create_icon_button(icon_name: &str, exec_command: String) -> Button {
-    let image = Image::from_icon_name(icon_name);
+fn create_icon_button_loc(filename: &str, exec_command: String) -> Button {
+    
+    let image = if Path::new(filename).exists() || filename.contains('/') {
+        Image::from_file(filename)
+    } else {
+        Image::from_icon_name(filename)
+    };
     image.set_icon_size(gtk4::IconSize::Normal);
 
     let button = Button::builder()
@@ -207,7 +211,7 @@ fn ql_creator(container: &GtkBox, commands: Rc<RefCell<Vec<String>>>, last_hash:
                 let exec_clone = exec_val.clone();
                 commands.borrow_mut().push(exec_clone.clone());
 
-                let button = create_icon_button(&icon_val, exec_clone);
+                let button = create_icon_button_loc(&icon_val, exec_clone);
                 button.set_margin_bottom(5);
                 button.set_widget_name("qlicons");
                 button.set_css_classes(&["qlicons"]);
@@ -220,7 +224,7 @@ fn ql_creator(container: &GtkBox, commands: Rc<RefCell<Vec<String>>>, last_hash:
     }
 
     if noneicon {
-        let button = create_icon_button("transperent","altDot".to_string() );
+        let button = create_icon_button_loc("/var/lib/cynager/icons/transperent.svg","altDot".to_string() );
         button.set_margin_bottom(5);
         button.set_widget_name("qlicons");
         button.set_css_classes(&["qlicons"]);
@@ -521,7 +525,7 @@ fn activate(app: &Application) {
 
     // cos logo only works with cynide iconpack -------------------------------------------------------------------------------------------------- //
     let cos = Button::new();
-    let cos_logo = Image::from_icon_name("cos");
+    let cos_logo = Image::from_file("/var/lib/cynager/icons/cos.svg");
     cos_logo.set_icon_size(gtk4::IconSize::Large);
     cos.set_child(Some(&cos_logo));
 
@@ -805,7 +809,16 @@ fn activate(app: &Application) {
     let status_box = Rc::new(GtkBox::new(gtk4::Orientation::Vertical, 5));
     start_status_icon_updater(&status_box);
 
-    let power=create_icon_button("cos-shutdown", "terminatee".to_string());
+    let power = Button::builder()
+        .child(&Image::builder().file("/var/lib/cynager/icons/cos-shutdown.svg").icon_size(gtk4::IconSize::Normal).build())
+        .build();
+
+    power.connect_clicked(move |_| {
+        let _ = Command::new("sh")
+            .arg("-c")
+            .arg("terminatee")
+            .spawn();
+    });
     power.set_tooltip_text(Some("Power menu"));
     power.set_css_classes(&["statusicon"]);
 
