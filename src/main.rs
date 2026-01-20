@@ -729,7 +729,7 @@ fn activate(app: &Application) {
 
     let hide_timeout_id_clone = hide_timeout_id.clone();
     let osd_box_clone = osd_box.clone();
-    let mic_icon = gtk4::Image::from_icon_name("capsule_mic_mute");
+    let mic_icon = gtk4::Image::from_file("/var/lib/cynager/icons/capsule_mic_mute.svg");
     mic_icon.set_pixel_size(24);
     noticapsule.append(&mic_icon);
     mic_icon.set_visible(false);
