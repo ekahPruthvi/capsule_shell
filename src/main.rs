@@ -1,6 +1,5 @@
 use gtk4::{
-    glib, prelude::*, Application, ApplicationWindow, Box as GtkBox,
-    CssProvider, Orientation,
+    Application, ApplicationWindow, Box as GtkBox, Button, CssProvider, Image, Label, Orientation, glib, prelude::*
 };
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use gtk4::gdk::Display;
@@ -29,23 +28,37 @@ fn coping_with(app: &Application) {
     let time_window = ApplicationWindow::builder()
         .application(app)
         .title("capsuleT")
+        .css_name("timeWindow")
         .build();
 
     time_window.init_layer_shell();
+    time_window.set_namespace(Some("TimeCapsule"));
     time_window.set_layer(Layer::Top);
     time_window.set_height_request(30);
     time_window.set_anchor(Edge::Top, true);
-
-    let main_shell = GtkBox::new(Orientation::Horizontal, 0); 
-    main_shell.add_css_class("mainShell");
+    time_window.set_exclusive_zone(0);
 
     let time_capsule = GtkBox::new(Orientation::Horizontal, 5);
     time_capsule.add_css_class("timeCapsule");
-    time_capsule.set_height_request(30);
     time_capsule.set_halign(gtk4::Align::Center);
     time_capsule.set_valign(gtk4::Align::Start);
     time_capsule.set_width_request(100);
-    time_capsule.set_hexpand(false);
+
+    let cos = Button::new();
+    let cos_logo = Image::from_file("/var/lib/cynager/icons/cos.svg");
+    cos_logo.set_icon_size(gtk4::IconSize::Large);
+    cos.set_child(Some(&cos_logo));
+
+    let badge = Label::builder()
+        .css_name("notification_badge")
+        .halign(gtk4::Align::Center)
+        .visible(false)
+        .build();
+
+    let osd_box = GtkBox::new(Orientation::Horizontal, 5);
+
+    time_capsule.append(&cos);
+    time_capsule.append(&osd_box);
 
     time_window.set_child(Some(&time_capsule));
 

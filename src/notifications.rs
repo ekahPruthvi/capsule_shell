@@ -1,6 +1,6 @@
 use zbus::connection::Builder; // zbus 4.x — ConnectionBuilder is deprecated
 use tokio::sync::mpsc;
-use gtk4::prelude::*;
+use gtk4::{ApplicationWindow, Image, Label, prelude::*};
 use gtk4::glib::clone;
 use tokio::sync::mpsc::UnboundedReceiver;
 use std::cell::RefCell;
@@ -94,17 +94,18 @@ pub fn spawn_messaging_daemon() -> UnboundedReceiver<Notification> {
 
 pub fn connect_notifications_to_dock(
     mut rx: UnboundedReceiver<Notification>,
-    notification_button: &gtk4::Button,
-    badge_label: &gtk4::Label,
+    noti_window: &ApplicationWindow,
+    app_img: &Image,
+    badge: &Label // gotta add time box for displaying dot to show unread notifications
 ) {
     let history: Rc<RefCell<VecDeque<Notification>>> =
         Rc::new(RefCell::new(VecDeque::with_capacity(50)));
 
     let ctx = gtk4::glib::MainContext::default();
     ctx.spawn_local(clone!(
-        #[strong] notification_button,
-        #[strong] badge_label,
-        #[strong] history,
+        #[strong] noti_window,
+        #[strong] app_img,
+        #[strong] badge,
         async move {
             while let Some(notif) = rx.recv().await {
                 {
