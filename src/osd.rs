@@ -1,18 +1,3 @@
-// osd.rs — volume / mute / mic OSD via libpulse-binding.
-//
-// Cargo.toml:
-//   libpulse-binding      = "2"
-//   libpulse-glib-binding = "2"
-//
-// The key borrow-safety rule with libpulse + RefCell:
-//   Never hold a borrow on the RefCell while a PA callback that also borrows
-//   it can fire. We enforce this by:
-//   1. Deferring on_context_ready via glib::idle_add_local_once so the
-//      state-callback's implicit borrow on `ctx` is fully off the stack.
-//   2. In every fetch_* function, we call .introspect() and immediately drop
-//      the ctx borrow BEFORE handing control to PA — the result callback then
-//      borrows ctx fresh with no contention.
-
 use libpulse_binding::{
     callbacks::ListResult,
     context::{
@@ -22,14 +7,10 @@ use libpulse_binding::{
     volume::Volume,
 };
 use libpulse_glib_binding::Mainloop;
-
 use gtk4::glib;
 use gtk4::prelude::*;
-
 use std::cell::RefCell;
 use std::rc::Rc;
-
-// ─── public event type ────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
 pub enum OsdEvent {
@@ -39,8 +20,6 @@ pub enum OsdEvent {
     MicInUse { active: bool },
 }
 
-// ─── internal state ───────────────────────────────────────────────────────────
-
 #[derive(Default)]
 struct AudioState {
     sink_volume: u32,
@@ -48,8 +27,6 @@ struct AudioState {
     src_muted:   bool,
     src_running: bool,
 }
-
-// ─── entry point ──────────────────────────────────────────────────────────────
 
 pub fn connect_osd_to_dock(
     osd_label:    &gtk4::Label,
@@ -69,11 +46,6 @@ pub fn connect_osd_to_dock(
     let state:   Rc<RefCell<AudioState>>          = Default::default();
     let hide_id: Rc<RefCell<Option<glib::SourceId>>> = Default::default();
 
-    // ── state callback ───────────────────────────────────────────────────────
-    // IMPORTANT: the closure must not borrow `context` via the Rc while the
-    // callback itself is being invoked — PA holds an internal lock during the
-    // callback. We clone all Rcs before registering and defer the Ready work
-    // with idle_add_local_once so the callback stack is fully unwound first.
     {
         let ctx = Rc::clone(&context);
         let st  = Rc::clone(&state);
@@ -81,20 +53,13 @@ pub fn connect_osd_to_dock(
         let rev = osd_revealer.clone();
         let hid = Rc::clone(&hide_id);
 
-        // borrow_mut for set_state_callback — dropped at end of this block.
         context.borrow_mut().set_state_callback(Some(Box::new(move || {
-            // Read state with a *shared* borrow — doesn't conflict with PA's lock.
             let cs = unsafe {
-                // Safety: we are on the single glib main thread; no other
-                // Rust code can concurrently touch the RefCell here.
                 (*ctx.as_ptr()).get_state()
             };
 
             match cs {
                 ContextState::Ready => {
-                    // Defer: yield back to glib so this callback's implicit
-                    // PA-internal borrow is fully released before we start
-                    // calling subscribe / introspect on the context.
                     let ctx2 = Rc::clone(&ctx);
                     let st2  = Rc::clone(&st);
                     let lbl2 = lbl.clone();
@@ -110,19 +75,15 @@ pub fn connect_osd_to_dock(
                 _ => {}
             }
         })));
-    } // borrow_mut dropped here
+    }
 
-    // connect() borrows context mutably for the duration of the call only.
     context
         .borrow_mut()
         .connect(None, ContextFlagSet::NOFLAGS, None)
         .expect("PA connect");
 
-    // Leak both into 'static — the dock lives for the process lifetime.
     std::mem::forget((mainloop, context));
 }
-
-// ─── ready handler (runs on next glib idle, clean call stack) ─────────────────
 
 fn on_context_ready(
     ctx:      &Rc<RefCell<Context>>,
@@ -131,15 +92,12 @@ fn on_context_ready(
     revealer: &gtk4::Revealer,
     hide_id:  &Rc<RefCell<Option<glib::SourceId>>>,
 ) {
-    // Populate baseline state — no OSD shown.
     fetch_sink_info(ctx, state, label, revealer, hide_id, false);
     fetch_source_info(ctx, state, label, revealer, hide_id, false);
 
-    // subscribe() — brief mut borrow, immediately dropped.
     ctx.borrow_mut()
         .subscribe(InterestMaskSet::SINK | InterestMaskSet::SOURCE, |_| {});
 
-    // set_subscribe_callback — brief mut borrow, immediately dropped.
     {
         let ctx2 = Rc::clone(ctx);
         let st2  = Rc::clone(state);
@@ -149,9 +107,6 @@ fn on_context_ready(
 
         ctx.borrow_mut().set_subscribe_callback(Some(Box::new(
             move |facility, op, _index| {
-                // This callback fires on the glib main thread.
-                // fetch_* functions borrow ctx only briefly then release
-                // before handing off to PA — no re-entrant borrow possible.
                 match (facility, op) {
                     (Some(Facility::Sink), Some(SubOp::Changed)) => {
                         fetch_sink_info(&ctx2, &st2, &lbl2, &rev2, &hid2, true);
@@ -163,14 +118,8 @@ fn on_context_ready(
                 }
             },
         )));
-    } // borrow_mut dropped
+    }
 }
-
-// ─── fetchers ─────────────────────────────────────────────────────────────────
-// Pattern: borrow ctx → call introspect() → immediately drop borrow.
-// The introspect() call returns an Introspector by value; PA uses it
-// asynchronously, calling our closure later on the glib thread — at which
-// point ctx's RefCell is no longer borrowed.
 
 fn fetch_sink_info(
     ctx:      &Rc<RefCell<Context>>,
@@ -185,9 +134,7 @@ fn fetch_sink_info(
     let rev = revealer.clone();
     let hid = Rc::clone(hide_id);
 
-    // Borrow, get introspector (cheap handle), drop borrow.
     let introspector = ctx.borrow().introspect();
-    // `introspector` is now owned; ctx borrow is released.
     let _ = introspector.get_sink_info_by_name("@DEFAULT_SINK@", move |res| {
         let ListResult::Item(info) = res else { return };
 
@@ -251,8 +198,6 @@ fn fetch_source_info(
     });
 }
 
-// ─── OSD display ──────────────────────────────────────────────────────────────
-
 fn show_osd(
     label:    &gtk4::Label,
     revealer: &gtk4::Revealer,
@@ -301,8 +246,6 @@ fn apply_osd_event(label: &gtk4::Label, event: &OsdEvent) {
     };
     label.add_css_class(cls);
 }
-
-// ─── helpers ──────────────────────────────────────────────────────────────────
 
 fn pa_vol_to_percent(v: Volume) -> u32 {
     let norm = Volume::NORMAL.0 as f64;

@@ -13,11 +13,6 @@ mod osd;
 fn coping_with(app: &Application) {
     let rx = notifications::spawn_messaging_daemon();
 
-    let window = ApplicationWindow::builder()
-        .application(app)
-        .title("capsule")
-        .build();
-
     let css = CssProvider::new();
     let home_dir = env::var("HOME").unwrap_or_else(|_| ".".to_string());
     let css_path = format!("{}/.config/capsule/style.css", home_dir);
@@ -30,50 +25,34 @@ fn coping_with(app: &Application) {
         gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
     );
 
-    window.init_layer_shell();
-    window.set_layer(Layer::Top);
-    for (edge, anchor) in [
-        (Edge::Left, true),
-        (Edge::Right, true),
-        (Edge::Top, true),
-        (Edge::Bottom, true),
-    ] {
-        window.set_anchor(edge, anchor);
-    }
 
-    let root = GtkBox::new(Orientation::Horizontal, 0);
-    root.add_css_class("dock");
+    let time_window = ApplicationWindow::builder()
+        .application(app)
+        .title("capsuleT")
+        .build();
 
-    let notif_btn = gtk4::Button::new();
-    notif_btn.add_css_class("notif-btn");
+    time_window.init_layer_shell();
+    time_window.set_layer(Layer::Top);
+    time_window.set_height_request(30);
+    time_window.set_anchor(Edge::Top, true);
 
-    let badge = gtk4::Label::new(None);
-    badge.add_css_class("notif-badge");
-    badge.set_visible(true);
+    let main_shell = GtkBox::new(Orientation::Horizontal, 0); 
+    main_shell.add_css_class("mainShell");
 
-    let overlay = gtk4::Overlay::new();
-    overlay.set_child(Some(&notif_btn));
-    overlay.add_overlay(&badge);
-    badge.set_halign(gtk4::Align::End);
-    badge.set_valign(gtk4::Align::Start);
+    let time_capsule = GtkBox::new(Orientation::Horizontal, 5);
+    time_capsule.add_css_class("timeCapsule");
+    time_capsule.set_height_request(30);
+    time_capsule.set_halign(gtk4::Align::Center);
+    time_capsule.set_valign(gtk4::Align::Start);
+    time_capsule.set_width_request(100);
+    time_capsule.set_hexpand(false);
 
-    let osd_label = gtk4::Label::new(None);
-    osd_label.add_css_class("osd-label");
- 
-    let osd_revealer = gtk4::Revealer::new();
-    osd_revealer.set_transition_type(gtk4::RevealerTransitionType::Crossfade);
-    osd_revealer.set_transition_duration(150);
-    osd_revealer.set_child(Some(&osd_label));
-    osd_revealer.set_reveal_child(true);
+    time_window.set_child(Some(&time_capsule));
 
-    root.append(&overlay);
-    root.append(&osd_revealer);
-    window.set_child(Some(&root));
+    // notifications::connect_notifications_to_dock(rx, &notif_btn, &badge);
+    // osd::connect_osd_to_dock(&osd_label, &osd_revealer);
 
-    notifications::connect_notifications_to_dock(rx, &notif_btn, &badge);
-    osd::connect_osd_to_dock(&osd_label, &osd_revealer);
-
-    window.present();
+    time_window.present();
 }
 
 fn main() {
