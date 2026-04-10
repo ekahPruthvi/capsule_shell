@@ -16,3 +16,9 @@ inotify = "0.11.0"
 rand = "0.9.1"
 regex = "1.11.1"
 signal-hook = "0.3.18"
+
+zbus = { version = "4", default-features = false, features = ["tokio"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+serde = { version = "1", features = ["derive"] }
+libpulse-binding = "2.30.1"
+libpulse-glib-binding = "2.29.0"
