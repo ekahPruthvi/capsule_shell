@@ -4,6 +4,7 @@ use gtk4::{
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use gtk4::gdk::Display;
 use std::{env, time::Duration};
+use chrono::Local;
 use gtk4::gio::File;
 
 mod notifications;
@@ -28,7 +29,7 @@ fn coping_with(app: &Application) {
     let time_window = ApplicationWindow::builder()
         .application(app)
         .title("capsuleT")
-        .css_name("timeWindow")
+        .css_classes(["timeWindow"])
         .build();
 
     time_window.init_layer_shell();
@@ -44,15 +45,31 @@ fn coping_with(app: &Application) {
     time_capsule.set_halign(gtk4::Align::Center);
     time_capsule.set_valign(gtk4::Align::Start);
     time_capsule.set_margin_top(5);
-    time_capsule.set_width_request(200);
+    time_capsule.set_margin_bottom(5);
+    time_capsule.set_width_request(300);
+
+    let timendate = GtkBox::new(Orientation::Horizontal, 5);
+    let time = Label::new(Some("cynageOS"));
+    time.set_justify(gtk4::Justification::Center);
+    let ampm = Label::new(Some(""));
+    ampm.set_css_classes(&["ampm"]);
+
+    timendate.append(&time);
+    timendate.append(&ampm);
     
-    let time_and_actions = GtkBox::new(Orientation::Horizontal, 2);
-    let tna_btn = Button::builder()
-        .css_name("tNaBtn")
-        .child(&Label::new(Some("cynageOS")))
+    let time_and_actions = Button::builder()
+        .css_classes(["tNa"])
+        .child(&timendate)
+        .hexpand(true)
+        .halign(gtk4::Align::End)
         .build();
 
-    glib::timeout_add_local(Duration::from_secs(30), move || {
+    glib::timeout_add_local(Duration::from_secs(1), move || {
+        let now = Local::now();
+        let time_str = now.format("%I:%M").to_string();
+        
+        time.set_text(&time_str);
+        ampm.set_text(&now.format(" %p \n %a, %b %e").to_string());
         glib::ControlFlow::Continue
     });
 
@@ -60,6 +77,7 @@ fn coping_with(app: &Application) {
     let cos_logo = Image::from_file("/var/lib/cynager/icons/cos.svg");
     cos_logo.set_icon_size(gtk4::IconSize::Large);
     cos.set_child(Some(&cos_logo));
+    cos.set_css_classes(&["cosIcon"]);
 
     let badge = Label::builder()
         .css_name("notification_badge")
@@ -87,6 +105,7 @@ fn coping_with(app: &Application) {
     time_capsule.append(&cos);
     time_capsule.append(&badge);
     time_capsule.append(&osd_box);
+    time_capsule.append(&time_and_actions);
 
     time_window.set_child(Some(&time_capsule));
 
