@@ -61,6 +61,17 @@ fn coping_with(app: &Application) {
 
     let osd_box = GtkBox::new(Orientation::Horizontal, 5);
 
+    let osd_label = gtk4::Label::new(None);
+    osd_label.add_css_class("osd-label");
+ 
+    let osd_revealer = gtk4::Revealer::new();
+    osd_revealer.set_transition_type(gtk4::RevealerTransitionType::Crossfade);
+    osd_revealer.set_transition_duration(150);
+    osd_revealer.set_child(Some(&osd_label));
+    osd_revealer.set_reveal_child(false);
+
+    osd_box.append(&osd_revealer);
+
     time_capsule.append(&cos);
     time_capsule.append(&badge);
     time_capsule.append(&osd_box);
@@ -68,7 +79,7 @@ fn coping_with(app: &Application) {
     time_window.set_child(Some(&time_capsule));
 
     notifications::connect_notifications_to_dock(rx, &time_window, &cos_logo, &badge);
-    // osd::connect_osd_to_dock(&osd_label, &osd_revealer);
+    osd::connect_osd_to_dock(&osd_label, &osd_revealer);
 
     time_window.present();
 }
