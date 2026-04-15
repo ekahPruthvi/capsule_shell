@@ -114,7 +114,9 @@ pub fn connect_notifications_to_dock(
                         h.pop_front();
                     }
                     h.push_back(notif.clone());
-                    badge_label.set_text(&notif.summary);
+                    badge.set_visible(true);
+                    app_img.set_from_file(Some(&notif.icon));
+                    badge.set_text(&format!("{}\n{}", notif.summary, notif.body));
                 }
 
                 let count = history.borrow().len();

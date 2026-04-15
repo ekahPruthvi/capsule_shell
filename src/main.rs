@@ -52,17 +52,22 @@ fn coping_with(app: &Application) {
     let badge = Label::builder()
         .css_name("notification_badge")
         .halign(gtk4::Align::Center)
-        .visible(false)
+        .visible(true)
+        .label("")
         .build();
+    badge.set_wrap(true);
+    badge.set_max_width_chars(25);
+    badge.set_ellipsize(gtk4::pango::EllipsizeMode::End);
 
     let osd_box = GtkBox::new(Orientation::Horizontal, 5);
 
     time_capsule.append(&cos);
+    time_capsule.append(&badge);
     time_capsule.append(&osd_box);
 
     time_window.set_child(Some(&time_capsule));
 
-    // notifications::connect_notifications_to_dock(rx, &notif_btn, &badge);
+    notifications::connect_notifications_to_dock(rx, &time_window, &cos_logo, &badge);
     // osd::connect_osd_to_dock(&osd_label, &osd_revealer);
 
     time_window.present();
