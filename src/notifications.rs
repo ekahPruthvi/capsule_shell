@@ -116,7 +116,7 @@ pub fn connect_notifications_to_dock(
                     h.push_back(notif.clone());
                     badge.set_visible(true);
                     app_img.set_from_file(Some(&notif.icon));
-                    badge.set_text(&format!("{}\n{}", notif.summary, notif.body));
+                    badge.set_text(&format!("{}\n{}", notif.summary, notif.icon));
                 }
 
                 let count = history.borrow().len();

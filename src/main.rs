@@ -49,9 +49,9 @@ fn coping_with(app: &Application) {
     time_capsule.set_width_request(300);
 
     let timendate = GtkBox::new(Orientation::Horizontal, 5);
-    let time = Label::new(Some("cynageOS"));
+    let time = Label::new(Some(""));
     time.set_justify(gtk4::Justification::Center);
-    let ampm = Label::new(Some(""));
+    let ampm = Label::new(Some("cynageOS"));
     ampm.set_css_classes(&["ampm"]);
 
     timendate.append(&time);
