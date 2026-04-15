@@ -3,7 +3,7 @@ use gtk4::{
 };
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use gtk4::gdk::Display;
-use std::env;
+use std::{env, time::Duration};
 use gtk4::gio::File;
 
 mod notifications;
@@ -35,6 +35,7 @@ fn coping_with(app: &Application) {
     time_window.set_namespace(Some("TimeCapsule"));
     time_window.set_layer(Layer::Top);
     time_window.set_height_request(30);
+    time_window.remove_css_class("background");
     time_window.set_anchor(Edge::Top, true);
     time_window.set_exclusive_zone(0);
 
@@ -42,7 +43,18 @@ fn coping_with(app: &Application) {
     time_capsule.add_css_class("timeCapsule");
     time_capsule.set_halign(gtk4::Align::Center);
     time_capsule.set_valign(gtk4::Align::Start);
-    time_capsule.set_width_request(100);
+    time_capsule.set_margin_top(5);
+    time_capsule.set_width_request(200);
+    
+    let time_and_actions = GtkBox::new(Orientation::Horizontal, 2);
+    let tna_btn = Button::builder()
+        .css_name("tNaBtn")
+        .child(&Label::new(Some("cynageOS")))
+        .build();
+
+    glib::timeout_add_local(Duration::from_secs(30), move || {
+        glib::ControlFlow::Continue
+    });
 
     let cos = Button::new();
     let cos_logo = Image::from_file("/var/lib/cynager/icons/cos.svg");
