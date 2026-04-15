@@ -7,8 +7,10 @@ use libpulse_binding::{
     volume::Volume,
 };
 use libpulse_glib_binding::Mainloop;
+
 use gtk4::glib;
 use gtk4::prelude::*;
+
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -75,8 +77,7 @@ pub fn connect_osd_to_dock(
                 _ => {}
             }
         })));
-    }
-
+    } 
     context
         .borrow_mut()
         .connect(None, ContextFlagSet::NOFLAGS, None)
@@ -84,6 +85,7 @@ pub fn connect_osd_to_dock(
 
     std::mem::forget((mainloop, context));
 }
+
 
 fn on_context_ready(
     ctx:      &Rc<RefCell<Context>>,
@@ -118,7 +120,7 @@ fn on_context_ready(
                 }
             },
         )));
-    }
+    } 
 }
 
 fn fetch_sink_info(
@@ -211,8 +213,10 @@ fn show_osd(
         id.remove();
     }
     let rev = revealer.clone();
+    let hid = Rc::clone(hide_id);
     let new_id = glib::timeout_add_seconds_local(2, move || {
         rev.set_reveal_child(false);
+        hid.borrow_mut().take();
         glib::ControlFlow::Break
     });
     *hide_id.borrow_mut() = Some(new_id);
@@ -246,6 +250,7 @@ fn apply_osd_event(label: &gtk4::Label, event: &OsdEvent) {
     };
     label.add_css_class(cls);
 }
+
 
 fn pa_vol_to_percent(v: Volume) -> u32 {
     let norm = Volume::NORMAL.0 as f64;
