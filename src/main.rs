@@ -39,9 +39,10 @@ fn coping_with(app: &Application) {
     time_window.remove_css_class("background");
     time_window.set_anchor(Edge::Top, true);
     time_window.set_exclusive_zone(0);
+    time_window.set_width_request(400);
 
     let time_capsule = GtkBox::new(Orientation::Horizontal, 5);
-    time_capsule.add_css_class("timeCapsule");
+    time_capsule.set_css_classes(&["timeCapsule", "starting"]);
     time_capsule.set_halign(gtk4::Align::Center);
     time_capsule.set_valign(gtk4::Align::Start);
     time_capsule.set_hexpand(true);
@@ -65,12 +66,15 @@ fn coping_with(app: &Application) {
         .halign(gtk4::Align::End)
         .build();
 
-    glib::timeout_add_local(Duration::from_secs(1), move || {
+    let time_win = time_capsule.clone();
+    glib::timeout_add_local(Duration::from_millis(1200), move || {
         let now = Local::now();
         let time_str = now.format("%I:%M").to_string();
         
         time.set_text(&time_str);
         ampm.set_text(&now.format(" %p \n %a, %b %e").to_string());
+
+        time_win.remove_css_class("starting");
         glib::ControlFlow::Continue
     });
 
