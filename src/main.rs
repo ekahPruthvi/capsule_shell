@@ -110,7 +110,7 @@ fn coping_with(app: &Application) {
 
     time_window.set_child(Some(&time_capsule));
 
-    notifications::connect_notifications_to_dock(rx, &time_capsule, &cos_logo, &badge);
+    notifications::connect_notifications_to_dock(rx, &time_capsule, &time_window, &cos_logo, &badge);
     osd::connect_osd_to_dock(&osd_label, &osd_revealer);
 
     time_window.present();
