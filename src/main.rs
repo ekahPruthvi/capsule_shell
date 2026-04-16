@@ -67,6 +67,7 @@ fn coping_with(app: &Application) {
         .build();
 
     let time_win = time_capsule.clone();
+    let time_actual_window = time_window.clone();
     glib::timeout_add_local(Duration::from_millis(1200), move || {
         let now = Local::now();
         let time_str = now.format("%I:%M").to_string();
@@ -75,6 +76,7 @@ fn coping_with(app: &Application) {
         ampm.set_text(&now.format(" %p \n %a, %b %e").to_string());
 
         time_win.remove_css_class("starting");
+        time_actual_window.set_width_request(300);
         glib::ControlFlow::Continue
     });
 
@@ -95,15 +97,23 @@ fn coping_with(app: &Application) {
     badge.set_ellipsize(gtk4::pango::EllipsizeMode::End);
 
     let osd_box = GtkBox::new(Orientation::Horizontal, 5);
+    osd_box.set_hexpand(true);
+    osd_box.set_halign(gtk4::Align::Center);
 
-    let osd_label = gtk4::Label::new(None);
-    osd_label.add_css_class("osd-label");
+    let osd = GtkBox::new(Orientation::Horizontal, 5);
+    osd.set_hexpand(false);
+    osd.set_halign(gtk4::Align::Start);
+
  
     let osd_revealer = gtk4::Revealer::new();
     osd_revealer.set_transition_type(gtk4::RevealerTransitionType::Crossfade);
     osd_revealer.set_transition_duration(150);
-    osd_revealer.set_child(Some(&osd_label));
+    osd_revealer.set_child(Some(&osd));
     osd_revealer.set_reveal_child(false);
+    osd_revealer.set_css_classes(&["osdBox"]);
+    osd_revealer.set_width_request(300);
+    osd_revealer.set_visible(false);
+
 
     osd_box.append(&osd_revealer);
 
@@ -115,7 +125,7 @@ fn coping_with(app: &Application) {
     time_window.set_child(Some(&time_capsule));
 
     notifications::connect_notifications_to_dock(rx, &time_capsule, &time_window, &cos_logo, &cos, &badge);
-    osd::connect_osd_to_dock(&osd_label, &osd_revealer);
+    osd::connect_osd_to_dock(&osd, &osd_revealer, &time_capsule, &time_window);
 
     time_window.present();
 }

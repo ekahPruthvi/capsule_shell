@@ -200,7 +200,7 @@ pub fn connect_notifications_to_dock(
                                         noti_window_c.set_width_request(next_w as i32);
                                         glib::ControlFlow::Continue
                                     });
-                                    glib::ControlFlow::Break // End the 5s delay timer
+                                    glib::ControlFlow::Break 
                                 });
                                 return gtk4::glib::ControlFlow::Break;
                             }

@@ -11,10 +11,14 @@ use libpulse_glib_binding::Mainloop;
 use gtk4::glib;
 use gtk4::prelude::*;
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::mpsc as std_mpsc;
 use std::time::Duration;
+
+const CAPSULE_COLLAPSED: i32 = 300;
+const CAPSULE_EXPANDED:  i32 = 550;
+const ANIM_FRAME_MS:     u64 = 16; // ~60 fps, 300 ms total travel
 
 #[derive(Debug, Clone)]
 pub enum OsdEvent {
@@ -32,6 +36,8 @@ struct AudioState {
     src_muted:   bool,
     src_running: bool,
 }
+
+// ─── backlight ────────────────────────────────────────────────────────────────
 
 fn find_backlight() -> Option<(std::path::PathBuf, u64)> {
     let dir = std::fs::read_dir("/sys/class/backlight").ok()?;
@@ -101,10 +107,43 @@ fn spawn_brightness_watcher() -> Option<std_mpsc::Receiver<u32>> {
     Some(rx)
 }
 
+// ─── capsule animation ────────────────────────────────────────────────────────
+
+fn animate_capsule(
+    capsule: &gtk4::Box,
+    window:  &gtk4::ApplicationWindow,
+    target:  i32,
+) {
+    window.set_width_request(target);
+
+    let start        = capsule.width_request() as f64;
+    let total_frames = (300.0 / ANIM_FRAME_MS as f64).ceil() as u32;
+    let delta        = (target as f64 - start) / total_frames as f64;
+    let frame        = Rc::new(Cell::new(0u32));
+    let capsule      = capsule.clone();
+
+    glib::timeout_add_local(Duration::from_millis(ANIM_FRAME_MS), move || {
+        let f = frame.get() + 1;
+        frame.set(f);
+
+        if f >= total_frames {
+            capsule.set_width_request(target);
+            return glib::ControlFlow::Break;
+        }
+
+        capsule.set_width_request((start + delta * f as f64) as i32);
+        glib::ControlFlow::Continue
+    });
+}
+
+// ─── brightness connector ─────────────────────────────────────────────────────
+
 fn connect_brightness(
     rx:       std_mpsc::Receiver<u32>,
-    label:    gtk4::Label,
+    osd_box:  gtk4::Box,
     revealer: gtk4::Revealer,
+    capsule:  gtk4::Box,
+    window:   gtk4::ApplicationWindow,
     hide_id:  Rc<RefCell<Option<glib::SourceId>>>,
 ) {
     let rx = Rc::new(RefCell::new(rx));
@@ -121,21 +160,30 @@ fn connect_brightness(
             }
         }
         if let Some(pct) = last_pct {
-            show_osd(&label, &revealer, &hide_id, OsdEvent::Brightness { percent: pct });
+            show_osd(
+                &osd_box, &revealer, &capsule, &window,
+                &hide_id, OsdEvent::Brightness { percent: pct },
+            );
         }
         glib::ControlFlow::Continue
     });
 }
 
+// ─── public entry point ───────────────────────────────────────────────────────
+
 pub fn connect_osd_to_dock(
-    osd_label:    &gtk4::Label,
+    osd_box:      &gtk4::Box,
     osd_revealer: &gtk4::Revealer,
+    capsule:      &gtk4::Box,
+    window:       &gtk4::ApplicationWindow,
 ) {
     if let Some(bright_rx) = spawn_brightness_watcher() {
         connect_brightness(
             bright_rx,
-            osd_label.clone(),
+            osd_box.clone(),
             osd_revealer.clone(),
+            capsule.clone(),
+            window.clone(),
             Rc::new(RefCell::new(None)),
         );
     }
@@ -151,14 +199,16 @@ pub fn connect_osd_to_dock(
         ))
     };
 
-    let state :Rc<RefCell<AudioState>> = Default::default();
-    let audio_hide_id :Rc<RefCell<Option<glib::SourceId>>> = Default::default();
+    let state:         Rc<RefCell<AudioState>>             = Default::default();
+    let audio_hide_id: Rc<RefCell<Option<glib::SourceId>>> = Default::default();
 
     {
         let ctx = Rc::clone(&context);
         let st  = Rc::clone(&state);
-        let lbl = osd_label.clone();
+        let bx  = osd_box.clone();
         let rev = osd_revealer.clone();
+        let cap = capsule.clone();
+        let win = window.clone();
         let hid = Rc::clone(&audio_hide_id);
 
         context.borrow_mut().set_state_callback(Some(Box::new(move || {
@@ -167,11 +217,13 @@ pub fn connect_osd_to_dock(
                 ContextState::Ready => {
                     let ctx2 = Rc::clone(&ctx);
                     let st2  = Rc::clone(&st);
-                    let lbl2 = lbl.clone();
+                    let bx2  = bx.clone();
                     let rev2 = rev.clone();
+                    let cap2 = cap.clone();
+                    let win2 = win.clone();
                     let hid2 = Rc::clone(&hid);
                     glib::idle_add_local_once(move || {
-                        on_context_ready(&ctx2, &st2, &lbl2, &rev2, &hid2);
+                        on_context_ready(&ctx2, &st2, &bx2, &rev2, &cap2, &win2, &hid2);
                     });
                 }
                 ContextState::Failed | ContextState::Terminated => {
@@ -190,15 +242,19 @@ pub fn connect_osd_to_dock(
     std::mem::forget((mainloop, context));
 }
 
+// ─── context ready ────────────────────────────────────────────────────────────
+
 fn on_context_ready(
     ctx:      &Rc<RefCell<Context>>,
     state:    &Rc<RefCell<AudioState>>,
-    label:    &gtk4::Label,
+    osd_box:  &gtk4::Box,
     revealer: &gtk4::Revealer,
+    capsule:  &gtk4::Box,
+    window:   &gtk4::ApplicationWindow,
     hide_id:  &Rc<RefCell<Option<glib::SourceId>>>,
 ) {
-    fetch_sink_info(ctx, state, label, revealer, hide_id, false);
-    fetch_source_info(ctx, state, label, revealer, hide_id, false);
+    fetch_sink_info(ctx, state, osd_box, revealer, capsule, window, hide_id, false);
+    fetch_source_info(ctx, state, osd_box, revealer, capsule, window, hide_id, false);
 
     ctx.borrow_mut()
         .subscribe(InterestMaskSet::SINK | InterestMaskSet::SOURCE, |_| {});
@@ -206,18 +262,20 @@ fn on_context_ready(
     {
         let ctx2 = Rc::clone(ctx);
         let st2  = Rc::clone(state);
-        let lbl2 = label.clone();
+        let bx2  = osd_box.clone();
         let rev2 = revealer.clone();
+        let cap2 = capsule.clone();
+        let win2 = window.clone();
         let hid2 = Rc::clone(hide_id);
 
         ctx.borrow_mut().set_subscribe_callback(Some(Box::new(
             move |facility, op, _index| {
                 match (facility, op) {
                     (Some(Facility::Sink), Some(SubOp::Changed)) => {
-                        fetch_sink_info(&ctx2, &st2, &lbl2, &rev2, &hid2, true);
+                        fetch_sink_info(&ctx2, &st2, &bx2, &rev2, &cap2, &win2, &hid2, true);
                     }
                     (Some(Facility::Source), Some(SubOp::Changed)) => {
-                        fetch_source_info(&ctx2, &st2, &lbl2, &rev2, &hid2, true);
+                        fetch_source_info(&ctx2, &st2, &bx2, &rev2, &cap2, &win2, &hid2, true);
                     }
                     _ => {}
                 }
@@ -226,17 +284,23 @@ fn on_context_ready(
     }
 }
 
+// ─── sink / source fetchers ───────────────────────────────────────────────────
+
 fn fetch_sink_info(
     ctx:      &Rc<RefCell<Context>>,
     state:    &Rc<RefCell<AudioState>>,
-    label:    &gtk4::Label,
+    osd_box:  &gtk4::Box,
     revealer: &gtk4::Revealer,
+    capsule:  &gtk4::Box,
+    window:   &gtk4::ApplicationWindow,
     hide_id:  &Rc<RefCell<Option<glib::SourceId>>>,
     emit:     bool,
 ) {
     let st  = Rc::clone(state);
-    let lbl = label.clone();
+    let bx  = osd_box.clone();
     let rev = revealer.clone();
+    let cap = capsule.clone();
+    let win = window.clone();
     let hid = Rc::clone(hide_id);
 
     let introspector = ctx.borrow().introspect();
@@ -255,9 +319,9 @@ fn fetch_sink_info(
 
         if !emit { return; }
         if mute_changed {
-            show_osd(&lbl, &rev, &hid, OsdEvent::Mute { muted, volume: vol });
+            show_osd(&bx, &rev, &cap, &win, &hid, OsdEvent::Mute { muted, volume: vol });
         } else if vol_changed {
-            show_osd(&lbl, &rev, &hid, OsdEvent::Volume { volume: vol, muted });
+            show_osd(&bx, &rev, &cap, &win, &hid, OsdEvent::Volume { volume: vol, muted });
         }
     });
 }
@@ -265,14 +329,18 @@ fn fetch_sink_info(
 fn fetch_source_info(
     ctx:      &Rc<RefCell<Context>>,
     state:    &Rc<RefCell<AudioState>>,
-    label:    &gtk4::Label,
+    osd_box:  &gtk4::Box,
     revealer: &gtk4::Revealer,
+    capsule:  &gtk4::Box,
+    window:   &gtk4::ApplicationWindow,
     hide_id:  &Rc<RefCell<Option<glib::SourceId>>>,
     emit:     bool,
 ) {
     let st  = Rc::clone(state);
-    let lbl = label.clone();
+    let bx  = osd_box.clone();
     let rev = revealer.clone();
+    let cap = capsule.clone();
+    let win = window.clone();
     let hid = Rc::clone(hide_id);
 
     let introspector = ctx.borrow().introspect();
@@ -294,72 +362,115 @@ fn fetch_source_info(
 
         if !emit { return; }
         if mute_changed {
-            show_osd(&lbl, &rev, &hid, OsdEvent::MicMute { muted });
+            show_osd(&bx, &rev, &cap, &win, &hid, OsdEvent::MicMute { muted });
         } else if running_changed && running {
-            show_osd(&lbl, &rev, &hid, OsdEvent::MicInUse { active: true });
+            show_osd(&bx, &rev, &cap, &win, &hid, OsdEvent::MicInUse { active: true });
         }
     });
 }
 
+// ─── show / apply ─────────────────────────────────────────────────────────────
+
 fn show_osd(
-    label:    &gtk4::Label,
+    osd_box:  &gtk4::Box,
     revealer: &gtk4::Revealer,
+    capsule:  &gtk4::Box,
+    window:   &gtk4::ApplicationWindow,
     hide_id:  &Rc<RefCell<Option<glib::SourceId>>>,
     event:    OsdEvent,
 ) {
-    apply_osd_event(label, &event);
+    apply_osd_event(osd_box, &event);
+
+    let already_open = revealer.reveals_child();
     revealer.set_reveal_child(true);
 
+
+    let rev = revealer.clone();
+    // only expand if not already expanded (avoids restarting animation mid-flight)
+    if !already_open {
+        rev.set_visible(true);
+        animate_capsule(capsule, window, CAPSULE_EXPANDED);
+    }
+
+    // cancel any pending hide timer
     if let Some(id) = hide_id.borrow_mut().take() {
         id.remove();
     }
+
     let rev = revealer.clone();
+    let cap = capsule.clone();
+    let win = window.clone();
     let hid = Rc::clone(hide_id);
+
     let new_id = glib::timeout_add_seconds_local(2, move || {
         rev.set_reveal_child(false);
+        rev.set_visible(false);
         hid.borrow_mut().take();
+        animate_capsule(&cap, &win, CAPSULE_COLLAPSED);
         glib::ControlFlow::Break
     });
+
     *hide_id.borrow_mut() = Some(new_id);
 }
 
-fn apply_osd_event(label: &gtk4::Label, event: &OsdEvent) {
+fn apply_osd_event(osd_box: &gtk4::Box, event: &OsdEvent) {
+    let total_width = 300;
+
     for cls in &["osd-volume", "osd-muted", "osd-mic", "osd-mic-active", "osd-brightness"] {
-        label.remove_css_class(cls);
+        osd_box.remove_css_class(cls);
+    }
+
+    while let Some(child) = osd_box.first_child() {
+        osd_box.remove(&child);
     }
 
     match event {
-        OsdEvent::Volume { volume, .. } => {
-            label.set_text(&format!("󰕾  {}%  {}", volume, block_bar(*volume)));
-            label.add_css_class("osd-volume");
+        OsdEvent::Volume { volume, muted: false } => {
+            let fill = ((total_width as f64) * (*volume as f64 / 100.0)) as i32;
+            osd_box.set_width_request(fill.max(4));
+            osd_box.add_css_class("osd-volume");
+            let lbl = gtk4::Label::new(Some(&format!(" {}%", volume)));
+            osd_box.append(&lbl);
         }
-        OsdEvent::Mute { muted: true, .. } => {
-            label.set_text("󰖁  muted");
-            label.add_css_class("osd-muted");
+        OsdEvent::Volume { muted: true, .. } | OsdEvent::Mute { muted: true, .. } => {
+            osd_box.set_width_request(total_width);
+            osd_box.add_css_class("osd-muted");
+            let lbl = gtk4::Label::new(Some(" Volume muted"));
+            osd_box.append(&lbl);
         }
         OsdEvent::Mute { muted: false, volume } => {
-            label.set_text(&format!("󰕾  {}%  {}", volume, block_bar(*volume)));
-            label.add_css_class("osd-volume");
+            let fill = ((total_width as f64) * (*volume as f64 / 100.0)) as i32;
+            osd_box.set_width_request(fill.max(4));
+            osd_box.add_css_class("osd-volume");
+            let lbl = gtk4::Label::new(Some(&format!(" Mic: {}%", volume)));
+            osd_box.append(&lbl);
         }
         OsdEvent::MicMute { muted: true } => {
-            label.set_text("󰍭  mic muted");
-            label.add_css_class("osd-mic");
+            osd_box.set_width_request(total_width);
+            osd_box.add_css_class("osd-mic");
+            let lbl = gtk4::Label::new(Some(" Mic Muted"));
+            osd_box.append(&lbl);
         }
         OsdEvent::MicMute { muted: false } => {
-            label.set_text("󰍬  mic on");
-            label.add_css_class("osd-mic");
+            osd_box.set_width_request(total_width / 2);
+            osd_box.add_css_class("osd-mic");
+            let lbl = gtk4::Label::new(Some(" Mic on"));
+            osd_box.append(&lbl);
         }
         OsdEvent::MicInUse { active: true } => {
-            label.set_text("󰍬  mic in use");
-            label.add_css_class("osd-mic-active");
+            osd_box.set_width_request(total_width / 2);
+            osd_box.add_css_class("osd-mic-active");
+            let lbl = gtk4::Label::new(Some(" Mic in use"));
+            osd_box.append(&lbl);
         }
-        OsdEvent::MicInUse { active: false } => {
-            return;
-        }
+        OsdEvent::MicInUse { active: false } => {}
         OsdEvent::Brightness { percent } => {
+            let fill = ((total_width as f64) * (*percent as f64 / 100.0)) as i32;
+            osd_box.set_width_request(fill.max(4));
+            osd_box.add_css_class("osd-brightness");
             let icon = if *percent >= 50 { "󰃠" } else { "󰃟" };
-            label.set_text(&format!("{}  {}%  {}", icon, percent, block_bar(*percent)));
-            label.add_css_class("osd-brightness");
+            let lbl = gtk4::Label::new(Some(&format!("{}  {}%", icon, percent)));
+            osd_box.append(&lbl);
         }
     }
 }
@@ -369,10 +480,4 @@ fn apply_osd_event(label: &gtk4::Label, event: &OsdEvent) {
 fn pa_vol_to_percent(v: Volume) -> u32 {
     let norm = Volume::NORMAL.0 as f64;
     ((v.0 as f64 / norm) * 100.0).round().clamp(0.0, 150.0) as u32
-}
-
-fn block_bar(percent: u32) -> String {
-    let filled = (percent.min(100) / 10) as usize;
-    let empty  = 10usize.saturating_sub(filled);
-    format!("{}{}", "█".repeat(filled), "░".repeat(empty))
 }
