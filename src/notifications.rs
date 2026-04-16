@@ -6,6 +6,11 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use std::cell::{RefCell, Cell};
 use std::rc::Rc;
 use std::collections::VecDeque;
+use rodio::{Decoder, OutputStream, Sink};
+use std::fs::File;
+use std::thread;
+use std::io::{self, BufRead, BufReader};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
 pub struct Notification {
@@ -156,12 +161,29 @@ pub fn connect_notifications_to_dock(
 
                         let current_width = Rc::new(Cell::new(start_width as f64));
 
-                        main_window.set_width_request(requested_width+10);
+                        main_window.set_width_request(requested_width+50);
 
                         noti_window.set_width_request(start_width);
 
                         let noti_window = noti_window.clone();
                         let badge = badge.clone();
+
+                        thread::spawn(|| {
+                            let (_stream, stream_handle) = OutputStream::try_default()
+                                .expect("Could not find audio device");
+                            
+                            let sink = Sink::try_new(&stream_handle).expect("Could not create sink");
+
+                            if let Ok(file) = File::open("/var/lib/cynager/niri/sound/notiv/notiv.mp3") {
+                                if let Ok(source) = Decoder::new(BufReader::new(file)) {
+                                    sink.append(source);
+                                    sink.sleep_until_end();
+                                }
+                            } else {
+                                eprintln!("Could not find music.mp3");
+                            }
+
+                        });
 
                         gtk4::glib::timeout_add_local(std::time::Duration::from_millis(16), move || {
                             let next_w = current_width.get() + increment_per_frame;
@@ -178,7 +200,7 @@ pub fn connect_notifications_to_dock(
                                 let app_img_inner = app_img.clone();
                                 let cos_btn_inner = cos_btn.clone();
                                 
-                                glib::timeout_add_local(std::time::Duration::from_millis(5000), move || {
+                                glib::timeout_add_local(std::time::Duration::from_millis(10000), move || {
                                     let noti_window_c = noti_window_inner.clone();
                                     let current_width_c = current_width_inner.clone();
                                     let main_c = main_inner.clone();
