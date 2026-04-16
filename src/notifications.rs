@@ -1,6 +1,6 @@
 use zbus::connection::Builder;
 use tokio::sync::mpsc;
-use gtk4::{ApplicationWindow, Image, Label, prelude::*, Box as GtkBox, glib};
+use gtk4::{ApplicationWindow, Box as GtkBox, Button, Image, Label, glib, prelude::*};
 use gtk4::glib::clone;
 use tokio::sync::mpsc::UnboundedReceiver;
 use std::cell::{RefCell, Cell};
@@ -99,6 +99,7 @@ pub fn connect_notifications_to_dock(
     noti_window: &GtkBox,
     main_window: &ApplicationWindow,
     app_img: &Image,
+    cos_btn: &Button,
     badge: &Label // gotta add time box for displaying dot to show unread notifications
 ) {
     let history: Rc<RefCell<VecDeque<Notification>>> =
@@ -109,6 +110,7 @@ pub fn connect_notifications_to_dock(
         #[strong] noti_window,
         #[strong] main_window,
         #[strong] app_img,
+        #[strong] cos_btn,
         #[strong] badge,
         async move {
             while let Some(notif) = rx.recv().await {
@@ -120,9 +122,14 @@ pub fn connect_notifications_to_dock(
                     h.push_back(notif.clone());
                     badge.set_visible(true);
                     app_img.set_from_file(Some(&notif.icon));
+                    cos_btn.set_css_classes(&[ "spinning-coin"]);
                     let display = gtk4::gdk::Display::default().expect("Could not get default display");
                     let monitors = display.monitors();
+
                     let main_window = main_window.clone();
+                    let app_img = app_img.clone();
+                    let cos_btn = cos_btn.clone();
+                    
                     if let Some(monitor) = monitors.item(0).and_downcast::<gtk4::gdk::Monitor>() {
                         let geometry = monitor.geometry();
                         let width = geometry.width();
@@ -154,12 +161,16 @@ pub fn connect_notifications_to_dock(
                                 let badge_inner = badge.clone();
                                 let current_width_inner = current_width.clone();
                                 let main_inner = main_window.clone();
+                                let app_img_inner = app_img.clone();
+                                let cos_btn_inner = cos_btn.clone();
                                 
                                 glib::timeout_add_local(std::time::Duration::from_millis(5000), move || {
                                     let noti_window_c = noti_window_inner.clone();
                                     let current_width_c = current_width_inner.clone();
                                     let main_c = main_inner.clone();
                                     badge_inner.set_text("");
+                                    app_img_inner.set_from_file(Some("/var/lib/cynager/icons/cos.svg"));
+                                    cos_btn_inner.remove_css_class("spinning-coin");
                                     glib::timeout_add_local(std::time::Duration::from_millis(16), move || {
                                         let current_w = current_width_c.get();
                                         let next_w = current_w - increment_per_frame;
