@@ -81,7 +81,7 @@ fn coping_with(app: &Application) {
     cos.set_css_classes(&["cosIcon"]);
 
     let badge = Label::builder()
-        .css_name("notification_badge")
+        .css_classes(["notification_badge"])
         .halign(gtk4::Align::Center)
         .visible(false)
         .label("")
