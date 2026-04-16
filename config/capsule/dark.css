@@ -82,3 +82,41 @@
     font-weight: 300;
     font-style: italic;
 }
+
+.blip {
+    animation: blipper 1s cubic-bezier(0.34, 1.56, 0.64, 1);
+    /* transform-origin: center; */
+}
+
+@keyframes blipper {
+    0% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.03);
+    }
+    100% {
+        transform: scale(1);
+    }
+}
+
+.notification_badge {
+    margin-left: 10px;
+    font-family: Cantarell;
+    font-size: 15px;
+    font-weight: 300;
+}
+
+.spinning-coin {
+    transform-origin: center;
+    animation: coinSpin 0.5s linear infinite;
+}
+
+@keyframes coinSpin {
+    0% {
+        transform: rotate(-10deg);
+    }
+    100% {
+        transform: rotate(10deg);
+    }
+}
