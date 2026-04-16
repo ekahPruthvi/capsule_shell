@@ -33,19 +33,29 @@ impl NotificationServer {
         summary: &str,
         body: &str,
         actions: Vec<String>,
-        _hints: std::collections::HashMap<String, zbus::zvariant::OwnedValue>,
+        hints: std::collections::HashMap<String, zbus::zvariant::OwnedValue>,
         _expire_timeout: i32,
     ) -> u32 {
         let id = self
             .next_id
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
+        let icon = if !app_icon.is_empty() {
+        app_icon.to_string()
+        } else if let Some(val) = hints.get("image-path") {
+            val.to_string().trim_matches('"').to_string()
+        } else if let Some(val) = hints.get("app-icon") {
+            val.to_string().trim_matches('"').to_string()
+        } else {
+            app_name.to_lowercase()
+        };
+
         let notif = Notification {
             id,
             app_name: app_name.to_string(),
             summary: summary.to_string(),
             body: body.to_string(),
-            icon: app_icon.to_string(),
+            icon,
             timestamp: std::time::Instant::now(),
             actions: actions,
         };
@@ -121,15 +131,19 @@ pub fn connect_notifications_to_dock(
                     }
                     h.push_back(notif.clone());
                     badge.set_visible(true);
-                    app_img.set_from_file(Some(&notif.icon));
-                    cos_btn.set_css_classes(&[ "spinning-coin"]);
+                    if std::path::Path::new(&notif.icon).is_absolute() && std::path::Path::new(&notif.icon).exists() {
+                        app_img.set_from_file(Some(&notif.icon));
+                    } else {
+                        app_img.set_icon_name(Some(&notif.icon));
+                    }
+                    cos_btn.set_css_classes(&[ "spinning-coin", "cosIcon"]);
                     let display = gtk4::gdk::Display::default().expect("Could not get default display");
                     let monitors = display.monitors();
 
                     let main_window = main_window.clone();
                     let app_img = app_img.clone();
                     let cos_btn = cos_btn.clone();
-                    
+
                     if let Some(monitor) = monitors.item(0).and_downcast::<gtk4::gdk::Monitor>() {
                         let geometry = monitor.geometry();
                         let width = geometry.width();
