@@ -135,3 +135,79 @@
         transform: rotate(10deg);
     }
 }
+
+.osdBox {
+    border-radius: 50px;
+    padding: 2px;
+    background: #121212; /* Fallback for browsers that don't support gradients */
+    background: linear-gradient(
+        135deg,
+        #121212 25%,
+        #1a1a1a 25%,
+        #1a1a1a 50%,
+        #121212 50%,
+        #121212 75%,
+        #1a1a1a 75%,
+        #1a1a1a
+    );
+    background-size: 40px 40px;
+    animation: move 4s linear infinite;
+    border: 1px solid rgb(0, 0, 0);
+}
+
+@keyframes move {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 40px 40px;
+  }
+}
+
+.osd-fill-box {
+    border-radius: 50px;
+    min-height: 20px;
+    transition: min-width 150ms ease;
+}
+.osd-volume   { 
+    --s: 140px; /* control the size */
+    --_g: #0000 52%, #170409 /* first color */ 54% 57%, #0000 59%;
+
+    background: radial-gradient(farthest-side at -33.33% 50%, var(--_g)) 0
+        calc(var(--s) / 2),
+        radial-gradient(farthest-side at 50% 133.33%, var(--_g)) calc(var(--s) / 2)
+        0,
+        radial-gradient(farthest-side at 133.33% 50%, var(--_g)),
+        radial-gradient(farthest-side at 50% -33.33%, var(--_g)), #67917a; /* second color */
+    background-size: calc(var(--s) / 4.667) var(--s),
+        var(--s) calc(var(--s) / 4.667);
+    border-radius: 50px;
+    padding: 10px;
+    font-weight: 700;
+    text-shadow: 0px 0px 5px #121212;
+}
+.osd-muted    { 
+    background-color: crimson; 
+    border-radius: 50px;
+    padding: 10px;
+    font-weight: 700;
+}
+.osd-mic      { 
+    background-image: repeating-radial-gradient(
+      circle at 0 0,
+      transparent 0,
+      #00ff66 20px
+    ),
+    repeating-linear-gradient(#00ff00, #00b147);
+    border-radius: 50px;
+    padding: 10px;
+    color: black;
+    font-weight: 700;
+}
+.osd-brightness { 
+    background-color: rgb(255, 162, 0); 
+    border-radius: 50px;
+    padding: 10px;
+    font-weight: 700;
+    text-shadow: 0px 0px 5px #121212;
+}

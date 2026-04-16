@@ -429,7 +429,7 @@ fn apply_osd_event(osd_box: &gtk4::Box, event: &OsdEvent) {
             let fill = ((total_width as f64) * (*volume as f64 / 100.0)) as i32;
             osd_box.set_width_request(fill.max(4));
             osd_box.add_css_class("osd-volume");
-            let lbl = gtk4::Label::new(Some(&format!(" {}%", volume)));
+            let lbl = gtk4::Label::new(Some(&format!(" {}", volume)));
             osd_box.append(&lbl);
         }
         OsdEvent::Volume { muted: true, .. } | OsdEvent::Mute { muted: true, .. } => {
@@ -442,24 +442,24 @@ fn apply_osd_event(osd_box: &gtk4::Box, event: &OsdEvent) {
             let fill = ((total_width as f64) * (*volume as f64 / 100.0)) as i32;
             osd_box.set_width_request(fill.max(4));
             osd_box.add_css_class("osd-volume");
-            let lbl = gtk4::Label::new(Some(&format!(" Mic: {}%", volume)));
+            let lbl = gtk4::Label::new(Some(&format!(" Volume: {}", volume)));
             osd_box.append(&lbl);
         }
         OsdEvent::MicMute { muted: true } => {
             osd_box.set_width_request(total_width);
-            osd_box.add_css_class("osd-mic");
+            osd_box.add_css_class("osd-muted");
             let lbl = gtk4::Label::new(Some(" Mic Muted"));
             osd_box.append(&lbl);
         }
         OsdEvent::MicMute { muted: false } => {
-            osd_box.set_width_request(total_width / 2);
+            osd_box.set_width_request(total_width);
             osd_box.add_css_class("osd-mic");
             let lbl = gtk4::Label::new(Some(" Mic on"));
             osd_box.append(&lbl);
         }
         OsdEvent::MicInUse { active: true } => {
-            osd_box.set_width_request(total_width / 2);
-            osd_box.add_css_class("osd-mic-active");
+            osd_box.set_width_request(total_width);
+            osd_box.add_css_class("osd-mic");
             let lbl = gtk4::Label::new(Some(" Mic in use"));
             osd_box.append(&lbl);
         }
@@ -469,7 +469,7 @@ fn apply_osd_event(osd_box: &gtk4::Box, event: &OsdEvent) {
             osd_box.set_width_request(fill.max(4));
             osd_box.add_css_class("osd-brightness");
             let icon = if *percent >= 50 { "󰃠" } else { "󰃟" };
-            let lbl = gtk4::Label::new(Some(&format!("{}  {}%", icon, percent)));
+            let lbl = gtk4::Label::new(Some(&format!("{}  {}", icon, percent)));
             osd_box.append(&lbl);
         }
     }
