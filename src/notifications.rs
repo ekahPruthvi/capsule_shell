@@ -1,9 +1,9 @@
-use zbus::connection::Builder; // zbus 4.x — ConnectionBuilder is deprecated
+use zbus::connection::Builder;
 use tokio::sync::mpsc;
-use gtk4::{ApplicationWindow, Image, Label, prelude::*};
+use gtk4::{Image, Label, prelude::*, Box as GtkBox};
 use gtk4::glib::clone;
 use tokio::sync::mpsc::UnboundedReceiver;
-use std::cell::RefCell;
+use std::cell::{RefCell, Cell};
 use std::rc::Rc;
 use std::collections::VecDeque;
 
@@ -15,6 +15,7 @@ pub struct Notification {
     pub body: String,
     pub icon: String,
     pub timestamp: std::time::Instant,
+    pub actions: Vec<String>
 }
 
 struct NotificationServer {
@@ -31,7 +32,7 @@ impl NotificationServer {
         app_icon: &str,
         summary: &str,
         body: &str,
-        _actions: Vec<String>,
+        actions: Vec<String>,
         _hints: std::collections::HashMap<String, zbus::zvariant::OwnedValue>,
         _expire_timeout: i32,
     ) -> u32 {
@@ -46,6 +47,7 @@ impl NotificationServer {
             body: body.to_string(),
             icon: app_icon.to_string(),
             timestamp: std::time::Instant::now(),
+            actions: actions,
         };
 
         let _ = self.sender.send(notif);
@@ -94,7 +96,7 @@ pub fn spawn_messaging_daemon() -> UnboundedReceiver<Notification> {
 
 pub fn connect_notifications_to_dock(
     mut rx: UnboundedReceiver<Notification>,
-    noti_window: &ApplicationWindow,
+    noti_window: &GtkBox,
     app_img: &Image,
     badge: &Label // gotta add time box for displaying dot to show unread notifications
 ) {
@@ -116,7 +118,40 @@ pub fn connect_notifications_to_dock(
                     h.push_back(notif.clone());
                     badge.set_visible(true);
                     app_img.set_from_file(Some(&notif.icon));
-                    badge.set_text(&format!("{}\n{}", notif.summary, notif.icon));
+                    let display = gtk4::gdk::Display::default().expect("Could not get default display");
+                    let monitors = display.monitors();
+                    if let Some(monitor) = monitors.item(0).and_downcast::<gtk4::gdk::Monitor>() {
+                        let geometry = monitor.geometry();
+                        let width = geometry.width();
+                        let requested_width = (width as f64 * 0.8) as i32;
+                        let target_width = requested_width; 
+                        let start_width = 300;
+                        let duration_ms = 1000.0;
+                        let fps = 60.0;
+                        let increment_per_frame = (target_width - start_width) as f64 / (duration_ms / (1000.0 / fps));
+
+                        let current_width = Rc::new(Cell::new(start_width as f64));
+
+                        noti_window.set_width_request(start_width);
+                        let noti_window = noti_window.clone();
+
+                        gtk4::glib::timeout_add_local(std::time::Duration::from_millis(16), move || {
+                            let next_w = current_width.get() + increment_per_frame;
+                            
+                            if next_w >= target_width as f64 {
+                                noti_window.set_width_request(target_width);
+                                return gtk4::glib::ControlFlow::Break;
+                            }
+                            
+                            current_width.set(next_w);
+                            noti_window.set_width_request(next_w as i32);
+                            gtk4::glib::ControlFlow::Continue
+                        });
+
+                        
+                        // badge.set_text(&format!("{}\n{}", notif.summary, notif.body)); 
+                        // noti_window.set_width_request(requested_width);
+                    }
                 }
 
                 let count = history.borrow().len();

@@ -44,6 +44,7 @@ fn coping_with(app: &Application) {
     time_capsule.add_css_class("timeCapsule");
     time_capsule.set_halign(gtk4::Align::Center);
     time_capsule.set_valign(gtk4::Align::Start);
+    time_capsule.set_hexpand(true);
     time_capsule.set_margin_top(5);
     time_capsule.set_margin_bottom(5);
     time_capsule.set_width_request(300);
@@ -82,11 +83,11 @@ fn coping_with(app: &Application) {
     let badge = Label::builder()
         .css_name("notification_badge")
         .halign(gtk4::Align::Center)
-        .visible(true)
+        .visible(false)
         .label("")
         .build();
     badge.set_wrap(true);
-    badge.set_max_width_chars(25);
+    badge.set_max_width_chars(500);
     badge.set_ellipsize(gtk4::pango::EllipsizeMode::End);
 
     let osd_box = GtkBox::new(Orientation::Horizontal, 5);
@@ -109,7 +110,7 @@ fn coping_with(app: &Application) {
 
     time_window.set_child(Some(&time_capsule));
 
-    notifications::connect_notifications_to_dock(rx, &time_window, &cos_logo, &badge);
+    notifications::connect_notifications_to_dock(rx, &time_capsule, &cos_logo, &badge);
     osd::connect_osd_to_dock(&osd_label, &osd_revealer);
 
     time_window.present();
