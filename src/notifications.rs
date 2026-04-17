@@ -9,8 +9,7 @@ use std::collections::VecDeque;
 use rodio::{Decoder, OutputStream, Sink};
 use std::fs::File;
 use std::thread;
-use std::io::{self, BufRead, BufReader};
-use std::path::PathBuf;
+use std::io::BufReader;
 
 #[derive(Debug, Clone)]
 pub struct Notification {
@@ -46,7 +45,7 @@ impl NotificationServer {
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
         let icon = if !app_icon.is_empty() {
-        app_icon.to_string()
+            app_icon.to_string()
         } else if let Some(val) = hints.get("image-path") {
             val.to_string().trim_matches('"').to_string()
         } else if let Some(val) = hints.get("app-icon") {
@@ -62,7 +61,7 @@ impl NotificationServer {
             body: body.to_string(),
             icon,
             timestamp: std::time::Instant::now(),
-            actions: actions,
+            actions,
         };
 
         let _ = self.sender.send(notif);
@@ -109,16 +108,40 @@ pub fn spawn_messaging_daemon() -> UnboundedReceiver<Notification> {
     rx
 }
 
+fn play_notification_sound() {
+    thread::spawn(|| {
+        let (_stream, stream_handle) = match OutputStream::try_default() {
+            Ok(v) => v,
+            Err(_) => return,
+        };
+        let sink = match Sink::try_new(&stream_handle) {
+            Ok(s) => s,
+            Err(_) => return,
+        };
+        if let Ok(file) = File::open("/var/lib/cynager/niri/sound/notiv/notiv.mp3") {
+            if let Ok(source) = Decoder::new(BufReader::new(file)) {
+                sink.append(source);
+                sink.sleep_until_end();
+            }
+        }
+    });
+}
+
 pub fn connect_notifications_to_dock(
     mut rx: UnboundedReceiver<Notification>,
     noti_window: &GtkBox,
     main_window: &ApplicationWindow,
     app_img: &Image,
     cos_btn: &Button,
-    badge: &Label // gotta add time box for displaying dot to show unread notifications
+    badge: &Label,
+    noti_all: &GtkBox,
 ) {
     let history: Rc<RefCell<VecDeque<Notification>>> =
         Rc::new(RefCell::new(VecDeque::with_capacity(50)));
+
+    let pending_count: Rc<Cell<u32>>  = Rc::new(Cell::new(0));
+    let is_expanded:   Rc<Cell<bool>> = Rc::new(Cell::new(false));
+    let current_width: Rc<Cell<f64>>  = Rc::new(Cell::new(300.0));
 
     let ctx = gtk4::glib::MainContext::default();
     ctx.spawn_local(clone!(
@@ -127,116 +150,131 @@ pub fn connect_notifications_to_dock(
         #[strong] app_img,
         #[strong] cos_btn,
         #[strong] badge,
+        #[strong] noti_all,
         async move {
             while let Some(notif) = rx.recv().await {
                 {
                     let mut h = history.borrow_mut();
-                    if h.len() == 50 {
-                        h.pop_front();
-                    }
+                    if h.len() == 50 { h.pop_front(); }
                     h.push_back(notif.clone());
-                    badge.set_visible(true);
-                    if std::path::Path::new(&notif.icon).is_absolute() && std::path::Path::new(&notif.icon).exists() {
-                        app_img.set_from_file(Some(&notif.icon));
-                    } else {
-                        app_img.set_icon_name(Some(&notif.icon));
-                    }
-                    cos_btn.set_css_classes(&[ "spinning-coin", "cosIcon"]);
-                    let display = gtk4::gdk::Display::default().expect("Could not get default display");
-                    let monitors = display.monitors();
-
-                    let main_window = main_window.clone();
-                    let app_img = app_img.clone();
-                    let cos_btn = cos_btn.clone();
-
-                    if let Some(monitor) = monitors.item(0).and_downcast::<gtk4::gdk::Monitor>() {
-                        let geometry = monitor.geometry();
-                        let width = geometry.width();
-                        let requested_width = (width as f64 * 0.8) as i32;
-                        let target_width = requested_width; 
-                        let start_width = 300;
-                        let duration_ms = 1500.0;
-                        let fps = 60.0;
-                        let increment_per_frame = (target_width - start_width) as f64 / (duration_ms / (1000.0 / fps));
-
-                        let current_width = Rc::new(Cell::new(start_width as f64));
-
-                        main_window.set_width_request(requested_width+50);
-
-                        noti_window.set_width_request(start_width);
-
-                        let noti_window = noti_window.clone();
-                        let badge = badge.clone();
-
-                        thread::spawn(|| {
-                            let (_stream, stream_handle) = OutputStream::try_default()
-                                .expect("Could not find audio device");
-                            
-                            let sink = Sink::try_new(&stream_handle).expect("Could not create sink");
-
-                            if let Ok(file) = File::open("/var/lib/cynager/niri/sound/notiv/notiv.mp3") {
-                                if let Ok(source) = Decoder::new(BufReader::new(file)) {
-                                    sink.append(source);
-                                    sink.sleep_until_end();
-                                }
-                            } else {
-                                eprintln!("Could not find music.mp3");
-                            }
-
-                        });
-
-                        gtk4::glib::timeout_add_local(std::time::Duration::from_millis(16), move || {
-                            let next_w = current_width.get() + increment_per_frame;
-                            
-                            if next_w >= target_width as f64 {
-                                noti_window.set_width_request(target_width);
-                                noti_window.set_css_classes(&["blip","timeCapsule"]);
-                                badge.set_text(&format!("{}\n{}", notif.summary, notif.body));
-
-                                let noti_window_inner = noti_window.clone();
-                                let badge_inner = badge.clone();
-                                let current_width_inner = current_width.clone();
-                                let main_inner = main_window.clone();
-                                let app_img_inner = app_img.clone();
-                                let cos_btn_inner = cos_btn.clone();
-                                
-                                glib::timeout_add_local(std::time::Duration::from_millis(10000), move || {
-                                    let noti_window_c = noti_window_inner.clone();
-                                    let current_width_c = current_width_inner.clone();
-                                    let main_c = main_inner.clone();
-                                    badge_inner.set_text("");
-                                    app_img_inner.set_from_file(Some("/var/lib/cynager/icons/cos.svg"));
-                                    cos_btn_inner.remove_css_class("spinning-coin");
-                                    glib::timeout_add_local(std::time::Duration::from_millis(16), move || {
-                                        let current_w = current_width_c.get();
-                                        let next_w = current_w - increment_per_frame;
-
-                                        if next_w <= start_width as f64 {
-                                            noti_window_c.set_width_request(start_width);
-                                            noti_window_c.remove_css_class("blip");
-                                            main_c.set_width_request(300);
-                                            return glib::ControlFlow::Break;
-                                        }
-
-                                        current_width_c.set(next_w);
-                                        noti_window_c.set_width_request(next_w as i32);
-                                        glib::ControlFlow::Continue
-                                    });
-                                    glib::ControlFlow::Break 
-                                });
-                                return gtk4::glib::ControlFlow::Break;
-                            }
-                            
-                            current_width.set(next_w);
-                            noti_window.set_width_request(next_w as i32);
-                            gtk4::glib::ControlFlow::Continue
-                        });
-
-                        // noti_window.set_width_request(requested_width);
-                    }
                 }
 
-                let count = history.borrow().len();
+                if std::path::Path::new(&notif.icon).is_absolute()
+                    && std::path::Path::new(&notif.icon).exists()
+                {
+                    app_img.set_from_file(Some(&notif.icon));
+                } else {
+                    app_img.set_icon_name(Some(&notif.icon));
+                }
+                cos_btn.set_css_classes(&["spinning-coin", "cosIcon"]);
+                badge.set_visible(true);
+                badge.set_text(&format!("{}\n{}", notif.summary, notif.body));
+
+                play_notification_sound();
+
+                let noti_label = Label::new(Some(&format!("{}\n{}", notif.summary, notif.body)));
+                noti_label.set_css_classes(&["notificationAll"]);
+                noti_label.set_width_request(400);
+                noti_label.set_height_request(30);
+                noti_label.set_hexpand(true);
+                noti_label.set_margin_start(10);
+                noti_label.set_margin_end(10);
+                noti_label.set_halign(gtk4::Align::Center);
+                noti_all.append(&noti_label);
+
+                pending_count.set(pending_count.get() + 1);
+
+                let display  = gtk4::gdk::Display::default().expect("no display");
+                let monitors = display.monitors();
+
+                if let Some(monitor) = monitors.item(0).and_downcast::<gtk4::gdk::Monitor>() {
+                    let geometry     = monitor.geometry();
+                    let target_width = (geometry.width() as f64 * 0.8) as i32;
+                    let start_width  = 300i32;
+                    let increment_per_frame =
+                        (target_width - start_width) as f64 / (1500.0 / (1000.0 / 60.0));
+
+                    if !is_expanded.get() {
+                        is_expanded.set(true);
+                        current_width.set(start_width as f64);
+
+                        main_window.set_width_request(target_width + 50);
+                        noti_window.set_width_request(start_width);
+                        noti_window.set_css_classes(&["timeCapsule"]);
+
+                        let noti_window_anim   = noti_window.clone();
+                        let current_width_anim = Rc::clone(&current_width);
+
+                        gtk4::glib::timeout_add_local(
+                            std::time::Duration::from_millis(16),
+                            move || {
+                                let next_w = current_width_anim.get() + increment_per_frame;
+                                if next_w >= target_width as f64 {
+                                    current_width_anim.set(target_width as f64);
+                                    noti_window_anim.set_width_request(target_width);
+                                    // blip fires once animation completes
+                                    noti_window_anim.set_css_classes(&["blip", "timeCapsule"]);
+                                    return gtk4::glib::ControlFlow::Break;
+                                }
+                                current_width_anim.set(next_w);
+                                noti_window_anim.set_width_request(next_w as i32);
+                                gtk4::glib::ControlFlow::Continue
+                            },
+                        );
+                    } else {
+                        noti_window.remove_css_class("blip");
+                        let noti_window_blip = noti_window.clone();
+                        gtk4::glib::timeout_add_local(
+                            std::time::Duration::from_millis(16),
+                            move || {
+                                noti_window_blip.add_css_class("blip");
+                                gtk4::glib::ControlFlow::Break
+                            },
+                        );
+                    }
+
+                    let pending_count_hide = Rc::clone(&pending_count);
+                    let is_expanded_hide   = Rc::clone(&is_expanded);
+                    let current_width_hide = Rc::clone(&current_width);
+                    let noti_window_hide   = noti_window.clone();
+                    let main_window_hide   = main_window.clone();
+                    let app_img_hide       = app_img.clone();
+                    let cos_btn_hide       = cos_btn.clone();
+                    let badge_hide         = badge.clone();
+
+                    glib::timeout_add_local(std::time::Duration::from_millis(10000), move || {
+                        let remaining = pending_count_hide.get().saturating_sub(1);
+                        pending_count_hide.set(remaining);
+
+                        if remaining == 0 {
+                            badge_hide.set_text("");
+                            app_img_hide.set_from_file(Some("/var/lib/cynager/icons/cos.svg"));
+                            cos_btn_hide.remove_css_class("spinning-coin");
+                            is_expanded_hide.set(false);
+
+                            let noti_window_c   = noti_window_hide.clone();
+                            let current_width_c = Rc::clone(&current_width_hide);
+                            let main_c          = main_window_hide.clone();
+
+                            glib::timeout_add_local(
+                                std::time::Duration::from_millis(16),
+                                move || {
+                                    let next_w = current_width_c.get() - increment_per_frame;
+                                    if next_w <= start_width as f64 {
+                                        noti_window_c.set_width_request(start_width);
+                                        noti_window_c.remove_css_class("blip");
+                                        main_c.set_width_request(300);
+                                        return glib::ControlFlow::Break;
+                                    }
+                                    current_width_c.set(next_w);
+                                    noti_window_c.set_width_request(next_w as i32);
+                                    glib::ControlFlow::Continue
+                                },
+                            );
+                        }
+                        glib::ControlFlow::Break
+                    });
+                }
             }
         }
     ));

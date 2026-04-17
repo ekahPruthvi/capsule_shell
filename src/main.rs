@@ -1,5 +1,5 @@
 use gtk4::{
-    Application, ApplicationWindow, Box as GtkBox, Button, CssProvider, Image, Label, Orientation, glib, prelude::*
+    Application, ApplicationWindow, Box as GtkBox, Button, CssProvider, Image, Label, Orientation, gdk::Monitor, gio::ListModel, glib, prelude::*
 };
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use gtk4::gdk::Display;
@@ -9,6 +9,42 @@ use gtk4::gio::File;
 
 mod notifications;
 mod osd;
+
+fn makin_noti_window(app: &Application, boxxy: &gtk4::ScrolledWindow){
+    let noti_window = ApplicationWindow::builder()
+        .application(app)
+        .title("capsuleN")
+        .build();
+
+    // let display = gtk4::gdk::Display::default().expect("Could not connect to a display.");
+    // let monitors = display.monitors();
+
+    // let connect_monito = |monitors: ListModel| {
+    //         for i in 0..monitors.n_items() {
+    //         if let Some(obj) = monitors.item(i) {
+    //             if let Ok(monitor) = obj.downcast::<gtk4::gdk::Monitor>() {
+    //                 noti_window.set_monitor(Some(&monitor));
+    //             }
+    //         }
+    //     }
+    // };
+
+    // monitors.connect_items_changed(move |monitors, _, _, _| {
+    //     connect_monito(monitors);
+    // });
+
+    noti_window.init_layer_shell();
+    noti_window.set_namespace(Some("Notifications"));
+    noti_window.set_layer(Layer::Background);
+    noti_window.set_height_request(100);
+    noti_window.remove_css_class("background");
+    noti_window.set_anchor(Edge::Bottom, true);
+    noti_window.set_exclusive_zone(-1);
+
+    noti_window.set_child(Some(boxxy));
+
+    noti_window.present();
+}
 
 fn coping_with(app: &Application) {
     let rx = notifications::spawn_messaging_daemon();
@@ -124,10 +160,40 @@ fn coping_with(app: &Application) {
 
     time_window.set_child(Some(&time_capsule));
 
-    notifications::connect_notifications_to_dock(rx, &time_capsule, &time_window, &cos_logo, &cos, &badge);
+
+    let noti_boxy_inner_notifications_all = GtkBox::new(Orientation::Horizontal, 0);
+
+    notifications::connect_notifications_to_dock(rx, &time_capsule, &time_window, &cos_logo, &cos, &badge, &noti_boxy_inner_notifications_all);
     osd::connect_osd_to_dock(&osd, &osd_revealer, &time_capsule, &time_window);
 
     time_window.present();
+
+    let noti_boxy = GtkBox::new(Orientation::Vertical, 0);
+    noti_boxy.append(&noti_boxy_inner_notifications_all);
+    noti_boxy.set_css_classes(&["notificationWindow"]);
+    noti_boxy.set_margin_bottom(10);
+    noti_boxy.set_width_request(300);
+    noti_boxy.set_halign(gtk4::Align::Center);
+    let display = gtk4::gdk::Display::default().expect("Could not get default display");
+    let monitors = display.monitors();
+
+    let scrolled_window = gtk4::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk4::PolicyType::Automatic)
+        .vscrollbar_policy(gtk4::PolicyType::Never)               
+        .child(&noti_boxy)                        
+        .build();
+
+    if let Some(monitor) = monitors.item(0).and_downcast::<gtk4::gdk::Monitor>() {
+        let geometry = monitor.geometry();
+        let width = geometry.width();
+        scrolled_window.set_width_request(width);
+    }
+    
+
+    let appy = app.clone();
+    // time_and_actions.connect_clicked( move |_| {
+        makin_noti_window(&appy, &scrolled_window);
+    // });
 }
 
 fn main() {
