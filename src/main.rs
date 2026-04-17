@@ -164,7 +164,8 @@ fn coping_with(app: &Application) {
 
     let scrolled_window = gtk4::ScrolledWindow::builder()
         .hscrollbar_policy(gtk4::PolicyType::Automatic)
-        .vscrollbar_policy(gtk4::PolicyType::Never)               
+        .vscrollbar_policy(gtk4::PolicyType::Never)
+        .css_classes(["notiScroller"])               
         .child(&noti_boxy)                        
         .build();
 

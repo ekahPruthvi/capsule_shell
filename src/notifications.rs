@@ -162,8 +162,9 @@ pub fn connect_notifications_to_dock(
                 }
 
                 let notification_icon = Image::from_file("/var/lib/cynager/icons/lemon.svg");
-                notification_icon.set_icon_size(gtk4::IconSize::Large);
+                notification_icon.set_icon_size(gtk4::IconSize::Normal);
                 notification_icon.set_css_classes(&["notiIcon"]);
+                notification_icon.set_height_request(28);
 
                 if std::path::Path::new(&notif.icon).is_absolute()
                     && std::path::Path::new(&notif.icon).exists()
@@ -172,6 +173,7 @@ pub fn connect_notifications_to_dock(
                 } else {
                     app_img.set_icon_name(Some(&notif.icon));
                     notification_icon.set_icon_name(Some(&notif.icon));
+                    notification_icon.set_icon_size(gtk4::IconSize::Large);
                 }
                 cos_btn.set_css_classes(&["spinning-coin", "cosIcon"]);
                 badge.set_visible(true);
@@ -184,16 +186,22 @@ pub fn connect_notifications_to_dock(
                 noti_label_sum.set_halign(gtk4::Align::Start);
 
                 let noti_label_bod = Label::new(Some(&notif.body));
-                noti_label_bod.set_css_classes(&["notificationAllLabelSummary"]);
+                noti_label_bod.set_css_classes(&["notificationAllLabelBody"]);
                 noti_label_bod.set_halign(gtk4::Align::Start);
+                noti_label_bod.set_wrap(true);
+                noti_label_bod.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
+                noti_label_bod.set_width_request(50);
+                noti_label_bod.set_max_width_chars(10);
+                noti_label_bod.set_lines(2);
+                noti_label_bod.set_ellipsize(gtk4::pango::EllipsizeMode::End);
 
-                let noti_label_all = GtkBox::new(gtk4::Orientation::Vertical, 0);
+                let noti_label_all = GtkBox::new(gtk4::Orientation::Horizontal, 20);
                 noti_label_all.append(&noti_label_sum);
                 noti_label_all.append(&noti_label_bod);
 
                 let noti_all_box = GtkBox::new(gtk4::Orientation::Horizontal, 5);
                 noti_all_box.set_css_classes(&["notificationAll"]);
-                noti_all_box.set_width_request(400);
+                noti_all_box.set_width_request(500);
                 noti_all_box.set_height_request(30);
                 noti_all_box.set_hexpand(true);
                 noti_all_box.set_margin_start(10);
@@ -201,17 +209,45 @@ pub fn connect_notifications_to_dock(
                 noti_all_box.set_halign(gtk4::Align::Center);
 
                 let delete_btn = Button::new();
-                let delete = Image::from_file("/var/lib/cynager/icons/delete.svg");
-                delete.set_icon_size(gtk4::IconSize::Large);
+                let delete = Image::from_file("/var/lib/cynager/icons/close.svg");
+                delete.set_icon_size(gtk4::IconSize::Normal);
                 delete_btn.set_child(Some(&delete));
                 delete_btn.set_css_classes(&["deleteBtn"]);
+                delete_btn.set_width_request(28);
+                delete_btn.set_height_request(28);
                 delete_btn.set_hexpand(true);
                 delete_btn.set_halign(gtk4::Align::End);
+                delete_btn.set_cursor_from_name(Some("pointer"));
 
                 noti_all_box.append(&notification_icon);
                 noti_all_box.append(&noti_label_all);
-                noti_all_box.append(&Label::new(Some(&notif.app_name)));
+                noti_all_box.append(&Label::builder()
+                    .label(&notif.app_name)
+                    .css_classes(["appName"])
+                    .hexpand(true)
+                    .halign(gtk4::Align::End)
+                    .build()
+                );
                 noti_all_box.append(&delete_btn);
+
+
+                let clear_all_btn = Button::new();
+                let clear = Image::from_file("/var/lib/cynager/icons/delete.svg");
+
+                clear.set_icon_size(gtk4::IconSize::Large);
+                clear_all_btn.set_child(Some(&clear));
+                clear_all_btn.set_css_classes(&["clearBtn"]);
+                clear_all_btn.set_width_request(30);
+                clear_all_btn.set_height_request(30);
+                clear_all_btn.set_hexpand(true);
+                clear_all_btn.set_halign(gtk4::Align::Fill);
+                clear_all_btn.set_vexpand(true);
+                clear_all_btn.set_valign(gtk4::Align::Center);
+                clear_all_btn.set_cursor_from_name(Some("pointer"));
+
+                if noti_all.first_child().is_none() {
+                    noti_all.append(&clear_all_btn);
+                }
 
                 noti_all.append(&noti_all_box);
                 for win in app.windows() {
@@ -222,8 +258,16 @@ pub fn connect_notifications_to_dock(
 
                 let noti_all_clone = noti_all.clone();
                 let appp = app.clone();
+                let clear_all_btn_clone = clear_all_btn.clone();
                 delete_btn.connect_clicked( move |_| {
                     noti_all_clone.remove(&noti_all_box);
+                    let is_only_one = noti_all_clone.first_child().is_some() 
+                        && noti_all_clone.first_child() == noti_all_clone.last_child();
+
+                    if is_only_one {
+                        noti_all_clone.remove(&clear_all_btn_clone);
+                    }
+
                     if noti_all_clone.first_child().is_none() {
                         for win in appp.windows() {
                             if win.title().as_deref() == Some("capsuleN") {
