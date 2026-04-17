@@ -6,9 +6,40 @@ use gtk4::gdk::Display;
 use std::{env, time::Duration};
 use chrono::Local;
 use gtk4::gio::File;
+use std::cell::RefCell;
+use std::rc::Rc;
+use niri_ipc::{socket::Socket, Action, Request, Response, WorkspaceReferenceArg};
 
 mod notifications;
 mod osd;
+
+const HIDE_WORKSPACE_IDX: u8 = 99;
+
+#[derive(Clone)]
+struct WindowRecord {
+    id: u64,
+    workspace_id: Option<u64>,
+}
+
+fn send_action(action: Action) {
+    if let Ok(mut sock) = Socket::connect() {
+        let _ = sock.send(Request::Action(action));
+    }
+}
+
+fn get_windows() -> Vec<WindowRecord> {
+    let Ok(mut sock) = Socket::connect() else { return vec![] };
+    match sock.send(Request::Windows) {
+        Ok(Ok(Response::Windows(windows))) => windows
+            .into_iter()
+            .map(|w| WindowRecord {
+                id: w.id,
+                workspace_id: w.workspace_id,
+            })
+            .collect(),
+        _ => vec![],
+    }
+}
 
 fn makin_noti_window(app: &Application, boxxy: &gtk4::ScrolledWindow){
     let noti_window = ApplicationWindow::builder()
@@ -177,9 +208,60 @@ fn coping_with(app: &Application) {
     
 
     let appy = app.clone();
-    // time_and_actions.connect_clicked( move |_| {
-        makin_noti_window(&appy, &scrolled_window);
-    // });
+    makin_noti_window(&appy, &scrolled_window);
+
+    let records: Rc<RefCell<Vec<WindowRecord>>> = Rc::new(RefCell::new(vec![]));
+    let is_hidden: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
+
+    let records_clone = records.clone();
+    let is_hidden_clone = is_hidden.clone();
+    let timendate_clone = timendate.clone();
+
+    let show = Image::from_file("/var/lib/cynager/icons/win2.svg");
+    show.set_icon_size(gtk4::IconSize::Normal);
+    show.set_margin_start(10);
+    show.set_margin_end(5);
+    time_and_actions.connect_clicked(move |_| {
+            let mut hiding = is_hidden_clone.borrow_mut();
+
+            if !*hiding {
+                let wins = get_windows();
+
+                for w in &wins {
+                    send_action(Action::MoveWindowToWorkspace {
+                        window_id: Some(w.id),
+                        reference: WorkspaceReferenceArg::Index(HIDE_WORKSPACE_IDX),
+                        focus: false
+                    });
+                }
+
+                *records_clone.borrow_mut() = wins;
+                *hiding = true;
+
+                timendate_clone.append(&show);
+            } else {
+                let wins = records_clone.borrow().clone();
+                for w in &wins {
+                    let target = match w.workspace_id {
+                        Some(id) => WorkspaceReferenceArg::Id(id),
+                        None => WorkspaceReferenceArg::Index(1),
+                    };
+                    send_action(Action::MoveWindowToWorkspace {
+                        window_id: Some(w.id),
+                        reference: target,
+                        focus: false
+                    });
+                }
+
+                send_action(Action::FocusWorkspace {
+                    reference: WorkspaceReferenceArg::Index(1),
+                });
+
+                records_clone.borrow_mut().clear();
+                *hiding = false;
+                timendate_clone.remove(&show);
+            }
+        });
 }
 
 fn main() {
