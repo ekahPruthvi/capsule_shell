@@ -10,6 +10,7 @@ use rodio::{Decoder, OutputStream, Sink};
 use std::fs::File;
 use std::thread;
 use std::io::BufReader;
+use std::time::Duration;
 
 #[derive(Debug, Clone)]
 pub struct Notification {
@@ -245,12 +246,35 @@ pub fn connect_notifications_to_dock(
                 clear_all_btn.set_valign(gtk4::Align::Center);
                 clear_all_btn.set_cursor_from_name(Some("pointer"));
 
+                let noti_all_clone = noti_all.clone();
+                let apppy = app.clone();
+                clear_all_btn.connect_clicked( move |_| {
+                    noti_all_clone.add_css_class("vanish");
+
+                    let apppy = apppy.clone();
+                    let noti_all_clone = noti_all_clone.clone();
+                    glib::timeout_add_local(Duration::from_secs(1), move || {
+                        while let Some(child) = noti_all_clone.first_child() {
+                            noti_all_clone.remove(&child);
+                        }
+                        for win in apppy.windows() {
+                            if win.title().as_deref() == Some("capsuleN") {
+                                win.hide();
+                            }
+                        }
+                        glib::ControlFlow::Break
+                    });
+                    
+                });
+
                 if noti_all.first_child().is_none() {
                     noti_all.append(&clear_all_btn);
                 }
 
                 noti_all.append(&noti_all_box);
+                let noti_all_clone = noti_all.clone();
                 for win in app.windows() {
+                    noti_all_clone.remove_css_class("vanish");
                     if win.title().as_deref() == Some("capsuleN") {
                         win.present();
                     }
