@@ -146,7 +146,9 @@ fn coping_with(app: &Application) {
 
     let noti_boxy_inner_notifications_all = GtkBox::new(Orientation::Horizontal, 0);
 
-    notifications::connect_notifications_to_dock(rx, &time_capsule, &time_window, &cos_logo, &cos, &badge, &noti_boxy_inner_notifications_all);
+
+    let appey = app.clone();
+    notifications::connect_notifications_to_dock(rx, &time_capsule, &time_window, &cos_logo, &cos, &badge, &noti_boxy_inner_notifications_all, &appey);
     osd::connect_osd_to_dock(&osd, &osd_revealer, &time_capsule, &time_window);
 
     time_window.present();

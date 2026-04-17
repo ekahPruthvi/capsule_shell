@@ -135,6 +135,7 @@ pub fn connect_notifications_to_dock(
     cos_btn: &Button,
     badge: &Label,
     noti_all: &GtkBox,
+    app: &gtk4::Application,
 ) {
     let history: Rc<RefCell<VecDeque<Notification>>> =
         Rc::new(RefCell::new(VecDeque::with_capacity(50)));
@@ -142,6 +143,7 @@ pub fn connect_notifications_to_dock(
     let pending_count: Rc<Cell<u32>>  = Rc::new(Cell::new(0));
     let is_expanded:   Rc<Cell<bool>> = Rc::new(Cell::new(false));
     let current_width: Rc<Cell<f64>>  = Rc::new(Cell::new(300.0));
+    let app = app.clone();
 
     let ctx = gtk4::glib::MainContext::default();
     ctx.spawn_local(clone!(
@@ -159,12 +161,17 @@ pub fn connect_notifications_to_dock(
                     h.push_back(notif.clone());
                 }
 
+                let notification_icon = Image::from_file("/var/lib/cynager/icons/lemon.svg");
+                notification_icon.set_icon_size(gtk4::IconSize::Large);
+                notification_icon.set_css_classes(&["notiIcon"]);
+
                 if std::path::Path::new(&notif.icon).is_absolute()
                     && std::path::Path::new(&notif.icon).exists()
                 {
                     app_img.set_from_file(Some(&notif.icon));
                 } else {
                     app_img.set_icon_name(Some(&notif.icon));
+                    notification_icon.set_icon_name(Some(&notif.icon));
                 }
                 cos_btn.set_css_classes(&["spinning-coin", "cosIcon"]);
                 badge.set_visible(true);
@@ -172,15 +179,60 @@ pub fn connect_notifications_to_dock(
 
                 play_notification_sound();
 
-                let noti_label = Label::new(Some(&format!("{}\n{}", notif.summary, notif.body)));
-                noti_label.set_css_classes(&["notificationAll"]);
-                noti_label.set_width_request(400);
-                noti_label.set_height_request(30);
-                noti_label.set_hexpand(true);
-                noti_label.set_margin_start(10);
-                noti_label.set_margin_end(10);
-                noti_label.set_halign(gtk4::Align::Center);
-                noti_all.append(&noti_label);
+                let noti_label_sum = Label::new(Some(&notif.summary));
+                noti_label_sum.set_css_classes(&["notificationAllLabelSummary"]);
+                noti_label_sum.set_halign(gtk4::Align::Start);
+
+                let noti_label_bod = Label::new(Some(&notif.body));
+                noti_label_bod.set_css_classes(&["notificationAllLabelSummary"]);
+                noti_label_bod.set_halign(gtk4::Align::Start);
+
+                let noti_label_all = GtkBox::new(gtk4::Orientation::Vertical, 0);
+                noti_label_all.append(&noti_label_sum);
+                noti_label_all.append(&noti_label_bod);
+
+                let noti_all_box = GtkBox::new(gtk4::Orientation::Horizontal, 5);
+                noti_all_box.set_css_classes(&["notificationAll"]);
+                noti_all_box.set_width_request(400);
+                noti_all_box.set_height_request(30);
+                noti_all_box.set_hexpand(true);
+                noti_all_box.set_margin_start(10);
+                noti_all_box.set_margin_end(10);
+                noti_all_box.set_halign(gtk4::Align::Center);
+
+                let delete_btn = Button::new();
+                let delete = Image::from_file("/var/lib/cynager/icons/delete.svg");
+                delete.set_icon_size(gtk4::IconSize::Large);
+                delete_btn.set_child(Some(&delete));
+                delete_btn.set_css_classes(&["deleteBtn"]);
+                delete_btn.set_hexpand(true);
+                delete_btn.set_halign(gtk4::Align::End);
+
+                noti_all_box.append(&notification_icon);
+                noti_all_box.append(&noti_label_all);
+                noti_all_box.append(&Label::new(Some(&notif.app_name)));
+                noti_all_box.append(&delete_btn);
+
+                noti_all.append(&noti_all_box);
+                for win in app.windows() {
+                    if win.title().as_deref() == Some("capsuleN") {
+                        win.present();
+                    }
+                }
+
+                let noti_all_clone = noti_all.clone();
+                let appp = app.clone();
+                delete_btn.connect_clicked( move |_| {
+                    noti_all_clone.remove(&noti_all_box);
+                    if noti_all_clone.first_child().is_none() {
+                        for win in appp.windows() {
+                            if win.title().as_deref() == Some("capsuleN") {
+                                win.hide();
+                            }
+                        }
+                    }
+                });
+
 
                 pending_count.set(pending_count.get() + 1);
 
@@ -212,7 +264,6 @@ pub fn connect_notifications_to_dock(
                                 if next_w >= target_width as f64 {
                                     current_width_anim.set(target_width as f64);
                                     noti_window_anim.set_width_request(target_width);
-                                    // blip fires once animation completes
                                     noti_window_anim.set_css_classes(&["blip", "timeCapsule"]);
                                     return gtk4::glib::ControlFlow::Break;
                                 }
