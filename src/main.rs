@@ -1,5 +1,5 @@
 use gtk4::{
-    Application, ApplicationWindow, Box as GtkBox, Button, CssProvider, Image, Label, Orientation, gdk::Monitor, gio::ListModel, glib, prelude::*
+    Application, ApplicationWindow, Box as GtkBox, Button, CssProvider, Image, Label, Orientation, glib, prelude::*
 };
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use gtk4::gdk::Display;
@@ -16,26 +16,9 @@ fn makin_noti_window(app: &Application, boxxy: &gtk4::ScrolledWindow){
         .title("capsuleN")
         .build();
 
-    // let display = gtk4::gdk::Display::default().expect("Could not connect to a display.");
-    // let monitors = display.monitors();
-
-    // let connect_monito = |monitors: ListModel| {
-    //         for i in 0..monitors.n_items() {
-    //         if let Some(obj) = monitors.item(i) {
-    //             if let Ok(monitor) = obj.downcast::<gtk4::gdk::Monitor>() {
-    //                 noti_window.set_monitor(Some(&monitor));
-    //             }
-    //         }
-    //     }
-    // };
-
-    // monitors.connect_items_changed(move |monitors, _, _, _| {
-    //     connect_monito(monitors);
-    // });
-
     noti_window.init_layer_shell();
     noti_window.set_namespace(Some("Notifications"));
-    noti_window.set_layer(Layer::Background);
+    noti_window.set_layer(Layer::Bottom);
     noti_window.set_height_request(100);
     noti_window.remove_css_class("background");
     noti_window.set_anchor(Edge::Bottom, true);
