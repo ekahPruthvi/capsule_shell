@@ -12,8 +12,8 @@ use niri_ipc::{socket::Socket, Action, Request, Response, WorkspaceReferenceArg}
 
 mod notifications;
 mod osd;
-
 mod widgets;
+
 use widgets::{battery::spawn_battery_widget, calendar::spawn_calendar_widget};
 
 const HIDE_WORKSPACE_IDX: u8 = 99;
@@ -44,32 +44,25 @@ fn get_windows() -> Vec<WindowRecord> {
     }
 }
 
-fn makin_widget_window(app: &Application, noti_boxxy: &gtk4::ScrolledWindow){
-    let widget_window = ApplicationWindow::builder()
+fn makin_widget_window(app: &Application, boxxy: &gtk4::ScrolledWindow){
+    let noti_window = ApplicationWindow::builder()
         .application(app)
         .title("capsuleN")
         .build();
 
-    widget_window.init_layer_shell();
-    widget_window.set_namespace(Some("WidgetScreen"));
-    widget_window.set_layer(Layer::Bottom);
-    widget_window.set_height_request(100);
-    widget_window.remove_css_class("background");
-    widget_window.set_anchor(Edge::Bottom, true);
-    widget_window.set_anchor(Edge::Top, true);
-    widget_window.set_anchor(Edge::Left, true);
-    widget_window.set_anchor(Edge::Right, true);
-    widget_window.set_exclusive_zone(-1);
+    noti_window.init_layer_shell();
+    noti_window.set_namespace(Some("Notifications"));
+    noti_window.set_layer(Layer::Bottom);
+    noti_window.set_height_request(100);
+    noti_window.remove_css_class("background");
+    noti_window.set_anchor(Edge::Bottom, true);
+    noti_window.set_exclusive_zone(-1);
 
-    let screen = GtkBox::new(Orientation::Vertical, 5);
-    
-    screen.append(noti_boxxy);
-    widget_window.set_child(Some(&screen));
-
-    spawn_battery_widget();
     spawn_calendar_widget();
 
-    widget_window.present();
+    noti_window.set_child(Some(boxxy));
+
+    noti_window.present();
 }
 
 fn coping_with(app: &Application) {
@@ -207,18 +200,14 @@ fn coping_with(app: &Application) {
     let scrolled_window = gtk4::ScrolledWindow::builder()
         .hscrollbar_policy(gtk4::PolicyType::Automatic)
         .vscrollbar_policy(gtk4::PolicyType::Never)
-        .hexpand(true)
-        .halign(gtk4::Align::Fill)
-        .vexpand(true)
-        .valign(gtk4::Align::End)
         .css_classes(["notiScroller"])               
         .child(&noti_boxy)                        
         .build();
 
     if let Some(monitor) = monitors.item(0).and_downcast::<gtk4::gdk::Monitor>() {
         let geometry = monitor.geometry();
-        let height = geometry.height();
-        scrolled_window.set_height_request((height as f64 * 0.1) as i32);
+        let width = geometry.width();
+        scrolled_window.set_width_request(width);
     }
     
 
