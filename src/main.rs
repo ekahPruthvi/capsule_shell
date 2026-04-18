@@ -13,6 +13,9 @@ use niri_ipc::{socket::Socket, Action, Request, Response, WorkspaceReferenceArg}
 mod notifications;
 mod osd;
 
+mod widgets;
+use widgets::{battery::spawn_battery_widget, calendar::spawn_calendar_widget};
+
 const HIDE_WORKSPACE_IDX: u8 = 99;
 
 #[derive(Clone)]
@@ -41,14 +44,14 @@ fn get_windows() -> Vec<WindowRecord> {
     }
 }
 
-fn makin_widget_window(app: &Application, boxxy: &gtk4::ScrolledWindow){
+fn makin_widget_window(app: &Application, noti_boxxy: &gtk4::ScrolledWindow){
     let widget_window = ApplicationWindow::builder()
         .application(app)
         .title("capsuleN")
         .build();
 
     widget_window.init_layer_shell();
-    widget_window.set_namespace(Some("Notifications"));
+    widget_window.set_namespace(Some("WidgetScreen"));
     widget_window.set_layer(Layer::Bottom);
     widget_window.set_height_request(100);
     widget_window.remove_css_class("background");
@@ -58,7 +61,13 @@ fn makin_widget_window(app: &Application, boxxy: &gtk4::ScrolledWindow){
     widget_window.set_anchor(Edge::Right, true);
     widget_window.set_exclusive_zone(-1);
 
-    widget_window.set_child(Some(boxxy));
+    let screen = GtkBox::new(Orientation::Vertical, 5);
+    
+    screen.append(noti_boxxy);
+    widget_window.set_child(Some(&screen));
+
+    spawn_battery_widget();
+    spawn_calendar_widget();
 
     widget_window.present();
 }
@@ -77,7 +86,6 @@ fn coping_with(app: &Application) {
         &css,
         gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
     );
-
 
     let time_window = ApplicationWindow::builder()
         .application(app)
@@ -201,7 +209,7 @@ fn coping_with(app: &Application) {
         .vscrollbar_policy(gtk4::PolicyType::Never)
         .hexpand(true)
         .halign(gtk4::Align::Fill)
-        .vexpand(false)
+        .vexpand(true)
         .valign(gtk4::Align::End)
         .css_classes(["notiScroller"])               
         .child(&noti_boxy)                        

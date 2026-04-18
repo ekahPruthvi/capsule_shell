@@ -19,8 +19,8 @@ pub struct Notification {
     pub summary: String,
     pub body: String,
     pub icon: String,
-    pub timestamp: std::time::Instant,
-    pub actions: Vec<String>
+    pub _timestamp: std::time::Instant,
+    pub _actions: Vec<String>
 }
 
 struct NotificationServer {
@@ -37,7 +37,7 @@ impl NotificationServer {
         app_icon: &str,
         summary: &str,
         body: &str,
-        actions: Vec<String>,
+        _actions: Vec<String>,
         hints: std::collections::HashMap<String, zbus::zvariant::OwnedValue>,
         _expire_timeout: i32,
     ) -> u32 {
@@ -61,8 +61,8 @@ impl NotificationServer {
             summary: summary.to_string(),
             body: body.to_string(),
             icon,
-            timestamp: std::time::Instant::now(),
-            actions,
+            _timestamp: std::time::Instant::now(),
+            _actions,
         };
 
         let _ = self.sender.send(notif);
