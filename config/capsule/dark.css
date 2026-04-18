@@ -5,20 +5,37 @@
     padding: 5px;
     border-radius: 50px;
     border: none;
-    background-color: transparent;
+    background-image: 
+        radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0), transparent 20%),
+        radial-gradient(circle at center, rgba(135, 206, 250, 0) 0%, rgba(30, 144, 255, 0) 30%, transparent 70%),
+        radial-gradient(circle at center, rgba(0, 0, 139, 0) 0%, rgba(0, 0, 0, 0) 100%);
+
+    transition: all 400ms cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 0 0 rgba(30, 144, 255, 0);
 }
 
 .cosIcon:hover {
-    background-color: rgb(54, 0, 140);
-    background-image: linear-gradient(
-        120deg, 
-        rgba(255, 255, 255, 0) 30%, 
-        rgba(0, 0, 0, 0.2) 50%, 
-        rgba(255, 255, 255, 0) 70%
-    );
-    background-size: 200% 150%;
-    border: 1px solid rgba(255, 255, 255, 0.151);
-    animation: shine 1.5s infinite linear;
+    background-image: 
+        radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.8) 0%, transparent 20%),
+        radial-gradient(circle at center, #87cefa 0%, #1e90ff 30%, transparent 70%),
+        radial-gradient(circle at center, #00008b 0%, #000000 100%);
+
+    box-shadow: 
+        0 0 15px 2px rgba(30, 144, 255, 0.6), 
+        inset 0 0 8px rgba(255, 255, 255, 0.3); 
+        
+    animation: orb-pulse 3s infinite ease-in-out;
+}
+
+@keyframes orb-pulse {
+    0%, 100% { 
+        box-shadow: 0 0 15px 2px rgba(30, 144, 255, 0.6);
+        transform: scale(1);
+    }
+    50% { 
+        box-shadow: 0 0 25px 5px rgba(30, 144, 255, 0.9);
+        transform: scale(1.05);
+    }
 }
 
 .timeCapsule {
@@ -376,4 +393,101 @@ scrollbar {
         opacity: 0;
         transform: translateY(300px);
     }
+}
+
+.jiggling {
+    animation: jiggle 0.1s ease-in-out;
+    transform: scale(1.05);
+}
+
+@keyframes jiggle {
+    0%   { transform: scale(1); }
+    100% { transform: scale(1.05); }
+}
+
+.widgetBox {
+    padding: 10px;
+    background-color: rgba(255, 0, 0, 0);
+    border-radius: 30px;
+}
+
+.dragHandle {
+    padding: 6px;
+    border-radius: 50px 50px 10px 10px;
+    background-color: rgba(125, 125, 125, 0.104);
+}
+
+.dragHandle:hover {
+    background-color: rgba(125, 125, 125, 0.359);
+}
+
+
+calendar.view {
+    border: none;
+    border-radius: 25px;
+    background-color: rgba(167, 167, 167, 0.048);
+    padding: 4px;
+}
+
+calendar.view > header {
+    background-color: #ffffff48;
+    border-radius: 50px;
+    padding: 2px;
+    box-shadow: rgba(0, 0, 0, 0.24) 0px 3px 8px;
+}
+
+calendar.view > header > button {
+    background-color: #ffffff18;
+    border-radius: 100px;
+    border: none;
+    color: #333;
+    margin: 6px;
+}
+
+calendar.view > header > button:hover {
+    background-color: #ffffff3d;
+}
+
+calendar.view > header > label.year {
+    font-weight: bold;
+    color: #000000;
+}
+
+calendar.view header stack.month {
+    color: rgb(0, 0, 0);
+    font-size: 16px;
+}
+
+calendar.view > grid > label.day-name {
+    font-weight: 600;
+    color: #a0a0a0;
+}
+
+calendar.view > grid > label.week-number {
+    color: #ffffff;
+    font-style: italic;
+}
+
+calendar.view > grid > label.day-number {
+    color: #ffffffa6;
+    background: transparent;
+}
+
+calendar.view > grid > label.other-month {
+    color: #ffffff5d;
+    opacity: 0.6;
+}
+
+calendar.view > grid > label.today {
+    background-color: #00000056;
+    border-radius: 50px;
+    font-weight: 900;
+    color: #ffffff;
+}
+
+calendar.view > grid > label:selected {
+    background-color: #00000034;
+    border-radius: 50px;
+    font-weight: 500;
+    color: #ffffff;
 }

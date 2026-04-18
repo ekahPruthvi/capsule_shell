@@ -70,7 +70,7 @@ fn coping_with(app: &Application) {
 
     let css = CssProvider::new();
     let home_dir = env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    let css_path = format!("{}/.config/capsule/style.css", home_dir);
+    let css_path = format!("{}/.config/capsule/dark.css", home_dir);
     let file = File::for_path(&css_path);
     css.load_from_file(&file);
 
