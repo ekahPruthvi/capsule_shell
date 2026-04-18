@@ -41,23 +41,26 @@ fn get_windows() -> Vec<WindowRecord> {
     }
 }
 
-fn makin_noti_window(app: &Application, boxxy: &gtk4::ScrolledWindow){
-    let noti_window = ApplicationWindow::builder()
+fn makin_widget_window(app: &Application, boxxy: &gtk4::ScrolledWindow){
+    let widget_window = ApplicationWindow::builder()
         .application(app)
         .title("capsuleN")
         .build();
 
-    noti_window.init_layer_shell();
-    noti_window.set_namespace(Some("Notifications"));
-    noti_window.set_layer(Layer::Bottom);
-    noti_window.set_height_request(100);
-    noti_window.remove_css_class("background");
-    noti_window.set_anchor(Edge::Bottom, true);
-    noti_window.set_exclusive_zone(-1);
+    widget_window.init_layer_shell();
+    widget_window.set_namespace(Some("Notifications"));
+    widget_window.set_layer(Layer::Bottom);
+    widget_window.set_height_request(100);
+    widget_window.remove_css_class("background");
+    widget_window.set_anchor(Edge::Bottom, true);
+    widget_window.set_anchor(Edge::Top, true);
+    widget_window.set_anchor(Edge::Left, true);
+    widget_window.set_anchor(Edge::Right, true);
+    widget_window.set_exclusive_zone(-1);
 
-    noti_window.set_child(Some(boxxy));
+    widget_window.set_child(Some(boxxy));
 
-    noti_window.present();
+    widget_window.present();
 }
 
 fn coping_with(app: &Application) {
@@ -196,19 +199,23 @@ fn coping_with(app: &Application) {
     let scrolled_window = gtk4::ScrolledWindow::builder()
         .hscrollbar_policy(gtk4::PolicyType::Automatic)
         .vscrollbar_policy(gtk4::PolicyType::Never)
+        .hexpand(true)
+        .halign(gtk4::Align::Fill)
+        .vexpand(false)
+        .valign(gtk4::Align::End)
         .css_classes(["notiScroller"])               
         .child(&noti_boxy)                        
         .build();
 
     if let Some(monitor) = monitors.item(0).and_downcast::<gtk4::gdk::Monitor>() {
         let geometry = monitor.geometry();
-        let width = geometry.width();
-        scrolled_window.set_width_request(width);
+        let height = geometry.height();
+        scrolled_window.set_height_request((height as f64 * 0.1) as i32);
     }
     
 
     let appy = app.clone();
-    makin_noti_window(&appy, &scrolled_window);
+    makin_widget_window(&appy, &scrolled_window);
 
     let records: Rc<RefCell<Vec<WindowRecord>>> = Rc::new(RefCell::new(vec![]));
     let is_hidden: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
