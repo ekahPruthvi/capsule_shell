@@ -165,6 +165,7 @@ fn connect_brightness(
     capsule:  gtk4::Box,
     window:   gtk4::ApplicationWindow,
     hide_id:  Rc<RefCell<Option<glib::SourceId>>>,
+    osd_label: gtk4::Label,
 ) {
     let rx = Rc::new(RefCell::new(rx));
 
@@ -183,6 +184,7 @@ fn connect_brightness(
             show_osd(
                 &osd_box, &revealer, &capsule, &window,
                 &hide_id, OsdEvent::Brightness { percent: pct },
+                &osd_label,
             );
         }
         glib::ControlFlow::Continue
@@ -196,6 +198,7 @@ pub fn connect_osd_to_dock(
     osd_revealer: &gtk4::Revealer,
     capsule:      &gtk4::Box,
     window:       &gtk4::ApplicationWindow,
+    osd_label:    &gtk4::Label,
 ) {
     let is_volume_mode = true;
 
@@ -233,6 +236,7 @@ pub fn connect_osd_to_dock(
             capsule.clone(),
             window.clone(),
             Rc::new(RefCell::new(None)),
+            osd_label.clone(),
         );
     }
 
@@ -258,6 +262,7 @@ pub fn connect_osd_to_dock(
         let cap = capsule.clone();
         let win = window.clone();
         let hid = Rc::clone(&audio_hide_id);
+        let osxout = osd_label.clone();
 
         context.borrow_mut().set_state_callback(Some(Box::new(move || {
             let cs = unsafe { (*ctx.as_ptr()).get_state() };
@@ -270,8 +275,9 @@ pub fn connect_osd_to_dock(
                     let cap2 = cap.clone();
                     let win2 = win.clone();
                     let hid2 = Rc::clone(&hid);
+                    let osxout2 = osxout.clone();
                     glib::idle_add_local_once(move || {
-                        on_context_ready(&ctx2, &st2, &bx2, &rev2, &cap2, &win2, &hid2);
+                        on_context_ready(&ctx2, &st2, &bx2, &rev2, &cap2, &win2, &hid2, &osxout2);
                     });
                 }
                 ContextState::Failed | ContextState::Terminated => {
@@ -300,9 +306,10 @@ fn on_context_ready(
     capsule:  &gtk4::Box,
     window:   &gtk4::ApplicationWindow,
     hide_id:  &Rc<RefCell<Option<glib::SourceId>>>,
+    osd_label: &gtk4::Label,
 ) {
-    fetch_sink_info(ctx, state, osd_box, revealer, capsule, window, hide_id, false);
-    fetch_source_info(ctx, state, osd_box, revealer, capsule, window, hide_id, false);
+    fetch_sink_info(ctx, state, osd_box, revealer, capsule, window, hide_id, false, osd_label);
+    fetch_source_info(ctx, state, osd_box, revealer, capsule, window, hide_id, false, osd_label);
 
     ctx.borrow_mut()
         .subscribe(InterestMaskSet::SINK | InterestMaskSet::SOURCE, |_| {});
@@ -315,15 +322,16 @@ fn on_context_ready(
         let cap2 = capsule.clone();
         let win2 = window.clone();
         let hid2 = Rc::clone(hide_id);
+        let osxout2= osd_label.clone();
 
         ctx.borrow_mut().set_subscribe_callback(Some(Box::new(
             move |facility, op, _index| {
                 match (facility, op) {
                     (Some(Facility::Sink), Some(SubOp::Changed)) => {
-                        fetch_sink_info(&ctx2, &st2, &bx2, &rev2, &cap2, &win2, &hid2, true);
+                        fetch_sink_info(&ctx2, &st2, &bx2, &rev2, &cap2, &win2, &hid2, true, &osxout2);
                     }
                     (Some(Facility::Source), Some(SubOp::Changed)) => {
-                        fetch_source_info(&ctx2, &st2, &bx2, &rev2, &cap2, &win2, &hid2, true);
+                        fetch_source_info(&ctx2, &st2, &bx2, &rev2, &cap2, &win2, &hid2, true, &osxout2);
                     }
                     _ => {}
                 }
@@ -343,6 +351,7 @@ fn fetch_sink_info(
     window:   &gtk4::ApplicationWindow,
     hide_id:  &Rc<RefCell<Option<glib::SourceId>>>,
     emit:     bool,
+    osd_label: &gtk4::Label,
 ) {
     let st  = Rc::clone(state);
     let bx  = osd_box.clone();
@@ -350,6 +359,7 @@ fn fetch_sink_info(
     let cap = capsule.clone();
     let win = window.clone();
     let hid = Rc::clone(hide_id);
+    let osxout = osd_label.clone();
 
     let introspector = ctx.borrow().introspect();
     let _ = introspector.get_sink_info_by_name("@DEFAULT_SINK@", move |res| {
@@ -367,9 +377,9 @@ fn fetch_sink_info(
 
         if !emit { return; }
         if mute_changed {
-            show_osd(&bx, &rev, &cap, &win, &hid, OsdEvent::Mute { muted, volume: vol });
+            show_osd(&bx, &rev, &cap, &win, &hid, OsdEvent::Mute { muted, volume: vol }, &osxout);
         } else if vol_changed {
-            show_osd(&bx, &rev, &cap, &win, &hid, OsdEvent::Volume { volume: vol, muted });
+            show_osd(&bx, &rev, &cap, &win, &hid, OsdEvent::Volume { volume: vol, muted }, &osxout);
         }
     });
 }
@@ -383,6 +393,7 @@ fn fetch_source_info(
     window:   &gtk4::ApplicationWindow,
     hide_id:  &Rc<RefCell<Option<glib::SourceId>>>,
     emit:     bool,
+    osd_label: &gtk4::Label,
 ) {
     let st  = Rc::clone(state);
     let bx  = osd_box.clone();
@@ -390,6 +401,7 @@ fn fetch_source_info(
     let cap = capsule.clone();
     let win = window.clone();
     let hid = Rc::clone(hide_id);
+    let osxout = osd_label.clone();
 
     let introspector = ctx.borrow().introspect();
     let _ = introspector.get_source_info_by_name("@DEFAULT_SOURCE@", move |res| {
@@ -410,9 +422,9 @@ fn fetch_source_info(
 
         if !emit { return; }
         if mute_changed {
-            show_osd(&bx, &rev, &cap, &win, &hid, OsdEvent::MicMute { muted });
+            show_osd(&bx, &rev, &cap, &win, &hid, OsdEvent::MicMute { muted }, &osxout);
         } else if running_changed && running {
-            show_osd(&bx, &rev, &cap, &win, &hid, OsdEvent::MicInUse { active: true });
+            show_osd(&bx, &rev, &cap, &win, &hid, OsdEvent::MicInUse { active: true }, &osxout);
         }
     });
 }
@@ -426,8 +438,9 @@ fn show_osd(
     window:   &gtk4::ApplicationWindow,
     hide_id:  &Rc<RefCell<Option<glib::SourceId>>>,
     event:    OsdEvent,
+    osd_label: &gtk4::Label,
 ) {
-    apply_osd_event(osd_box, &event);
+    apply_osd_event(osd_box, &event, osd_label);
 
     let already_open = revealer.reveals_child();
     revealer.set_reveal_child(true);
@@ -460,7 +473,7 @@ fn show_osd(
     *hide_id.borrow_mut() = Some(new_id);
 }
 
-fn apply_osd_event(osd_box: &gtk4::Box, event: &OsdEvent) {
+fn apply_osd_event(osd_box: &gtk4::Box, event: &OsdEvent, osd_label: &gtk4::Label) {
     let total_width = 300;
 
     for cls in &["osd-volume", "osd-muted", "osd-mic", "osd-mic-active", "osd-brightness"] {
@@ -476,8 +489,7 @@ fn apply_osd_event(osd_box: &gtk4::Box, event: &OsdEvent) {
             let fill = ((total_width as f64) * (*volume as f64 / 100.0)) as i32;
             osd_box.set_width_request(fill.max(4));
             osd_box.add_css_class("osd-volume");
-            let lbl = gtk4::Label::new(Some(&format!(" {}", volume)));
-            osd_box.append(&lbl);
+            osd_label.set_text(&format!(" {}", volume));
         }
         OsdEvent::Volume { muted: true, .. } | OsdEvent::Mute { muted: true, .. } => {
             osd_box.set_width_request(total_width);

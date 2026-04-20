@@ -150,14 +150,17 @@ fn coping_with(app: &Application) {
     badge.set_max_width_chars(500);
     badge.set_ellipsize(gtk4::pango::EllipsizeMode::End);
 
-    let osd_box = GtkBox::new(Orientation::Horizontal, 5);
+    let osd_box = GtkBox::new(Orientation::Vertical, 5);
     osd_box.set_hexpand(true);
     osd_box.set_halign(gtk4::Align::Center);
     osd_box.set_margin_bottom(200);
+    osd_box.set_css_classes(&["osdBox"]);
 
     let osd = GtkBox::new(Orientation::Horizontal, 5);
     osd.set_hexpand(false);
     osd.set_halign(gtk4::Align::Start);
+    osd.set_vexpand(false);
+    osd.set_width_request(8);
 
  
     let osd_revealer = gtk4::Revealer::new();
@@ -165,12 +168,14 @@ fn coping_with(app: &Application) {
     osd_revealer.set_transition_duration(150);
     osd_revealer.set_child(Some(&osd));
     osd_revealer.set_reveal_child(false);
-    osd_revealer.set_css_classes(&["osdBox"]);
     osd_revealer.set_width_request(300);
     osd_revealer.set_visible(false);
 
 
     osd_box.append(&osd_revealer);
+
+    let lbl = gtk4::Label::new(Some("dummy"));
+    osd_box.append(&lbl);
 
     time_capsule.append(&cos);
     time_capsule.append(&badge);
@@ -208,7 +213,7 @@ fn coping_with(app: &Application) {
 
     let appey = app.clone();
     notifications::connect_notifications_to_dock(rx, &time_capsule, &time_window, &cos_logo, &cos, &badge, &noti_boxy_inner_notifications_all, &appey);
-    osd::connect_osd_to_dock(&osd, &osd_revealer, &osd_capsule, &osd_window);
+    osd::connect_osd_to_dock(&osd, &osd_revealer, &osd_capsule, &osd_window, &lbl);
 
     time_window.present();
 
