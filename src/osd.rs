@@ -483,53 +483,51 @@ fn apply_osd_event(osd_box: &gtk4::Box, event: &OsdEvent, osd_label: &gtk4::Labe
     while let Some(child) = osd_box.first_child() {
         osd_box.remove(&child);
     }
+    
+    osd_label.set_text("");
 
     match event {
         OsdEvent::Volume { volume, muted: false } => {
             let fill = ((total_width as f64) * (*volume as f64 / 100.0)) as i32;
             osd_box.set_width_request(fill.max(4));
             osd_box.add_css_class("osd-volume");
-            osd_label.set_text(&format!(" {}", volume));
-        }
+            osd_label.set_text(&format!("{}", volume));        }
         OsdEvent::Volume { muted: true, .. } | OsdEvent::Mute { muted: true, .. } => {
             osd_box.set_width_request(total_width);
             osd_box.add_css_class("osd-muted");
-            let lbl = gtk4::Label::new(Some(" Volume muted"));
-            osd_box.append(&lbl);
+            osd_label.set_text(&format!("Volume muted"));
         }
         OsdEvent::Mute { muted: false, volume } => {
             let fill = ((total_width as f64) * (*volume as f64 / 100.0)) as i32;
             osd_box.set_width_request(fill.max(4));
             osd_box.add_css_class("osd-volume");
-            let lbl = gtk4::Label::new(Some(&format!(" Volume: {}", volume)));
-            osd_box.append(&lbl);
+            osd_label.set_text(&format!("Volume: {}", volume));
         }
         OsdEvent::MicMute { muted: true } => {
             osd_box.set_width_request(total_width);
             osd_box.add_css_class("osd-muted");
-            let lbl = gtk4::Label::new(Some(" Mic Muted"));
-            osd_box.append(&lbl);
+            osd_label.set_text(&format!("Mic muted"));
         }
         OsdEvent::MicMute { muted: false } => {
             osd_box.set_width_request(total_width);
             osd_box.add_css_class("osd-mic");
-            let lbl = gtk4::Label::new(Some(" Mic on"));
-            osd_box.append(&lbl);
+            osd_label.set_text(&format!("Mic on"));
         }
         OsdEvent::MicInUse { active: true } => {
             osd_box.set_width_request(total_width);
             osd_box.add_css_class("osd-mic");
-            let lbl = gtk4::Label::new(Some(" Mic in use"));
-            osd_box.append(&lbl);
+            osd_label.set_text(&format!("Mic in use"));
         }
-        OsdEvent::MicInUse { active: false } => {}
+        OsdEvent::MicInUse { active: false } => {
+            osd_box.set_width_request(total_width);
+            osd_box.add_css_class("osd-mic");
+            osd_label.set_text(&format!("Mic not in use"));
+        }
         OsdEvent::Brightness { percent } => {
             let fill = ((total_width as f64) * (*percent as f64 / 100.0)) as i32;
             osd_box.set_width_request(fill.max(4));
             osd_box.add_css_class("osd-brightness");
-            let icon = if *percent >= 50 { "󰃠" } else { "󰃟" };
-            let lbl = gtk4::Label::new(Some(&format!("{}  {}", icon, percent)));
-            osd_box.append(&lbl);
+            osd_label.set_text(&format!("{}", percent));
         }
     }
 }

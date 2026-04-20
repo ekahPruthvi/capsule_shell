@@ -51,6 +51,18 @@
     box-shadow: rgba(0, 0, 0, 0.24) 0px 3px 8px;
 }
 
+.osdCapsule {
+    padding: 0px;
+    /* background-color: rgba(34, 34, 34, 0.559);
+    border: 2px solid transparent;
+    background-image: linear-gradient(rgb(29, 29, 29), rgb(29, 29, 29)),
+                        linear-gradient(0deg, rgb(9, 9, 9), rgba(94, 94, 94, 0.686));
+    background-origin: border-box;
+    background-clip: padding-box, border-box;
+    border-radius: 20px;
+    box-shadow: rgba(0, 0, 0, 0.24) 0px 3px 8px; */
+}
+
 .starting {
     animation: startup 1s cubic-bezier(0.42, 0, 0, 1);
 }
@@ -154,120 +166,62 @@
 }
 
 .osdBox {
-    border-radius: 50px;
-    padding: 2px;
-    background: #121212; /* Fallback for browsers that don't support gradients */
-    background: linear-gradient(
-        135deg,
-        #121212 25%,
-        #1a1a1a 25%,
-        #1a1a1a 50%,
-        #121212 50%,
-        #121212 75%,
-        #1a1a1a 75%,
-        #1a1a1a
-    );
-    background-size: 40px 40px;
-    animation: move 4s linear infinite;
-    border: 1px solid rgb(0, 0, 0);
+    padding: 10px;
+    background-color: rgba(34, 34, 34, 0.559);
+    border: 2px solid transparent;
+    background-image: linear-gradient(rgb(29, 29, 29), rgb(29, 29, 29)),
+                        linear-gradient(0deg, rgb(9, 9, 9), rgba(94, 94, 94, 0.686));
+    background-origin: border-box;
+    background-clip: padding-box, border-box;
+    border-radius: 20px;
+    box-shadow: rgba(0, 0, 0, 0.24) 0px 3px 8px;
+    border-radius: 13px;
 }
 
-@keyframes move {
-  0% {
-    background-position: 0 0;
-  }
-  100% {
-    background-position: 40px 40px;
-  }
+.osdLabel {
+    font-size: 20px;
+    font-family: Adwaita Sans;
+    font-weight: 200;
+    letter-spacing: -2px;
 }
 
 .osd-fill-box {
-    border-radius: 50px;
-    min-height: 20px;
+    border-radius: 10px;
+    min-height: 10px;
     transition: min-width 150ms ease;
 }
-.osd-volume   { 
-    --s: 140px; /* control the size */
-    --_g: #0000 52%, #170409 /* first color */ 54% 57%, #0000 59%;
-
-    background: radial-gradient(farthest-side at -33.33% 50%, var(--_g)) 0
-        calc(var(--s) / 2),
-        radial-gradient(farthest-side at 50% 133.33%, var(--_g)) calc(var(--s) / 2)
-        0,
-        radial-gradient(farthest-side at 133.33% 50%, var(--_g)),
-        radial-gradient(farthest-side at 50% -33.33%, var(--_g)), #67917a; /* second color */
-    background-size: calc(var(--s) / 4.667) var(--s),
-        var(--s) calc(var(--s) / 4.667);
-    border-radius: 50px;
-    padding: 10px;
-    font-weight: 700;
-    text-shadow: 0px 0px 5px #121212;
+.osd-volume { 
+    background: white;
+    border-radius: 10px;
+    min-height: 2px;
+    box-shadow: 0 0 12px rgba(255, 255, 255, 0.6), 
+              0 0 4px rgba(255, 255, 255, 0.8);
 }
-.osd-muted    { 
-    background-color: rgb(173, 16, 47); 
-    border-radius: 50px;
-    padding: 10px;
-    font-weight: 700;
+.osd-muted { 
+    background: rgb(255, 82, 82);
+    border-radius: 10px;
+    min-height: 2px;
+    box-shadow: 0 0 12px rgba(255, 82, 82, 0.6), 
+              0 0 4px rgba(255, 82, 82, 0.8);
 }
-.osd-mic      { 
-    background-image: repeating-radial-gradient(
-      circle at 0 0,
-      transparent 0,
-      #00ff66 20px
-    ),
-    repeating-linear-gradient(#00ff00, #00b147);
-    border-radius: 50px;
-    padding: 10px;
-    color: black;
-    font-weight: 700;
+.osd-mic { 
+    background: rgb(163, 255, 82);
+    border-radius: 10px;
+    min-height: 2px;
+    box-shadow: 0 0 12px rgba(163, 255, 82, 0.6), 
+              0 0 4px rgba(163, 255, 82, 0.8);
 }
 .osd-brightness { 
-    background-color: #0f172a;
-  background-image: linear-gradient(
-      45deg,
-      rgba(59, 130, 246, 0.08) 25%,
-      transparent 25%,
-      transparent 75%,
-      rgba(59, 130, 246, 0.08) 75%
-    ),
-    linear-gradient(
-      -45deg,
-      rgba(59, 130, 246, 0.08) 25%,
-      transparent 25%,
-      transparent 75%,
-      rgba(59, 130, 246, 0.08) 75%
-    ),
-    linear-gradient(
-      45deg,
-      transparent 40%,
-      rgba(99, 102, 241, 0.1) 40%,
-      rgba(99, 102, 241, 0.1) 60%,
-      transparent 60%
-    ),
-    linear-gradient(
-      -45deg,
-      transparent 40%,
-      rgba(99, 102, 241, 0.1) 40%,
-      rgba(99, 102, 241, 0.1) 60%,
-      transparent 60%
-    ),
-    radial-gradient(circle at 50% 50%, #1e293b 0%, #0f172a 100%);
-  background-size:
-    60px 60px,
-    60px 60px,
-    120px 120px,
-    120px 120px,
-    100% 100%;
-  background-position:
-    0 0,
-    30px 30px,
-    0 0,
-    60px 60px,
-    0 0;
-    border-radius: 50px;
-    padding: 10px;
-    font-weight: 700;
-    text-shadow: 0px 0px 5px #121212;
+    background: rgb(255, 229, 82);
+    border-radius: 10px;
+    min-height: 2px;
+    box-shadow: 0 0 12px rgba(255, 229, 82, 0.6), 
+              0 0 4px rgba(255, 229, 82, 0.8);
+}
+
+.scrollPad {
+    background-color: rgba(255, 255, 255, 0.207);
+    border-radius: 50px 50px 0 0;
 }
 
 .notificationWindow {

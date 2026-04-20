@@ -153,7 +153,7 @@ fn coping_with(app: &Application) {
     let osd_box = GtkBox::new(Orientation::Vertical, 5);
     osd_box.set_hexpand(true);
     osd_box.set_halign(gtk4::Align::Center);
-    osd_box.set_margin_bottom(200);
+    osd_box.set_margin_bottom(50);
     osd_box.set_css_classes(&["osdBox"]);
 
     let osd = GtkBox::new(Orientation::Horizontal, 5);
@@ -172,10 +172,13 @@ fn coping_with(app: &Application) {
     osd_revealer.set_visible(false);
 
 
-    osd_box.append(&osd_revealer);
-
     let lbl = gtk4::Label::new(Some("dummy"));
+    lbl.set_hexpand(true);
+    lbl.set_halign(gtk4::Align::Start);
+    lbl.set_css_classes(&["osdLabel"]);
+    
     osd_box.append(&lbl);
+    osd_box.append(&osd_revealer);
 
     time_capsule.append(&cos);
     time_capsule.append(&badge);
