@@ -12,14 +12,10 @@ use std::process::Command;
 use gtk4::glib;
 use gtk4::prelude::*;
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::mpsc as std_mpsc;
 use std::time::Duration;
-
-const CAPSULE_COLLAPSED: i32 = 300;
-const CAPSULE_EXPANDED:  i32 = 330;
-const ANIM_FRAME_MS:     u64 = 16; // ~60 fps, 300 ms total travel
 
 #[derive(Debug, Clone)]
 pub enum OsdEvent {
@@ -433,7 +429,7 @@ fn show_osd(
     let win = window.clone();
     let hid = Rc::clone(hide_id);
 
-    let new_id = glib::timeout_add_seconds_local(2, move || {
+    let new_id = glib::timeout_add_seconds_local(3, move || {
         cap.add_css_class("osd-hide");
         let rev = rev.clone();
         let cap = cap.clone();
