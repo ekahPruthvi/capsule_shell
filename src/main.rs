@@ -153,6 +153,7 @@ fn coping_with(app: &Application) {
     let osd_box = GtkBox::new(Orientation::Horizontal, 5);
     osd_box.set_hexpand(true);
     osd_box.set_halign(gtk4::Align::Center);
+    osd_box.set_margin_bottom(200);
 
     let osd = GtkBox::new(Orientation::Horizontal, 5);
     osd.set_hexpand(false);
@@ -173,7 +174,6 @@ fn coping_with(app: &Application) {
 
     time_capsule.append(&cos);
     time_capsule.append(&badge);
-    time_capsule.append(&osd_box);
     time_capsule.append(&time_and_actions);
 
     time_window.set_child(Some(&time_capsule));
@@ -181,10 +181,34 @@ fn coping_with(app: &Application) {
 
     let noti_boxy_inner_notifications_all = GtkBox::new(Orientation::Horizontal, 0);
 
+    let osd_window = ApplicationWindow::builder()
+        .application(app)
+        .title("capsuleO")
+        .build();
+
+    osd_window.init_layer_shell();
+    osd_window.set_namespace(Some("OSD"));
+    osd_window.set_layer(Layer::Overlay);
+    osd_window.remove_css_class("background");
+    osd_window.set_anchor(Edge::Bottom, true);
+    osd_window.set_exclusive_zone(-1); 
+
+    let osd_capsule = GtkBox::new(Orientation::Vertical, 5);
+    osd_capsule.set_css_classes(&["osdCapsule"]);
+    osd_capsule.set_halign(gtk4::Align::Center);
+    osd_capsule.set_valign(gtk4::Align::Baseline);
+    osd_capsule.set_hexpand(true);
+    osd_capsule.set_margin_top(5);
+    osd_capsule.set_margin_bottom(0);
+    osd_capsule.set_width_request(50);
+    osd_capsule.set_height_request(58);
+
+    osd_capsule.append(&osd_box);
+    osd_window.set_child(Some(&osd_capsule));
 
     let appey = app.clone();
     notifications::connect_notifications_to_dock(rx, &time_capsule, &time_window, &cos_logo, &cos, &badge, &noti_boxy_inner_notifications_all, &appey);
-    osd::connect_osd_to_dock(&osd, &osd_revealer, &time_capsule, &time_window);
+    osd::connect_osd_to_dock(&osd, &osd_revealer, &osd_capsule, &osd_window);
 
     time_window.present();
 

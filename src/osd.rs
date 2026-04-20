@@ -7,6 +7,7 @@ use libpulse_binding::{
     volume::Volume,
 };
 use libpulse_glib_binding::Mainloop;
+use std::process::Command;
 
 use gtk4::glib;
 use gtk4::prelude::*;
@@ -17,7 +18,7 @@ use std::sync::mpsc as std_mpsc;
 use std::time::Duration;
 
 const CAPSULE_COLLAPSED: i32 = 300;
-const CAPSULE_EXPANDED:  i32 = 550;
+const CAPSULE_EXPANDED:  i32 = 330;
 const ANIM_FRAME_MS:     u64 = 16; // ~60 fps, 300 ms total travel
 
 #[derive(Debug, Clone)]
@@ -35,6 +36,20 @@ struct AudioState {
     sink_muted:  bool,
     src_muted:   bool,
     src_running: bool,
+}
+
+fn adjust_volume(delta: f64) {
+    let arg = if delta < 0.0 { "+5%" } else { "-5%" };
+    let _ = Command::new("pactl")
+        .args(["set-sink-volume", "@DEFAULT_SINK@", arg])
+        .spawn();
+}
+
+fn adjust_brightness(delta: f64) {
+    let arg = if delta < 0.0 { "+5%" } else { "5%-" };
+    let _ = Command::new("brightnessctl")
+        .args(["set", arg])
+        .spawn();
 }
 
 // ─── backlight ────────────────────────────────────────────────────────────────
@@ -114,13 +129,14 @@ fn animate_capsule(
     window:  &gtk4::ApplicationWindow,
     target:  i32,
 ) {
-    window.set_width_request(target);
+    window.set_css_classes(&["starting"]);
 
     let start        = capsule.width_request() as f64;
     let total_frames = (300.0 / ANIM_FRAME_MS as f64).ceil() as u32;
     let delta        = (target as f64 - start) / total_frames as f64;
     let frame        = Rc::new(Cell::new(0u32));
     let capsule      = capsule.clone();
+    let window = window.clone();
 
     glib::timeout_add_local(Duration::from_millis(ANIM_FRAME_MS), move || {
         let f = frame.get() + 1;
@@ -128,6 +144,10 @@ fn animate_capsule(
 
         if f >= total_frames {
             capsule.set_width_request(target);
+            if target == CAPSULE_COLLAPSED {          
+            window.remove_css_class("starting");
+                window.hide();
+            }
             return glib::ControlFlow::Break;
         }
 
@@ -177,6 +197,34 @@ pub fn connect_osd_to_dock(
     capsule:      &gtk4::Box,
     window:       &gtk4::ApplicationWindow,
 ) {
+    let is_volume_mode = true;
+
+    let scrl_pad = gtk4::Box::builder()
+        .orientation(gtk4::Orientation::Vertical)
+        .hexpand(true)
+        .halign(gtk4::Align::Fill)
+        .vexpand(false)
+        .valign(gtk4::Align::Baseline)
+        .height_request(10)
+        .width_request(900)
+        .css_classes(["scrollPad"])
+        .build();
+
+    let scroll_controller = gtk4::EventControllerScroll::new(gtk4::EventControllerScrollFlags::VERTICAL);
+
+    scroll_controller.connect_scroll(move |_, _dx, dy| {
+        if is_volume_mode {
+            adjust_volume(dy);
+        } else {
+            adjust_brightness(dy);
+        }
+        glib::Propagation::Proceed
+    });
+
+    scrl_pad.add_controller(scroll_controller);
+
+    capsule.append(&scrl_pad);
+
     if let Some(bright_rx) = spawn_brightness_watcher() {
         connect_brightness(
             bright_rx,
@@ -386,13 +434,12 @@ fn show_osd(
 
 
     let rev = revealer.clone();
-    // only expand if not already expanded (avoids restarting animation mid-flight)
     if !already_open {
-        rev.set_visible(true);
+        window.present();
         animate_capsule(capsule, window, CAPSULE_EXPANDED);
+        rev.set_visible(true);
     }
 
-    // cancel any pending hide timer
     if let Some(id) = hide_id.borrow_mut().take() {
         id.remove();
     }
