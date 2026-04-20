@@ -122,40 +122,6 @@ fn spawn_brightness_watcher() -> Option<std_mpsc::Receiver<u32>> {
     Some(rx)
 }
 
-// ─── capsule animation ────────────────────────────────────────────────────────
-
-fn animate_capsule(
-    capsule: &gtk4::Box,
-    window:  &gtk4::ApplicationWindow,
-    target:  i32,
-) {
-    window.set_css_classes(&["starting"]);
-
-    let start        = capsule.width_request() as f64;
-    let total_frames = (300.0 / ANIM_FRAME_MS as f64).ceil() as u32;
-    let delta        = (target as f64 - start) / total_frames as f64;
-    let frame        = Rc::new(Cell::new(0u32));
-    let capsule      = capsule.clone();
-    let window = window.clone();
-
-    glib::timeout_add_local(Duration::from_millis(ANIM_FRAME_MS), move || {
-        let f = frame.get() + 1;
-        frame.set(f);
-
-        if f >= total_frames {
-            capsule.set_width_request(target);
-            if target == CAPSULE_COLLAPSED {          
-            window.remove_css_class("starting");
-                window.hide();
-            }
-            return glib::ControlFlow::Break;
-        }
-
-        capsule.set_width_request((start + delta * f as f64) as i32);
-        glib::ControlFlow::Continue
-    });
-}
-
 // ─── brightness connector ─────────────────────────────────────────────────────
 
 fn connect_brightness(
@@ -447,9 +413,14 @@ fn show_osd(
 
 
     let rev = revealer.clone();
+    let cap = capsule.clone();
     if !already_open {
         window.present();
-        animate_capsule(capsule, window, CAPSULE_EXPANDED);
+        cap.add_css_class("osd-show");
+        glib::timeout_add_local(Duration::from_millis(300), move || {      
+            cap.remove_css_class("osd-show");
+            glib::ControlFlow::Break
+        });
         rev.set_visible(true);
     }
 
@@ -463,10 +434,19 @@ fn show_osd(
     let hid = Rc::clone(hide_id);
 
     let new_id = glib::timeout_add_seconds_local(2, move || {
-        rev.set_reveal_child(false);
-        rev.set_visible(false);
-        hid.borrow_mut().take();
-        animate_capsule(&cap, &win, CAPSULE_COLLAPSED);
+        cap.add_css_class("osd-hide");
+        let rev = rev.clone();
+        let cap = cap.clone();
+        let hid = hid.clone();
+        let win = win.clone();
+        glib::timeout_add_local(Duration::from_millis(300), move || {      
+            cap.remove_css_class("osd-hide");
+            rev.set_reveal_child(false);
+            rev.set_visible(false);
+            hid.borrow_mut().take();
+            win.hide();
+            glib::ControlFlow::Break
+        });
         glib::ControlFlow::Break
     });
 
