@@ -251,7 +251,7 @@ fn coping_with(app: &Application) {
     let is_hidden_clone = is_hidden.clone();
     let timendate_clone = timendate.clone();
 
-    let show = Image::from_file("/var/lib/cynager/icons/win2.svg");
+    let show = Image::from_file("/var/lib/cynager/icons/min.svg");
     show.set_icon_size(gtk4::IconSize::Normal);
     show.set_margin_start(10);
     show.set_margin_end(5);
