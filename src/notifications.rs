@@ -136,7 +136,6 @@ pub fn connect_notifications_to_dock(
     cos_btn: &Button,
     badge: &Label,
     noti_all: &GtkBox,
-    app: &gtk4::Application,
 ) {
     let history: Rc<RefCell<VecDeque<Notification>>> =
         Rc::new(RefCell::new(VecDeque::with_capacity(50)));
@@ -144,8 +143,6 @@ pub fn connect_notifications_to_dock(
     let pending_count: Rc<Cell<u32>>  = Rc::new(Cell::new(0));
     let is_expanded:   Rc<Cell<bool>> = Rc::new(Cell::new(false));
     let current_width: Rc<Cell<f64>>  = Rc::new(Cell::new(300.0));
-    let app = app.clone();
-
     let ctx = gtk4::glib::MainContext::default();
     ctx.spawn_local(clone!(
         #[strong] noti_window,
@@ -271,7 +268,6 @@ pub fn connect_notifications_to_dock(
                 noti_all_clone.remove_css_class("vanish");
 
                 let noti_all_clone = noti_all.clone();
-                let appp = app.clone();
                 let clear_all_btn_clone = clear_all_btn.clone();
                 delete_btn.connect_clicked( move |_| {
                     noti_all_clone.remove(&noti_all_box);
@@ -279,16 +275,17 @@ pub fn connect_notifications_to_dock(
                         && noti_all_clone.first_child() == noti_all_clone.last_child();
 
                     if is_only_one {
-                        noti_all_clone.remove(&clear_all_btn_clone);
+                        noti_all_clone.add_css_class("vanish");
+                        let noti_all_clone = noti_all_clone.clone();
+                        let clear_all_btn_clone = clear_all_btn_clone.clone();
+                        glib::timeout_add_local(Duration::from_secs(1), move || {
+                            noti_all_clone.remove(&clear_all_btn_clone);
+                            let bugfixer = Label::new(Some(" "));
+                            noti_all_clone.append(&bugfixer);
+                            noti_all_clone.remove(&bugfixer);glib::ControlFlow::Break
+                        });
                     }
-
-                    if noti_all_clone.first_child().is_none() {
-                        for win in appp.windows() {
-                            if win.title().as_deref() == Some("capsuleN") {
-                                win.hide();
-                            }
-                        }
-                    }
+                    
                 });
 
 

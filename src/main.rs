@@ -59,7 +59,6 @@ fn makin_widget_window(app: &Application, boxxy: &gtk4::ScrolledWindow){
     noti_window.set_exclusive_zone(-1);
 
     spawn_calendar_widget();
-
     noti_window.set_child(Some(boxxy));
 
     noti_window.present();
@@ -214,8 +213,7 @@ fn coping_with(app: &Application) {
     osd_capsule.append(&osd_box);
     osd_window.set_child(Some(&osd_capsule));
 
-    let appey = app.clone();
-    notifications::connect_notifications_to_dock(rx, &time_capsule, &time_window, &cos_logo, &cos, &badge, &noti_boxy_inner_notifications_all, &appey);
+    notifications::connect_notifications_to_dock(rx, &time_capsule, &time_window, &cos_logo, &cos, &badge, &noti_boxy_inner_notifications_all);
     osd::connect_osd_to_dock(&osd, &osd_revealer, &osd_capsule, &osd_window, &lbl);
 
     time_window.present();
