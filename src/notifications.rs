@@ -9,7 +9,7 @@ use std::collections::VecDeque;
 use rodio::{Decoder, OutputStream, Sink};
 use std::fs::File;
 use std::thread;
-use std::io::BufReader;
+use std::io::{self, BufRead, BufReader};
 use std::time::Duration;
 
 #[derive(Debug, Clone)]
@@ -110,22 +110,50 @@ pub fn spawn_messaging_daemon() -> UnboundedReceiver<Notification> {
 }
 
 fn play_notification_sound() {
-    thread::spawn(|| {
-        let (_stream, stream_handle) = match OutputStream::try_default() {
-            Ok(v) => v,
-            Err(_) => return,
-        };
-        let sink = match Sink::try_new(&stream_handle) {
-            Ok(s) => s,
-            Err(_) => return,
-        };
-        if let Ok(file) = File::open("/var/lib/cynager/niri/sound/notiv/notiv.mp3") {
-            if let Ok(source) = Decoder::new(BufReader::new(file)) {
-                sink.append(source);
-                sink.sleep_until_end();
+    let file = match File::open("/var/lib/cynager/info.probe") {
+        Ok(f) => f,
+        Err(_) => return,
+    };
+    let reader = io::BufReader::new(file);
+    let mut in_set_block = false;
+    let mut dnd = String::new();
+
+    for line in reader.lines().map_while(Result::ok) {
+        let trimmed = line.trim().to_string();
+        if trimmed == ":set" {
+            in_set_block = true;
+            continue;
+        }
+        if trimmed == ":end" {
+            in_set_block = false;
+            continue;
+        }
+        if in_set_block && trimmed.starts_with("dnd") {
+            let parts: Vec<&str> = trimmed.split(':').collect();
+            if parts.len() >= 2 {
+                dnd = parts[1].trim().to_string();
             }
         }
-    });
+    }
+
+    if dnd == "false" {
+        thread::spawn(|| {
+            let (_stream, stream_handle) = match OutputStream::try_default() {
+                Ok(v) => v,
+                Err(_) => return,
+            };
+            let sink = match Sink::try_new(&stream_handle) {
+                Ok(s) => s,
+                Err(_) => return,
+            };
+            if let Ok(file) = File::open("/var/lib/cynager/niri/sound/notiv/notiv.mp3") {
+                if let Ok(source) = Decoder::new(BufReader::new(file)) {
+                    sink.append(source);
+                    sink.sleep_until_end();
+                }
+            }
+        });
+    }
 }
 
 pub fn connect_notifications_to_dock(
@@ -251,9 +279,8 @@ pub fn connect_notifications_to_dock(
                         while let Some(child) = noti_all_clone.first_child() {
                             noti_all_clone.remove(&child);
                         }
-                        let bugfixer = Label::new(Some(""));
-                        noti_all_clone.append(&bugfixer);
-                        noti_all_clone.remove(&bugfixer);
+                        noti_all_clone.remove_css_class("vanish");
+                        noti_all_clone.set_height_request(10);
                         glib::ControlFlow::Break
                     });
                     
@@ -264,29 +291,28 @@ pub fn connect_notifications_to_dock(
                 }
 
                 noti_all.append(&noti_all_box);
-                let noti_all_clone = noti_all.clone();
-                noti_all_clone.remove_css_class("vanish");
 
                 let noti_all_clone = noti_all.clone();
-                let clear_all_btn_clone = clear_all_btn.clone();
                 delete_btn.connect_clicked( move |_| {
                     noti_all_clone.remove(&noti_all_box);
-                    let is_only_one = noti_all_clone.first_child().is_some() 
-                        && noti_all_clone.first_child() == noti_all_clone.last_child();
 
-                    if is_only_one {
+                    let first = noti_all_clone.first_child();
+                    let last  = noti_all_clone.last_child();
+                    let is_only_clear_btn = first.is_some() && first == last;
+ 
+                    if is_only_clear_btn {
                         noti_all_clone.add_css_class("vanish");
                         let noti_all_clone = noti_all_clone.clone();
-                        let clear_all_btn_clone = clear_all_btn_clone.clone();
                         glib::timeout_add_local(Duration::from_secs(1), move || {
-                            noti_all_clone.remove(&clear_all_btn_clone);
-                            let bugfixer = Label::new(Some(" "));
-                            noti_all_clone.append(&bugfixer);
-                            noti_all_clone.remove(&bugfixer);glib::ControlFlow::Break
+                            if let Some(child) = noti_all_clone.first_child() {
+                                noti_all_clone.remove(&child);
+                            }
+                            noti_all_clone.remove_css_class("vanish");
+                            glib::ControlFlow::Break
                         });
                     }
-                    
                 });
+
 
 
                 pending_count.set(pending_count.get() + 1);
@@ -369,7 +395,8 @@ pub fn connect_notifications_to_dock(
                                     if next_w <= start_width as f64 {
                                         noti_window_c.set_width_request(start_width);
                                         noti_window_c.remove_css_class("blip");
-                                        main_c.set_width_request(300);
+                                        main_c.set_visible(false);
+                                        main_c.set_visible(true);
                                         return glib::ControlFlow::Break;
                                     }
                                     current_width_c.set(next_w);

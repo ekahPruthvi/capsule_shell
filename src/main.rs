@@ -58,6 +58,32 @@ fn makin_widget_window(app: &Application, boxxy: &gtk4::ScrolledWindow){
     noti_window.set_anchor(Edge::Bottom, true);
     noti_window.set_exclusive_zone(-1);
 
+    // let file = match File::open("/var/lib/cynager/info.probe") {
+    //     Ok(f) => f,
+    //     Err(_) => return,
+    // };
+    // let reader = io::BufReader::new(file);
+    // let mut in_set_block = false;
+    // let mut dnd = String::new();
+
+    // for line in reader.lines().map_while(Result::ok) {
+    //     let trimmed = line.trim().to_string();
+    //     if trimmed == ":set" {
+    //         in_set_block = true;
+    //         continue;
+    //     }
+    //     if trimmed == ":end" {
+    //         in_set_block = false;
+    //         continue;
+    //     }
+    //     if in_set_block && trimmed.starts_with("dnd") {
+    //         let parts: Vec<&str> = trimmed.split(':').collect();
+    //         if parts.len() >= 2 {
+    //             dnd = parts[1].trim().to_string();
+    //         }
+    //     }
+    // }
+
     spawn_calendar_widget();
     noti_window.set_child(Some(boxxy));
 
@@ -224,6 +250,8 @@ fn coping_with(app: &Application) {
     noti_boxy.set_margin_bottom(10);
     noti_boxy.set_width_request(300);
     noti_boxy.set_halign(gtk4::Align::Center);
+
+    
     let display = gtk4::gdk::Display::default().expect("Could not get default display");
     let monitors = display.monitors();
 
