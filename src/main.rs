@@ -6,7 +6,7 @@ use gtk4::gdk::Display;
 use std::{env, time::Duration};
 use chrono::Local;
 use gtk4::gio::File;
-use std::cell::RefCell;
+use std::cell::{RefCell, Cell};
 use std::rc::Rc;
 use niri_ipc::{socket::Socket, Action, Request, Response, WorkspaceReferenceArg};
 
@@ -14,7 +14,7 @@ mod notifications;
 mod osd;
 mod widgets;
 
-use widgets::{battery::spawn_battery_widget, calendar::spawn_calendar_widget};
+use widgets::{battery::spawn_battery_widget, calendar::{spawn_calendar_widget, kill}};
 
 const HIDE_WORKSPACE_IDX: u8 = 99;
 
@@ -332,14 +332,19 @@ fn coping_with(app: &Application) {
 
     let active_cal_c = active_cal.clone();
     let active_sys_c = active_sys.clone();
+    let cal_win: Rc<Cell<Option<gtk4::Window>>> = Rc::new(Cell::new(None));
 
     glib::timeout_add_local(Duration::from_millis(500), move || {
         while let Ok(cfg) = probe_rx.borrow().try_recv() {
             if cfg.cal && !*active_cal_c.borrow() {
-                spawn_calendar_widget();
+                let win = spawn_calendar_widget();
+                cal_win.set(Some(win));
                 *active_cal_c.borrow_mut() = true;
             } else if !cfg.cal && *active_cal_c.borrow() {
                 *active_cal_c.borrow_mut() = false;
+                if let Some(w) = cal_win.take() {
+                    kill(&w);
+                }
             }
 
             if cfg.sys && !*active_sys_c.borrow() {

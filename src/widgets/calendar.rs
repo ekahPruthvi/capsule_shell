@@ -7,7 +7,7 @@ use crate::widgets::position::{load_positions, save_position};
 
 const NAME: &str = "calendar";
 
-pub fn spawn_calendar_widget() {
+pub fn spawn_calendar_widget() -> Window {
     let positions = load_positions();
     let (start_x, start_y) = positions.get(NAME).copied().unwrap_or((40, 160));
 
@@ -84,8 +84,10 @@ pub fn spawn_calendar_widget() {
     });
 
     handle.add_controller(gesture);
+
+    win
 }
 
-pub fn kill() {
-    
+pub fn kill(win: &Window) {
+    win.close();
 }
