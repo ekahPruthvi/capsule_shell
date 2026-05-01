@@ -27,6 +27,7 @@ pub fn spawn_calendar_widget() -> Window {
 
     let outer = GtkBox::new(Orientation::Vertical, 0);
     outer.add_css_class("widgetBox");
+    outer.set_css_classes(&["starting"]);
 
     let handle = GtkBox::new(Orientation::Horizontal, 0);
     handle.add_css_class("dragHandle");
