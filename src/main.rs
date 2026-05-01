@@ -18,6 +18,71 @@ use widgets::{battery::spawn_battery_widget, calendar::spawn_calendar_widget};
 
 const HIDE_WORKSPACE_IDX: u8 = 99;
 
+#[derive(Debug, Clone, PartialEq)]
+struct WidgetConfig {
+    cal: bool,
+    sys: bool,
+}
+
+impl Default for WidgetConfig {
+    fn default() -> Self {
+        Self { cal: false, sys: false }
+    }
+}
+
+fn parse_widget_config(path: &str) -> Option<WidgetConfig> {
+    let content = std::fs::read_to_string(path).ok()?;
+
+    let set_start = content.find(":set")?;
+    let set_body = &content[set_start..];
+    let set_end  = set_body.find(":end")?;
+    let set_body = &set_body[..set_end];
+
+    let w_start = set_body.find("widgets")?.saturating_add("widgets".len());
+    let brace_open = set_body[w_start..].find(':')?.saturating_add(w_start + 1);
+    let brace_open = set_body[brace_open..].find('{')?.saturating_add(brace_open + 1);
+    let brace_close = set_body[brace_open..].find('}')?.saturating_add(brace_open);
+    let widget_block = &set_body[brace_open..brace_close];
+
+    let mut cfg = WidgetConfig::default();
+    for line in widget_block.lines() {
+        let line = line.trim();
+        if line.is_empty() { continue; }
+        let mut parts = line.splitn(2, ':');
+        let key = parts.next().map(str::trim).unwrap_or("");
+        let val = parts.next().map(str::trim).unwrap_or("false");
+        match key {
+            "cal" => cfg.cal = val == "true",
+            "sys" => cfg.sys = val == "true",
+            _ => {}
+        }
+    }
+    Some(cfg)
+}
+
+fn spawn_probe_watcher(
+    probe_path: String,
+    interval: Duration,
+) -> std::sync::mpsc::Receiver<WidgetConfig> {
+    let (sender, receiver) = std::sync::mpsc::channel::<WidgetConfig>();
+
+    std::thread::spawn(move || {
+        let mut last: Option<WidgetConfig> = None;
+        loop {
+            let cfg = parse_widget_config(&probe_path).unwrap_or_default();
+            if Some(&cfg) != last.as_ref() {
+                if sender.send(cfg.clone()).is_err() {
+                    break;
+                }
+                last = Some(cfg);
+            }
+            std::thread::sleep(interval);
+        }
+    });
+
+    receiver
+}
+
 #[derive(Clone)]
 struct WindowRecord {
     id: u64,
@@ -76,35 +141,7 @@ fn makin_widget_window(app: &Application, boxxy: &gtk4::ScrolledWindow){
     noti_window.set_anchor(Edge::Bottom, true);
     noti_window.set_exclusive_zone(-1);
 
-    // let file = match File::open("/var/lib/cynager/info.probe") {
-    //     Ok(f) => f,
-    //     Err(_) => return,
-    // };
-    // let reader = io::BufReader::new(file);
-    // let mut in_set_block = false;
-    // let mut dnd = String::new();
-
-    // for line in reader.lines().map_while(Result::ok) {
-    //     let trimmed = line.trim().to_string();
-    //     if trimmed == ":set" {
-    //         in_set_block = true;
-    //         continue;
-    //     }
-    //     if trimmed == ":end" {
-    //         in_set_block = false;
-    //         continue;
-    //     }
-    //     if in_set_block && trimmed.starts_with("dnd") {
-    //         let parts: Vec<&str> = trimmed.split(':').collect();
-    //         if parts.len() >= 2 {
-    //             dnd = parts[1].trim().to_string();
-    //         }
-    //     }
-    // }
-
-    spawn_calendar_widget();
     noti_window.set_child(Some(boxxy));
-
     noti_window.present();
 }
 
@@ -155,7 +192,7 @@ fn coping_with(app: &Application) {
 
     timendate.append(&time);
     timendate.append(&ampm);
-    
+
     let time_and_actions = Button::builder()
         .css_classes(["tNa"])
         .child(&timendate)
@@ -168,7 +205,7 @@ fn coping_with(app: &Application) {
     glib::timeout_add_local(Duration::from_millis(1200), move || {
         let now = Local::now();
         let time_str = now.format("%I:%M").to_string();
-        
+
         time.set_text(&time_str);
         ampm.set_text(&now.format(" %p \n %a, %b %e").to_string());
 
@@ -205,7 +242,6 @@ fn coping_with(app: &Application) {
     osd.set_vexpand(false);
     osd.set_width_request(8);
 
- 
     let osd_revealer = gtk4::Revealer::new();
     osd_revealer.set_transition_type(gtk4::RevealerTransitionType::Crossfade);
     osd_revealer.set_transition_duration(150);
@@ -214,12 +250,11 @@ fn coping_with(app: &Application) {
     osd_revealer.set_width_request(300);
     osd_revealer.set_visible(false);
 
-
     let lbl = gtk4::Label::new(Some("dummy"));
     lbl.set_hexpand(true);
     lbl.set_halign(gtk4::Align::Start);
     lbl.set_css_classes(&["osdLabel"]);
-    
+
     osd_box.append(&lbl);
     osd_box.append(&osd_revealer);
 
@@ -228,7 +263,6 @@ fn coping_with(app: &Application) {
     time_capsule.append(&time_and_actions);
 
     time_window.set_child(Some(&time_capsule));
-
 
     let noti_boxy_inner_notifications_all = GtkBox::new(Orientation::Horizontal, 0);
 
@@ -242,7 +276,7 @@ fn coping_with(app: &Application) {
     osd_window.set_layer(Layer::Overlay);
     osd_window.remove_css_class("background");
     osd_window.set_anchor(Edge::Bottom, true);
-    osd_window.set_exclusive_zone(-1); 
+    osd_window.set_exclusive_zone(-1);
 
     let osd_capsule = GtkBox::new(Orientation::Vertical, 5);
     osd_capsule.set_css_classes(&["osdCapsule"]);
@@ -269,15 +303,14 @@ fn coping_with(app: &Application) {
     noti_boxy.set_width_request(300);
     noti_boxy.set_halign(gtk4::Align::Center);
 
-    
     let display = gtk4::gdk::Display::default().expect("Could not get default display");
     let monitors = display.monitors();
 
     let scrolled_window = gtk4::ScrolledWindow::builder()
         .hscrollbar_policy(gtk4::PolicyType::Automatic)
         .vscrollbar_policy(gtk4::PolicyType::Never)
-        .css_classes(["notiScroller"])               
-        .child(&noti_boxy)                        
+        .css_classes(["notiScroller"])
+        .child(&noti_boxy)
         .build();
 
     if let Some(monitor) = monitors.item(0).and_downcast::<gtk4::gdk::Monitor>() {
@@ -285,10 +318,39 @@ fn coping_with(app: &Application) {
         let width = geometry.width();
         scrolled_window.set_width_request(width);
     }
-    
 
     let appy = app.clone();
     makin_widget_window(&appy, &scrolled_window);
+
+    let probe_path = "/var/lib/cynager/info.probe".to_string();
+
+    let active_cal: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
+    let active_sys: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
+
+    let probe_rx = spawn_probe_watcher(probe_path, Duration::from_secs(5));
+    let probe_rx = Rc::new(RefCell::new(probe_rx));
+
+    let active_cal_c = active_cal.clone();
+    let active_sys_c = active_sys.clone();
+
+    glib::timeout_add_local(Duration::from_millis(500), move || {
+        while let Ok(cfg) = probe_rx.borrow().try_recv() {
+            if cfg.cal && !*active_cal_c.borrow() {
+                spawn_calendar_widget();
+                *active_cal_c.borrow_mut() = true;
+            } else if !cfg.cal && *active_cal_c.borrow() {
+                *active_cal_c.borrow_mut() = false;
+            }
+
+            if cfg.sys && !*active_sys_c.borrow() {
+                spawn_battery_widget();
+                *active_sys_c.borrow_mut() = true;
+            } else if !cfg.sys && *active_sys_c.borrow() {
+                *active_sys_c.borrow_mut() = false;
+            }
+        }
+        glib::ControlFlow::Continue
+    });
 
     let records: Rc<RefCell<Vec<WindowRecord>>> = Rc::new(RefCell::new(vec![]));
     let is_hidden: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
@@ -303,79 +365,80 @@ fn coping_with(app: &Application) {
     show.set_icon_size(gtk4::IconSize::Normal);
     show.set_margin_start(10);
     show.set_margin_end(5);
+
     time_and_actions.connect_clicked(move |_| {
-            let mut hiding = is_hidden_clone.borrow_mut();
+        let mut hiding = is_hidden_clone.borrow_mut();
 
-            if !*hiding {
-                let wins = get_windows();
-                *focused_clone.borrow_mut() = get_focused_window_id();
+        if !*hiding {
+            let wins = get_windows();
+            *focused_clone.borrow_mut() = get_focused_window_id();
 
-                for w in &wins {
-                    send_action(Action::MoveWindowToWorkspace {
-                        window_id: Some(w.id),
-                        reference: WorkspaceReferenceArg::Index(HIDE_WORKSPACE_IDX),
-                        focus: false
-                    });
-                }
+            for w in &wins {
+                send_action(Action::MoveWindowToWorkspace {
+                    window_id: Some(w.id),
+                    reference: WorkspaceReferenceArg::Index(HIDE_WORKSPACE_IDX),
+                    focus: false
+                });
+            }
 
-                *records_clone.borrow_mut() = wins;
-                *hiding = true;
+            *records_clone.borrow_mut() = wins;
+            *hiding = true;
 
-                timendate_clone.append(&show);
-            } else {
-                let wins = records_clone.borrow().clone();
+            timendate_clone.append(&show);
+        } else {
+            let wins = records_clone.borrow().clone();
 
-                for w in &wins {
-                    let target = match w.workspace_id {
-                        Some(id) => WorkspaceReferenceArg::Id(id),
-                        None => WorkspaceReferenceArg::Index(1),
-                    };
-                    send_action(Action::MoveWindowToWorkspace {
-                        window_id: Some(w.id),
-                        reference: target,
-                        focus: false,
-                    });
-                }
+            for w in &wins {
+                let target = match w.workspace_id {
+                    Some(id) => WorkspaceReferenceArg::Id(id),
+                    None => WorkspaceReferenceArg::Index(1),
+                };
+                send_action(Action::MoveWindowToWorkspace {
+                    window_id: Some(w.id),
+                    reference: target,
+                    focus: false,
+                });
+            }
 
-                let mut tiled: Vec<&WindowRecord> = wins
-                    .iter()
-                    .filter(|w| w.column_index.is_some())
-                    .collect();
-                tiled.sort_by_key(|w| (w.column_index.unwrap(), w.row_index.unwrap_or(1)));
+            let mut tiled: Vec<&WindowRecord> = wins
+                .iter()
+                .filter(|w| w.column_index.is_some())
+                .collect();
+            tiled.sort_by_key(|w| (w.column_index.unwrap(), w.row_index.unwrap_or(1)));
 
-                let mut current_col: Option<usize> = None;
+            let mut current_col: Option<usize> = None;
 
-                for w in &tiled {
-                    let col = w.column_index.unwrap();
+            for w in &tiled {
+                let col = w.column_index.unwrap();
 
-                    if current_col != Some(col) {
-                        current_col = Some(col);
-                        send_action(Action::FocusWindow { id: w.id });
-                        send_action(Action::MoveColumnToIndex { index: col });
-                    } else {
-                        let row = w.row_index.unwrap_or(1);
-                        send_action(Action::FocusWindow { id: w.id });
-                        send_action(Action::ConsumeWindowIntoColumn {});
-                        for _ in 1..row {
-                            send_action(Action::MoveWindowUp {});
-                        }
+                if current_col != Some(col) {
+                    current_col = Some(col);
+                    send_action(Action::FocusWindow { id: w.id });
+                    send_action(Action::MoveColumnToIndex { index: col });
+                } else {
+                    let row = w.row_index.unwrap_or(1);
+                    send_action(Action::FocusWindow { id: w.id });
+                    send_action(Action::ConsumeWindowIntoColumn {});
+                    for _ in 1..row {
+                        send_action(Action::MoveWindowUp {});
                     }
                 }
-
-                send_action(Action::FocusWorkspace {
-                    reference: WorkspaceReferenceArg::Index(1),
-                });
-
-                if let Some(fid) = *focused_clone.borrow() {
-                    send_action(Action::FocusWindow { id: fid });
-                }
-
-                records_clone.borrow_mut().clear();
-                *focused_clone.borrow_mut() = None;
-                *hiding = false;
-                timendate_clone.remove(&show);
             }
-        });
+
+            send_action(Action::FocusWorkspace {
+                reference: WorkspaceReferenceArg::Index(1),
+            });
+
+            if let Some(fid) = *focused_clone.borrow() {
+                send_action(Action::FocusWindow { id: fid });
+            }
+
+            records_clone.borrow_mut().clear();
+            *focused_clone.borrow_mut() = None;
+            *hiding = false;
+            timendate_clone.remove(&show);
+        }
+    });
 }
 
 fn main() {

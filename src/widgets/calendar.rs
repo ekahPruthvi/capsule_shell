@@ -1,5 +1,5 @@
 use gtk4::prelude::*;
-use gtk4::{Box as GtkBox, Calendar, Orientation, Window, glib};
+use gtk4::{Box as GtkBox, Calendar, Orientation, Window};
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use std::cell::Cell;
 use std::rc::Rc;
@@ -84,4 +84,8 @@ pub fn spawn_calendar_widget() {
     });
 
     handle.add_controller(gesture);
+}
+
+pub fn kill() {
+    
 }
