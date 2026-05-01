@@ -22,6 +22,16 @@ const HIDE_WORKSPACE_IDX: u8 = 99;
 struct WindowRecord {
     id: u64,
     workspace_id: Option<u64>,
+    column_index: Option<usize>,
+    row_index: Option<usize>,
+}
+
+fn get_focused_window_id() -> Option<u64> {
+    let Ok(mut sock) = Socket::connect() else { return None };
+    match sock.send(Request::FocusedWindow) {
+        Ok(Ok(Response::FocusedWindow(Some(w)))) => Some(w.id),
+        _ => None,
+    }
 }
 
 fn send_action(action: Action) {
@@ -35,9 +45,17 @@ fn get_windows() -> Vec<WindowRecord> {
     match sock.send(Request::Windows) {
         Ok(Ok(Response::Windows(windows))) => windows
             .into_iter()
-            .map(|w| WindowRecord {
-                id: w.id,
-                workspace_id: w.workspace_id,
+            .map(|w| {
+                let (column_index, row_index) = match w.layout.pos_in_scrolling_layout {
+                    Some((col, row)) => (Some(col), Some(row)),
+                    None => (None, None),
+                };
+                WindowRecord {
+                    id: w.id,
+                    workspace_id: w.workspace_id,
+                    column_index,
+                    row_index,
+                }
             })
             .collect(),
         _ => vec![],
@@ -274,10 +292,12 @@ fn coping_with(app: &Application) {
 
     let records: Rc<RefCell<Vec<WindowRecord>>> = Rc::new(RefCell::new(vec![]));
     let is_hidden: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
+    let focused_before_hide: Rc<RefCell<Option<u64>>> = Rc::new(RefCell::new(None));
 
     let records_clone = records.clone();
     let is_hidden_clone = is_hidden.clone();
     let timendate_clone = timendate.clone();
+    let focused_clone = focused_before_hide.clone();
 
     let show = Image::from_file("/var/lib/cynager/icons/min.svg");
     show.set_icon_size(gtk4::IconSize::Normal);
@@ -288,6 +308,7 @@ fn coping_with(app: &Application) {
 
             if !*hiding {
                 let wins = get_windows();
+                *focused_clone.borrow_mut() = get_focused_window_id();
 
                 for w in &wins {
                     send_action(Action::MoveWindowToWorkspace {
@@ -303,6 +324,7 @@ fn coping_with(app: &Application) {
                 timendate_clone.append(&show);
             } else {
                 let wins = records_clone.borrow().clone();
+
                 for w in &wins {
                     let target = match w.workspace_id {
                         Some(id) => WorkspaceReferenceArg::Id(id),
@@ -311,15 +333,45 @@ fn coping_with(app: &Application) {
                     send_action(Action::MoveWindowToWorkspace {
                         window_id: Some(w.id),
                         reference: target,
-                        focus: false
+                        focus: false,
                     });
+                }
+
+                let mut tiled: Vec<&WindowRecord> = wins
+                    .iter()
+                    .filter(|w| w.column_index.is_some())
+                    .collect();
+                tiled.sort_by_key(|w| (w.column_index.unwrap(), w.row_index.unwrap_or(1)));
+
+                let mut current_col: Option<usize> = None;
+
+                for w in &tiled {
+                    let col = w.column_index.unwrap();
+
+                    if current_col != Some(col) {
+                        current_col = Some(col);
+                        send_action(Action::FocusWindow { id: w.id });
+                        send_action(Action::MoveColumnToIndex { index: col });
+                    } else {
+                        let row = w.row_index.unwrap_or(1);
+                        send_action(Action::FocusWindow { id: w.id });
+                        send_action(Action::ConsumeWindowIntoColumn {});
+                        for _ in 1..row {
+                            send_action(Action::MoveWindowUp {});
+                        }
+                    }
                 }
 
                 send_action(Action::FocusWorkspace {
                     reference: WorkspaceReferenceArg::Index(1),
                 });
 
+                if let Some(fid) = *focused_clone.borrow() {
+                    send_action(Action::FocusWindow { id: fid });
+                }
+
                 records_clone.borrow_mut().clear();
+                *focused_clone.borrow_mut() = None;
                 *hiding = false;
                 timendate_clone.remove(&show);
             }

@@ -279,11 +279,16 @@ pub fn connect_notifications_to_dock(
                         while let Some(child) = noti_all_clone.first_child() {
                             noti_all_clone.remove(&child);
                         }
+                        if let Some(root) = noti_all_clone.root() {
+                            if let Some(window) = root.downcast_ref::<gtk4::Window>() {
+                                window.set_visible(false);
+                                window.set_visible(true);
+                            }
+                        }
                         noti_all_clone.remove_css_class("vanish");
                         noti_all_clone.set_height_request(10);
                         glib::ControlFlow::Break
-                    });
-                    
+                    });                 
                 });
 
                 if noti_all.first_child().is_none() {
@@ -306,6 +311,12 @@ pub fn connect_notifications_to_dock(
                         glib::timeout_add_local(Duration::from_secs(1), move || {
                             if let Some(child) = noti_all_clone.first_child() {
                                 noti_all_clone.remove(&child);
+                            }
+                            if let Some(root) = noti_all_clone.root() {
+                                if let Some(window) = root.downcast_ref::<gtk4::Window>() {
+                                    window.set_visible(false);
+                                    window.set_visible(true);
+                                }
                             }
                             noti_all_clone.remove_css_class("vanish");
                             glib::ControlFlow::Break
