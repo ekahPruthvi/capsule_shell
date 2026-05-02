@@ -26,6 +26,8 @@ pub fn spawn_calendar_widget() -> Window {
     win.remove_css_class("background");
 
     let outer = GtkBox::new(Orientation::Vertical, 0);
+    outer.set_width_request(300);
+    outer.set_height_request(300);
     outer.set_css_classes(&["starting", "widgetBox"]);
 
     let handle = GtkBox::new(Orientation::Horizontal, 0);
