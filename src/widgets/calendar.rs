@@ -26,8 +26,7 @@ pub fn spawn_calendar_widget() -> Window {
     win.remove_css_class("background");
 
     let outer = GtkBox::new(Orientation::Vertical, 0);
-    outer.add_css_class("widgetBox");
-    outer.set_css_classes(&["starting"]);
+    outer.set_css_classes(&["starting", "widgetBox"]);
 
     let handle = GtkBox::new(Orientation::Horizontal, 0);
     handle.add_css_class("dragHandle");
@@ -87,8 +86,4 @@ pub fn spawn_calendar_widget() -> Window {
     handle.add_controller(gesture);
 
     win
-}
-
-pub fn kill(win: &Window) {
-    win.close();
 }

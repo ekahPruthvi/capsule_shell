@@ -14,7 +14,7 @@ mod notifications;
 mod osd;
 mod widgets;
 
-use widgets::{battery::spawn_battery_widget, calendar::{spawn_calendar_widget, kill}};
+use widgets::{system::spawn_sys_widget, calendar::spawn_calendar_widget, kill};
 
 const HIDE_WORKSPACE_IDX: u8 = 99;
 
@@ -366,8 +366,9 @@ fn coping_with(app: &Application) {
     if initial_cfg.cal {
         *cal_win.borrow_mut() = Some(spawn_calendar_widget());
     }
+    let sys_win: Rc<RefCell<Option<gtk4::Window>>> = Rc::new(RefCell::new(None));
     if initial_cfg.sys {
-        spawn_battery_widget();
+        *sys_win.borrow_mut() = Some(spawn_sys_widget());
     }
 
     let probe_rx     = spawn_probe_watcher(probe_path.to_string(), Duration::from_secs(5));
@@ -389,9 +390,11 @@ fn coping_with(app: &Application) {
 
             let sys_active = *active_sys_c.borrow();
             if cfg.sys && !sys_active {
-                spawn_battery_widget();
-                *active_sys_c.borrow_mut() = true;
+                *sys_win.borrow_mut() = Some(spawn_sys_widget());
+                *active_cal_c.borrow_mut() = true;
             } else if !cfg.sys && sys_active {
+                let maybe = sys_win.borrow_mut().take();
+                if let Some(w) = maybe { kill(&w); }
                 *active_sys_c.borrow_mut() = false;
             }
         }
