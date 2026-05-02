@@ -6,7 +6,7 @@ use gtk4::gdk::Display;
 use std::{env, time::Duration};
 use chrono::Local;
 use gtk4::gio::File;
-use std::cell::{RefCell, Cell};
+use std::cell::RefCell;
 use std::rc::Rc;
 use niri_ipc::{socket::Socket, Action, Request, Response, WorkspaceReferenceArg};
 
@@ -17,7 +17,6 @@ mod widgets;
 use widgets::{battery::spawn_battery_widget, calendar::{spawn_calendar_widget, kill}};
 
 const HIDE_WORKSPACE_IDX: u8 = 99;
-
 
 #[derive(Debug, Clone, PartialEq)]
 struct WidgetConfig {
@@ -112,7 +111,6 @@ fn pin_to_monitor(window: &ApplicationWindow, monitor: Option<&gtk4::gdk::Monito
     }
 }
 
-
 #[derive(Clone)]
 struct WindowRecord {
     id:           u64,
@@ -171,7 +169,7 @@ fn makin_widget_window(
     noti_window.set_anchor(Edge::Bottom, true);
     noti_window.set_exclusive_zone(-1);
 
-    pin_to_monitor(&noti_window, monitor);   // ← shellout applied
+    pin_to_monitor(&noti_window, monitor);
 
     noti_window.set_child(Some(boxxy));
     noti_window.present();
@@ -359,48 +357,42 @@ fn coping_with(app: &Application) {
         scrolled_window.set_width_request(m.geometry().width());
     }
 
-    makin_widget_window(app, &scrolled_window, mon); // ← shellout applied
+    makin_widget_window(app, &scrolled_window, mon);
 
     let active_cal: Rc<RefCell<bool>> = Rc::new(RefCell::new(initial_cfg.cal));
     let active_sys: Rc<RefCell<bool>> = Rc::new(RefCell::new(initial_cfg.sys));
 
-    let cal_win: Rc<Cell<Option<gtk4::Window>>> = Rc::new(Cell::new(None));
+    let cal_win: Rc<RefCell<Option<gtk4::Window>>> = Rc::new(RefCell::new(None));
     if initial_cfg.cal {
-        cal_win.set(Some(spawn_calendar_widget()));
+        *cal_win.borrow_mut() = Some(spawn_calendar_widget());
     }
     if initial_cfg.sys {
         spawn_battery_widget();
     }
 
-    let probe_rx    = spawn_probe_watcher(probe_path.to_string(), Duration::from_secs(5));
-    let probe_rx    = Rc::new(RefCell::new(probe_rx));
+    let probe_rx     = spawn_probe_watcher(probe_path.to_string(), Duration::from_secs(5));
+    let probe_rx     = Rc::new(RefCell::new(probe_rx));
     let active_cal_c = active_cal.clone();
     let active_sys_c = active_sys.clone();
 
     glib::timeout_add_local(Duration::from_millis(500), move || {
         while let Ok(cfg) = probe_rx.borrow().try_recv() {
-            // cal
-            match (cfg.cal, *active_cal_c.borrow()) {
-                (true, false) => {
-                    cal_win.set(Some(spawn_calendar_widget()));
-                    *active_cal_c.borrow_mut() = true;
-                }
-                (false, true) => {
-                    if let Some(w) = cal_win.take() { kill(&w); }
-                    *active_cal_c.borrow_mut() = false;
-                }
-                _ => {}
+            let cal_active = *active_cal_c.borrow();
+            if cfg.cal && !cal_active {
+                *cal_win.borrow_mut() = Some(spawn_calendar_widget());
+                *active_cal_c.borrow_mut() = true;
+            } else if !cfg.cal && cal_active {
+                let maybe = cal_win.borrow_mut().take();
+                if let Some(w) = maybe { kill(&w); }
+                *active_cal_c.borrow_mut() = false;
             }
-            // sys
-            match (cfg.sys, *active_sys_c.borrow()) {
-                (true, false) => {
-                    spawn_battery_widget();
-                    *active_sys_c.borrow_mut() = true;
-                }
-                (false, true) => {
-                    *active_sys_c.borrow_mut() = false;
-                }
-                _ => {}
+
+            let sys_active = *active_sys_c.borrow();
+            if cfg.sys && !sys_active {
+                spawn_battery_widget();
+                *active_sys_c.borrow_mut() = true;
+            } else if !cfg.sys && sys_active {
+                *active_sys_c.borrow_mut() = false;
             }
         }
         glib::ControlFlow::Continue
