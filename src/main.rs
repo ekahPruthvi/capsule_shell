@@ -18,33 +18,47 @@ use widgets::{battery::spawn_battery_widget, calendar::{spawn_calendar_widget, k
 
 const HIDE_WORKSPACE_IDX: u8 = 99;
 
+
 #[derive(Debug, Clone, PartialEq)]
 struct WidgetConfig {
-    cal: bool,
-    sys: bool,
+    cal:      bool,
+    sys:      bool,
+    shellout: String,
 }
 
 impl Default for WidgetConfig {
     fn default() -> Self {
-        Self { cal: false, sys: false }
+        Self { cal: false, sys: false, shellout: String::new() }
     }
 }
 
 fn parse_widget_config(path: &str) -> Option<WidgetConfig> {
     let content = std::fs::read_to_string(path).ok()?;
 
-    let set_start = content.find(":set")?;
-    let set_body = &content[set_start..];
-    let set_end  = set_body.find(":end")?;
-    let set_body = &set_body[..set_end];
+    let set_start  = content.find(":set")?;
+    let set_body   = &content[set_start..];
+    let set_end    = set_body.find(":end")?;
+    let set_body   = &set_body[..set_end];
 
-    let w_start = set_body.find("widgets")?.saturating_add("widgets".len());
-    let brace_open = set_body[w_start..].find(':')?.saturating_add(w_start + 1);
-    let brace_open = set_body[brace_open..].find('{')?.saturating_add(brace_open + 1);
+    let mut shellout = String::new();
+    for line in set_body.lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix("shellout") {
+            // format: `shellout :eDP-1`
+            if let Some(val) = rest.trim().strip_prefix(':') {
+                shellout = val.trim().to_string();
+                break;
+            }
+        }
+    }
+
+    let w_start     = set_body.find("widgets")?.saturating_add("widgets".len());
+    let brace_open  = set_body[w_start..].find(':')?.saturating_add(w_start + 1);
+    let brace_open  = set_body[brace_open..].find('{')?.saturating_add(brace_open + 1);
     let brace_close = set_body[brace_open..].find('}')?.saturating_add(brace_open);
     let widget_block = &set_body[brace_open..brace_close];
 
-    let mut cfg = WidgetConfig::default();
+    let mut cfg = WidgetConfig { shellout, ..Default::default() };
     for line in widget_block.lines() {
         let line = line.trim();
         if line.is_empty() { continue; }
@@ -54,7 +68,7 @@ fn parse_widget_config(path: &str) -> Option<WidgetConfig> {
         match key {
             "cal" => cfg.cal = val == "true",
             "sys" => cfg.sys = val == "true",
-            _ => {}
+            _     => {}
         }
     }
     Some(cfg)
@@ -62,33 +76,49 @@ fn parse_widget_config(path: &str) -> Option<WidgetConfig> {
 
 fn spawn_probe_watcher(
     probe_path: String,
-    interval: Duration,
+    interval:   Duration,
 ) -> std::sync::mpsc::Receiver<WidgetConfig> {
     let (sender, receiver) = std::sync::mpsc::channel::<WidgetConfig>();
-
     std::thread::spawn(move || {
         let mut last: Option<WidgetConfig> = None;
         loop {
             let cfg = parse_widget_config(&probe_path).unwrap_or_default();
             if Some(&cfg) != last.as_ref() {
-                if sender.send(cfg.clone()).is_err() {
-                    break;
-                }
+                if sender.send(cfg.clone()).is_err() { break; }
                 last = Some(cfg);
             }
             std::thread::sleep(interval);
         }
     });
-
     receiver
 }
 
+fn resolve_monitor(
+    display:   &gtk4::gdk::Display,
+    connector: &str,
+) -> Option<gtk4::gdk::Monitor> {
+    if connector.is_empty() || connector == "default" {
+        return None;
+    }
+    let monitors = display.monitors();
+    (0..monitors.n_items())
+        .filter_map(|i| monitors.item(i)?.downcast::<gtk4::gdk::Monitor>().ok())
+        .find(|m| m.connector().map(|c| c == connector).unwrap_or(false))
+}
+
+fn pin_to_monitor(window: &ApplicationWindow, monitor: Option<&gtk4::gdk::Monitor>) {
+    if let Some(m) = monitor {
+        window.set_monitor(Some(m));
+    }
+}
+
+
 #[derive(Clone)]
 struct WindowRecord {
-    id: u64,
+    id:           u64,
     workspace_id: Option<u64>,
     column_index: Option<usize>,
-    row_index: Option<usize>,
+    row_index:    Option<usize>,
 }
 
 fn get_focused_window_id() -> Option<u64> {
@@ -113,21 +143,21 @@ fn get_windows() -> Vec<WindowRecord> {
             .map(|w| {
                 let (column_index, row_index) = match w.layout.pos_in_scrolling_layout {
                     Some((col, row)) => (Some(col), Some(row)),
-                    None => (None, None),
+                    None             => (None, None),
                 };
-                WindowRecord {
-                    id: w.id,
-                    workspace_id: w.workspace_id,
-                    column_index,
-                    row_index,
-                }
+                WindowRecord { id: w.id, workspace_id: w.workspace_id, column_index, row_index }
             })
             .collect(),
         _ => vec![],
     }
 }
 
-fn makin_widget_window(app: &Application, boxxy: &gtk4::ScrolledWindow){
+
+fn makin_widget_window(
+    app:     &Application,
+    boxxy:   &gtk4::ScrolledWindow,
+    monitor: Option<&gtk4::gdk::Monitor>,
+) {
     let noti_window = ApplicationWindow::builder()
         .application(app)
         .title("capsuleN")
@@ -141,24 +171,32 @@ fn makin_widget_window(app: &Application, boxxy: &gtk4::ScrolledWindow){
     noti_window.set_anchor(Edge::Bottom, true);
     noti_window.set_exclusive_zone(-1);
 
+    pin_to_monitor(&noti_window, monitor);   // ← shellout applied
+
     noti_window.set_child(Some(boxxy));
     noti_window.present();
 }
 
+
 fn coping_with(app: &Application) {
     let rx = notifications::spawn_messaging_daemon();
 
-    let css = CssProvider::new();
+    let css      = CssProvider::new();
     let home_dir = env::var("HOME").unwrap_or_else(|_| ".".to_string());
     let css_path = format!("{}/.config/capsule/dark.css", home_dir);
-    let file = File::for_path(&css_path);
-    css.load_from_file(&file);
-
+    css.load_from_file(&File::for_path(&css_path));
     gtk4::style_context_add_provider_for_display(
         &Display::default().unwrap(),
         &css,
         gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
     );
+
+    let probe_path = "/var/lib/cynager/info.probe";
+    let initial_cfg = parse_widget_config(probe_path).unwrap_or_default();
+
+    let display = gtk4::gdk::Display::default().expect("Could not get default display");
+    let shellout_monitor = resolve_monitor(&display, &initial_cfg.shellout);
+    let mon = shellout_monitor.as_ref();
 
     let time_window = ApplicationWindow::builder()
         .application(app)
@@ -175,6 +213,8 @@ fn coping_with(app: &Application) {
     time_window.set_exclusive_zone(0);
     time_window.set_width_request(400);
 
+    pin_to_monitor(&time_window, mon);
+
     let time_capsule = GtkBox::new(Orientation::Horizontal, 5);
     time_capsule.set_css_classes(&["timeCapsule", "starting"]);
     time_capsule.set_halign(gtk4::Align::Center);
@@ -185,7 +225,7 @@ fn coping_with(app: &Application) {
     time_capsule.set_width_request(300);
 
     let timendate = GtkBox::new(Orientation::Horizontal, 5);
-    let time = Label::new(Some(""));
+    let time      = Label::new(Some(""));
     time.set_justify(gtk4::Justification::Center);
     let ampm = Label::new(Some("cynageOS"));
     ampm.set_css_classes(&["ampm"]);
@@ -200,21 +240,18 @@ fn coping_with(app: &Application) {
         .halign(gtk4::Align::End)
         .build();
 
-    let time_win = time_capsule.clone();
+    let time_win           = time_capsule.clone();
     let time_actual_window = time_window.clone();
     glib::timeout_add_local(Duration::from_millis(1200), move || {
         let now = Local::now();
-        let time_str = now.format("%I:%M").to_string();
-
-        time.set_text(&time_str);
+        time.set_text(&now.format("%I:%M").to_string());
         ampm.set_text(&now.format(" %p \n %a, %b %e").to_string());
-
         time_win.remove_css_class("starting");
         time_actual_window.set_width_request(300);
         glib::ControlFlow::Continue
     });
 
-    let cos = Button::new();
+    let cos      = Button::new();
     let cos_logo = Image::from_file("/var/lib/cynager/icons/cos.svg");
     cos_logo.set_icon_size(gtk4::IconSize::Large);
     cos.set_child(Some(&cos_logo));
@@ -261,7 +298,6 @@ fn coping_with(app: &Application) {
     time_capsule.append(&cos);
     time_capsule.append(&badge);
     time_capsule.append(&time_and_actions);
-
     time_window.set_child(Some(&time_capsule));
 
     let noti_boxy_inner_notifications_all = GtkBox::new(Orientation::Horizontal, 0);
@@ -278,6 +314,8 @@ fn coping_with(app: &Application) {
     osd_window.set_anchor(Edge::Bottom, true);
     osd_window.set_exclusive_zone(-1);
 
+    pin_to_monitor(&osd_window, mon);
+
     let osd_capsule = GtkBox::new(Orientation::Vertical, 5);
     osd_capsule.set_css_classes(&["osdCapsule"]);
     osd_capsule.set_halign(gtk4::Align::Center);
@@ -291,7 +329,10 @@ fn coping_with(app: &Application) {
     osd_capsule.append(&osd_box);
     osd_window.set_child(Some(&osd_capsule));
 
-    notifications::connect_notifications_to_dock(rx, &time_capsule, &time_window, &cos_logo, &cos, &badge, &noti_boxy_inner_notifications_all);
+    notifications::connect_notifications_to_dock(
+        rx, &time_capsule, &time_window, &cos_logo, &cos, &badge,
+        &noti_boxy_inner_notifications_all,
+    );
     osd::connect_osd_to_dock(&osd, &osd_revealer, &osd_capsule, &osd_window, &lbl);
 
     time_window.present();
@@ -303,9 +344,7 @@ fn coping_with(app: &Application) {
     noti_boxy.set_width_request(300);
     noti_boxy.set_halign(gtk4::Align::Center);
 
-    let display = gtk4::gdk::Display::default().expect("Could not get default display");
     let monitors = display.monitors();
-
     let scrolled_window = gtk4::ScrolledWindow::builder()
         .hscrollbar_policy(gtk4::PolicyType::Automatic)
         .vscrollbar_policy(gtk4::PolicyType::Never)
@@ -313,58 +352,68 @@ fn coping_with(app: &Application) {
         .child(&noti_boxy)
         .build();
 
-    if let Some(monitor) = monitors.item(0).and_downcast::<gtk4::gdk::Monitor>() {
-        let geometry = monitor.geometry();
-        let width = geometry.width();
-        scrolled_window.set_width_request(width);
+    let fallback_monitor = monitors.item(0).and_downcast::<gtk4::gdk::Monitor>();
+    let width_monitor: Option<&gtk4::gdk::Monitor> =
+        mon.or_else(|| fallback_monitor.as_ref().map(|m| m));
+    if let Some(m) = width_monitor {
+        scrolled_window.set_width_request(m.geometry().width());
     }
 
-    let appy = app.clone();
-    makin_widget_window(&appy, &scrolled_window);
+    makin_widget_window(app, &scrolled_window, mon); // ← shellout applied
 
-    let probe_path = "/var/lib/cynager/info.probe".to_string();
+    let active_cal: Rc<RefCell<bool>> = Rc::new(RefCell::new(initial_cfg.cal));
+    let active_sys: Rc<RefCell<bool>> = Rc::new(RefCell::new(initial_cfg.sys));
 
-    let active_cal: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
-    let active_sys: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
+    let cal_win: Rc<Cell<Option<gtk4::Window>>> = Rc::new(Cell::new(None));
+    if initial_cfg.cal {
+        cal_win.set(Some(spawn_calendar_widget()));
+    }
+    if initial_cfg.sys {
+        spawn_battery_widget();
+    }
 
-    let probe_rx = spawn_probe_watcher(probe_path, Duration::from_secs(5));
-    let probe_rx = Rc::new(RefCell::new(probe_rx));
-
+    let probe_rx    = spawn_probe_watcher(probe_path.to_string(), Duration::from_secs(5));
+    let probe_rx    = Rc::new(RefCell::new(probe_rx));
     let active_cal_c = active_cal.clone();
     let active_sys_c = active_sys.clone();
-    let cal_win: Rc<Cell<Option<gtk4::Window>>> = Rc::new(Cell::new(None));
 
     glib::timeout_add_local(Duration::from_millis(500), move || {
         while let Ok(cfg) = probe_rx.borrow().try_recv() {
-            if cfg.cal && !*active_cal_c.borrow() {
-                let win = spawn_calendar_widget();
-                cal_win.set(Some(win));
-                *active_cal_c.borrow_mut() = true;
-            } else if !cfg.cal && *active_cal_c.borrow() {
-                *active_cal_c.borrow_mut() = false;
-                if let Some(w) = cal_win.take() {
-                    kill(&w);
+            // cal
+            match (cfg.cal, *active_cal_c.borrow()) {
+                (true, false) => {
+                    cal_win.set(Some(spawn_calendar_widget()));
+                    *active_cal_c.borrow_mut() = true;
                 }
+                (false, true) => {
+                    if let Some(w) = cal_win.take() { kill(&w); }
+                    *active_cal_c.borrow_mut() = false;
+                }
+                _ => {}
             }
-
-            if cfg.sys && !*active_sys_c.borrow() {
-                spawn_battery_widget();
-                *active_sys_c.borrow_mut() = true;
-            } else if !cfg.sys && *active_sys_c.borrow() {
-                *active_sys_c.borrow_mut() = false;
+            // sys
+            match (cfg.sys, *active_sys_c.borrow()) {
+                (true, false) => {
+                    spawn_battery_widget();
+                    *active_sys_c.borrow_mut() = true;
+                }
+                (false, true) => {
+                    *active_sys_c.borrow_mut() = false;
+                }
+                _ => {}
             }
         }
         glib::ControlFlow::Continue
     });
 
-    let records: Rc<RefCell<Vec<WindowRecord>>> = Rc::new(RefCell::new(vec![]));
-    let is_hidden: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
-    let focused_before_hide: Rc<RefCell<Option<u64>>> = Rc::new(RefCell::new(None));
+    let records:             Rc<RefCell<Vec<WindowRecord>>> = Rc::new(RefCell::new(vec![]));
+    let is_hidden:           Rc<RefCell<bool>>              = Rc::new(RefCell::new(false));
+    let focused_before_hide: Rc<RefCell<Option<u64>>>       = Rc::new(RefCell::new(None));
 
-    let records_clone = records.clone();
+    let records_clone  = records.clone();
     let is_hidden_clone = is_hidden.clone();
     let timendate_clone = timendate.clone();
-    let focused_clone = focused_before_hide.clone();
+    let focused_clone  = focused_before_hide.clone();
 
     let show = Image::from_file("/var/lib/cynager/icons/min.svg");
     show.set_icon_size(gtk4::IconSize::Normal);
@@ -382,13 +431,12 @@ fn coping_with(app: &Application) {
                 send_action(Action::MoveWindowToWorkspace {
                     window_id: Some(w.id),
                     reference: WorkspaceReferenceArg::Index(HIDE_WORKSPACE_IDX),
-                    focus: false
+                    focus:     false,
                 });
             }
 
             *records_clone.borrow_mut() = wins;
             *hiding = true;
-
             timendate_clone.append(&show);
         } else {
             let wins = records_clone.borrow().clone();
@@ -396,12 +444,12 @@ fn coping_with(app: &Application) {
             for w in &wins {
                 let target = match w.workspace_id {
                     Some(id) => WorkspaceReferenceArg::Id(id),
-                    None => WorkspaceReferenceArg::Index(1),
+                    None     => WorkspaceReferenceArg::Index(1),
                 };
                 send_action(Action::MoveWindowToWorkspace {
                     window_id: Some(w.id),
                     reference: target,
-                    focus: false,
+                    focus:     false,
                 });
             }
 
@@ -412,10 +460,8 @@ fn coping_with(app: &Application) {
             tiled.sort_by_key(|w| (w.column_index.unwrap(), w.row_index.unwrap_or(1)));
 
             let mut current_col: Option<usize> = None;
-
             for w in &tiled {
                 let col = w.column_index.unwrap();
-
                 if current_col != Some(col) {
                     current_col = Some(col);
                     send_action(Action::FocusWindow { id: w.id });
@@ -433,7 +479,6 @@ fn coping_with(app: &Application) {
             send_action(Action::FocusWorkspace {
                 reference: WorkspaceReferenceArg::Index(1),
             });
-
             if let Some(fid) = *focused_clone.borrow() {
                 send_action(Action::FocusWindow { id: fid });
             }

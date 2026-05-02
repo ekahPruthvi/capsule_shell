@@ -408,6 +408,7 @@ pub fn connect_notifications_to_dock(
                                         noti_window_c.remove_css_class("blip");
                                         main_c.set_visible(false);
                                         main_c.set_visible(true);
+                                        main_c.set_width_request(400);
                                         return glib::ControlFlow::Break;
                                     }
                                     current_width_c.set(next_w);
