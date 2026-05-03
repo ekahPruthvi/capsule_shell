@@ -163,7 +163,7 @@ pub fn spawn_sys_widget() -> Window {
     music_overlay.set_child(Some(&art_canvas));
     music_overlay.add_overlay(&music_page);
 
-    let track_label = Label::new(Some(""));
+    let track_label = Label::new(Some("Not"));
     track_label.add_css_class("trackLabel");
     track_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
     track_label.set_max_width_chars(22);
@@ -171,7 +171,7 @@ pub fn spawn_sys_widget() -> Window {
     track_label.set_margin_start(10);
     track_label.set_margin_end(20);
 
-    let artist_label = Label::new(None);
+    let artist_label = Label::new(Some("Playing"));
     artist_label.add_css_class("artistLabel");
     artist_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
     artist_label.set_max_width_chars(22);
@@ -386,8 +386,8 @@ fn apply_music_state(
             art_canvas.queue_draw();
         }
         None => {
-            track_label.set_label("");
-            artist_label.set_label("");
+            track_label.set_label("Not");
+            artist_label.set_label("Playing");
             is_playing.set(false);
             play_btn.set_child(Some(play_img));
             *art_pixbuf.borrow_mut() = None;
