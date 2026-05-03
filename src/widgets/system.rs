@@ -109,8 +109,8 @@ pub fn spawn_sys_widget() -> Window {
     handle.add_css_class("dragHandle");
     handle.set_cursor_from_name(Some("grab"));
     handle.set_margin_top(3);
-    handle.set_margin_start(80);
-    handle.set_margin_end(80);
+    handle.set_margin_start(5);
+    handle.set_margin_end(5);
     handle.set_hexpand(true);
 
     let music_overlay = gtk4::Overlay::new();
@@ -163,7 +163,7 @@ pub fn spawn_sys_widget() -> Window {
     music_overlay.set_child(Some(&art_canvas));
     music_overlay.add_overlay(&music_page);
 
-    let track_label = Label::new(Some("Not playing"));
+    let track_label = Label::new(Some(""));
     track_label.add_css_class("trackLabel");
     track_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
     track_label.set_max_width_chars(22);
@@ -194,10 +194,17 @@ pub fn spawn_sys_widget() -> Window {
 
     let play = Image::from_file("/var/lib/cynager/icons/play.svg");
     play.set_icon_size(gtk4::IconSize::Large);
+    let pause = Image::from_file("/var/lib/cynager/icons/pause.svg");
+    pause.set_icon_size(gtk4::IconSize::Large);
+    let prev = Image::from_file("/var/lib/cynager/icons/baw.svg");
+    prev.set_icon_size(gtk4::IconSize::Normal);
+    let next = Image::from_file("/var/lib/cynager/icons/fow.svg");
+    next.set_icon_size(gtk4::IconSize::Normal);
 
-    let prev_btn       = Button::with_label("⏮");
-    let play_btn       = Button::with_label("▶");
-    let next_track_btn = Button::with_label("⏭");
+
+    let prev_btn       = Button::builder().child(&prev).build();
+    let play_btn       = Button::builder().child(&play).build();
+    let next_track_btn = Button::builder().child(&next).build();
 
     for btn in &[&prev_btn, &play_btn, &next_track_btn] {
         btn.add_css_class("mediaBtn");
@@ -219,20 +226,34 @@ pub fn spawn_sys_widget() -> Window {
     win.set_child(Some(&outer));
     win.present();
 
+
+    let is_playing: Rc<Cell<bool>> = Rc::new(Cell::new(false));
+
     {
         let tl  = track_label.clone();
         let al  = artist_label.clone();
         let ac  = art_canvas.clone();
         let apb = art_pixbuf.clone();
         let pb  = play_btn.clone();
+        let pi  = play.clone();
+        let pai = pause.clone();
+        let ipl = is_playing.clone();
         {
-            let (tl2, al2, ac2, apb2, pb2) = (tl.clone(), al.clone(), ac.clone(), apb.clone(), pb.clone());
-            spawn_worker(fetch_music_state, move |s| apply_music_state(s, &tl2, &al2, &ac2, &apb2, &pb2));
+            let (tl2, al2, ac2, apb2, pb2, pi2, pai2, ipl2) =
+                (tl.clone(), al.clone(), ac.clone(), apb.clone(),
+                 pb.clone(), pi.clone(), pai.clone(), ipl.clone());
+            spawn_worker(fetch_music_state, move |s| {
+                apply_music_state(s, &tl2, &al2, &ac2, &apb2, &pb2, &pi2, &pai2, &ipl2)
+            });
         }
 
         gtk4::glib::timeout_add_local(std::time::Duration::from_secs(2), move || {
-            let (tl2, al2, ac2, apb2, pb2) = (tl.clone(), al.clone(), ac.clone(), apb.clone(), pb.clone());
-            spawn_worker(fetch_music_state, move |s| apply_music_state(s, &tl2, &al2, &ac2, &apb2, &pb2));
+            let (tl2, al2, ac2, apb2, pb2, pi2, pai2, ipl2) =
+                (tl.clone(), al.clone(), ac.clone(), apb.clone(),
+                 pb.clone(), pi.clone(), pai.clone(), ipl.clone());
+            spawn_worker(fetch_music_state, move |s| {
+                apply_music_state(s, &tl2, &al2, &ac2, &apb2, &pb2, &pi2, &pai2, &ipl2)
+            });
             gtk4::glib::ControlFlow::Continue
         });
     }
@@ -241,20 +262,34 @@ pub fn spawn_sys_widget() -> Window {
     next_track_btn.connect_clicked(|_| fire_playerctl(&["next"]));
 
     {
-        let play_btn_c = play_btn.clone();
-        play_btn.connect_clicked(move |btn| {
+        let play_btn_c   = play_btn.clone();
+        let play_img     = play.clone();
+        let pause_img    = pause.clone();
+        let is_playing_c = is_playing.clone();
+        play_btn.connect_clicked(move |_btn| {
             fire_playerctl(&["play-pause"]);
 
-            let now_playing = btn.label().map(|l| l == "▶").unwrap_or(false);
-            play_btn_c.set_label(if now_playing { "⏸" } else { "▶" });
+            let now_playing = is_playing_c.get();
+            is_playing_c.set(!now_playing);
+            if !now_playing {
+                play_btn_c.set_child(Some(&pause_img));
+            } else {
+                play_btn_c.set_child(Some(&play_img));
+            }
 
-            let pb = play_btn_c.clone();
+            let pb            = play_btn_c.clone();
+            let play_img2     = play_img.clone();
+            let pause_img2    = pause_img.clone();
+            let is_playing_c2 = is_playing_c.clone();
             gtk4::glib::timeout_add_local_once(
                 std::time::Duration::from_millis(150),
                 move || {
                     spawn_worker(
                         || pctl(&["status"]).map(|s| s == "Playing").unwrap_or(false),
-                        move |playing| pb.set_label(if playing { "⏸" } else { "▶" }),
+                        move |playing| {
+                            is_playing_c2.set(playing);
+                            pb.set_child(Some(if playing { &pause_img2 } else { &play_img2 }));
+                        },
                     );
                 },
             );
@@ -314,6 +349,9 @@ fn apply_music_state(
     art_canvas:   &gtk4::DrawingArea,
     art_pixbuf:   &Rc<std::cell::RefCell<Option<gtk4::gdk_pixbuf::Pixbuf>>>,
     play_btn:     &Button,
+    play_img:     &Image,
+    pause_img:    &Image,
+    is_playing:   &Rc<Cell<bool>>,
 ) {
     use gtk4::gdk_pixbuf::Pixbuf;
 
@@ -321,7 +359,8 @@ fn apply_music_state(
         Some(s) => {
             track_label.set_label(&s.title);
             artist_label.set_label(&s.artist);
-            play_btn.set_label(if s.playing { "⏸" } else { "▶" });
+            is_playing.set(s.playing);
+            play_btn.set_child(Some(if s.playing { pause_img } else { play_img }));
 
             let new_pb = if s.art_url.starts_with("file://") {
                 let path = s.art_url.trim_start_matches("file://");
@@ -333,9 +372,10 @@ fn apply_music_state(
             art_canvas.queue_draw();
         }
         None => {
-            track_label.set_label("Not playing");
+            track_label.set_label("");
             artist_label.set_label("");
-            play_btn.set_label("▶");
+            is_playing.set(false);
+            play_btn.set_child(Some(play_img));
             *art_pixbuf.borrow_mut() = None;
             art_canvas.queue_draw();
         }
