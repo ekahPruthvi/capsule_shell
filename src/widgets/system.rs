@@ -1,5 +1,5 @@
 use gtk4::prelude::*;
-use gtk4::{Box as GtkBox, Button, Image, Label, Orientation, Window};
+use gtk4::{Box as GtkBox, Button, Label, Orientation, Window, Image};
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use std::cell::Cell;
 use std::process::Command;
@@ -101,7 +101,9 @@ pub fn spawn_sys_widget() -> Window {
     win.remove_css_class("background");
 
     let outer = GtkBox::new(Orientation::Vertical, 0);
-    outer.set_css_classes(&["starting", "outerSys"]);
+    outer.set_css_classes(&["starting", "outerSys"]);    
+    outer.set_width_request(200);
+    outer.set_height_request(200);
 
     let handle = GtkBox::new(Orientation::Horizontal, 0);
     handle.add_css_class("dragHandle");
@@ -111,32 +113,87 @@ pub fn spawn_sys_widget() -> Window {
     handle.set_margin_end(80);
     handle.set_hexpand(true);
 
-    let music_page = GtkBox::new(Orientation::Vertical, 6);
-    music_page.set_margin_start(16);
-    music_page.set_margin_end(16);
-    music_page.set_margin_top(10);
-    music_page.set_margin_bottom(10);
+    let music_overlay = gtk4::Overlay::new();
 
-    let art_image = Image::new();
-    art_image.add_css_class("albumArt");
-    art_image.set_pixel_size(80);
-    art_image.set_icon_name(Some("audio-x-generic"));
-    music_page.append(&art_image);
+    let music_page = GtkBox::new(Orientation::Vertical, 6);
+    music_page.add_css_class("MusicWidget");
+
+    use gtk4::gdk::prelude::GdkCairoContextExt as _;
+    use gtk4::gdk_pixbuf::Pixbuf;
+    use std::cell::RefCell;
+
+    let art_pixbuf: Rc<RefCell<Option<Pixbuf>>> = Rc::new(RefCell::new(None));
+
+    let art_canvas = gtk4::DrawingArea::new();
+    art_canvas.add_css_class("albumArt");
+    art_canvas.set_content_width(250);
+    art_canvas.set_content_height(250);
+
+    {
+        let pb_ref = art_pixbuf.clone();
+        art_canvas.set_draw_func(move |_w, cr, width, height| {
+            let r = 30.0_f64;
+            let w = width  as f64;
+            let h = height as f64;
+
+            cr.new_sub_path();
+            cr.arc(r,     r,     r, std::f64::consts::PI,             3.0 * std::f64::consts::PI / 2.0);
+            cr.arc(w - r, r,     r, 3.0 * std::f64::consts::PI / 2.0, 0.0);
+            cr.arc(w - r, h - r, r, 0.0,                               std::f64::consts::PI / 2.0);
+            cr.arc(r,     h - r, r, std::f64::consts::PI / 2.0,        std::f64::consts::PI);
+            cr.close_path();
+            let _ = cr.clip();
+
+            match *pb_ref.borrow() {
+                Some(ref pb) => {
+                    let sx = w / pb.width()  as f64;
+                    let sy = h / pb.height() as f64;
+                    cr.scale(sx, sy);
+                    cr.set_source_pixbuf(pb, 0.0, 0.0);
+                    let _ = cr.paint();
+                }
+                None => {
+                    cr.set_source_rgb(0.15, 0.15, 0.15);
+                    let _ = cr.paint();
+                }
+            }
+        });
+    }
+
+    music_overlay.set_child(Some(&art_canvas));
+    music_overlay.add_overlay(&music_page);
 
     let track_label = Label::new(Some("Not playing"));
     track_label.add_css_class("trackLabel");
     track_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
     track_label.set_max_width_chars(22);
-    music_page.append(&track_label);
+    track_label.set_halign(gtk4::Align::Start);
+    track_label.set_margin_start(20);
+    track_label.set_margin_end(20);
 
     let artist_label = Label::new(None);
     artist_label.add_css_class("artistLabel");
     artist_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
     artist_label.set_max_width_chars(22);
-    music_page.append(&artist_label);
+    artist_label.set_halign(gtk4::Align::Start);
+    artist_label.set_margin_start(20);
+    artist_label.set_margin_end(20);
+    
+    let info = GtkBox::new(Orientation::Vertical, 0);
+    info.add_css_class("MuicInfo");
+    info.set_width_request(120);
+    info.set_hexpand(false);
+    info.set_halign(gtk4::Align::Start);
+    info.append(&track_label);
+    info.append(&artist_label);
+
+    music_page.append(&info);
 
     let controls = GtkBox::new(Orientation::Horizontal, 6);
     controls.set_halign(gtk4::Align::Center);
+
+    let play = Image::from_file("/var/lib/cynager/icons/play.svg");
+    play.set_icon_size(gtk4::IconSize::Large);
 
     let prev_btn       = Button::with_label("⏮");
     let play_btn       = Button::with_label("▶");
@@ -145,30 +202,37 @@ pub fn spawn_sys_widget() -> Window {
     for btn in &[&prev_btn, &play_btn, &next_track_btn] {
         btn.add_css_class("mediaBtn");
     }
+
+    let spacer = GtkBox::new(Orientation::Vertical, 0);
+    spacer.set_vexpand(true);
+    spacer.set_valign(gtk4::Align::Baseline);
+
+    music_page.append(&spacer);
     controls.append(&prev_btn);
     controls.append(&play_btn);
     controls.append(&next_track_btn);
     music_page.append(&controls);
 
-    outer.append(&music_page);
-    outer.append(&handle);
+    outer.append(&music_overlay);
+    music_page.append(&handle);
 
     win.set_child(Some(&outer));
     win.present();
 
     {
-        let tl = track_label.clone();
-        let al = artist_label.clone();
-        let ai = art_image.clone();
-        let pb = play_btn.clone();
+        let tl  = track_label.clone();
+        let al  = artist_label.clone();
+        let ac  = art_canvas.clone();
+        let apb = art_pixbuf.clone();
+        let pb  = play_btn.clone();
         {
-            let (tl2, al2, ai2, pb2) = (tl.clone(), al.clone(), ai.clone(), pb.clone());
-            spawn_worker(fetch_music_state, move |s| apply_music_state(s, &tl2, &al2, &ai2, &pb2));
+            let (tl2, al2, ac2, apb2, pb2) = (tl.clone(), al.clone(), ac.clone(), apb.clone(), pb.clone());
+            spawn_worker(fetch_music_state, move |s| apply_music_state(s, &tl2, &al2, &ac2, &apb2, &pb2));
         }
 
         gtk4::glib::timeout_add_local(std::time::Duration::from_secs(2), move || {
-            let (tl2, al2, ai2, pb2) = (tl.clone(), al.clone(), ai.clone(), pb.clone());
-            spawn_worker(fetch_music_state, move |s| apply_music_state(s, &tl2, &al2, &ai2, &pb2));
+            let (tl2, al2, ac2, apb2, pb2) = (tl.clone(), al.clone(), ac.clone(), apb.clone(), pb.clone());
+            spawn_worker(fetch_music_state, move |s| apply_music_state(s, &tl2, &al2, &ac2, &apb2, &pb2));
             gtk4::glib::ControlFlow::Continue
         });
     }
@@ -247,25 +311,33 @@ fn apply_music_state(
     state:        Option<MusicState>,
     track_label:  &Label,
     artist_label: &Label,
-    art_image:    &Image,
+    art_canvas:   &gtk4::DrawingArea,
+    art_pixbuf:   &Rc<std::cell::RefCell<Option<gtk4::gdk_pixbuf::Pixbuf>>>,
     play_btn:     &Button,
 ) {
+    use gtk4::gdk_pixbuf::Pixbuf;
+
     match state {
         Some(s) => {
             track_label.set_label(&s.title);
             artist_label.set_label(&s.artist);
             play_btn.set_label(if s.playing { "⏸" } else { "▶" });
-            if s.art_url.starts_with("file://") {
-                art_image.set_from_file(Some(s.art_url.trim_start_matches("file://")));
+
+            let new_pb = if s.art_url.starts_with("file://") {
+                let path = s.art_url.trim_start_matches("file://");
+                Pixbuf::from_file(path).ok()
             } else {
-                art_image.set_icon_name(Some("audio-x-generic"));
-            }
+                None
+            };
+            *art_pixbuf.borrow_mut() = new_pb;
+            art_canvas.queue_draw();
         }
         None => {
             track_label.set_label("Not playing");
             artist_label.set_label("");
             play_btn.set_label("▶");
-            art_image.set_icon_name(Some("audio-x-generic"));
+            *art_pixbuf.borrow_mut() = None;
+            art_canvas.queue_draw();
         }
     }
 }
