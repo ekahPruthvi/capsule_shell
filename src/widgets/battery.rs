@@ -1,9 +1,8 @@
 use gtk4::prelude::*;
-use gtk4::{Box as GtkBox, Button, DrawingArea, Image, Label, Orientation, Stack, Window};
+use gtk4::{Box as GtkBox, Button, DrawingArea, Label, Orientation, Window};
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use std::cell::Cell;
 use std::fs;
-use std::process::Command;
 use std::rc::Rc;
 use std::thread;
 use crate::widgets::position::{load_positions, save_position};
@@ -67,8 +66,8 @@ fn make_battery_ring(
         let h        = h as f64;
 
         let (tr, tg, tb) = (0.22, 0.22, 0.24);
-        let (fr, fg, fb) = if charging { (0.18, 0.85, 0.45) } else { (0.90, 0.15, 0.18) };
-        let stroke_w = 5.5_f64;
+        let (fr, fg, fb) = if charging { (0.18, 0.85, 0.45) } else { (1.0, 1.0, 1.0) };
+        let stroke_w = 2.5_f64;
         let pad = stroke_w / 2.0 + 1.5; 
 
 
@@ -106,7 +105,7 @@ fn make_battery_ring(
         let gap_len  = perim - fill_len;
 
         cr.set_dash(&[fill_len, gap_len], 0.0);
-        cr.set_source_rgba(fr, fg, fb, 0.6);
+        cr.set_source_rgb(fr, fg, fb);
         cr.set_line_width(stroke_w);
         cr.set_line_cap(gtk4::cairo::LineCap::Round);
         let _ = cr.stroke();
@@ -121,24 +120,24 @@ fn make_battery_ring(
         cr.close_path();
 
         cr.set_dash(&[fill_len, gap_len], 0.0);
-        cr.set_source_rgba(fr, fg, fb, 0.20);
+        cr.set_source_rgba(fr, fg, fb, 0.10);
         cr.set_line_width(stroke_w + 6.0);
         cr.set_line_cap(gtk4::cairo::LineCap::Round);
         let _ = cr.stroke();
         cr.set_dash(&[], 0.0);
 
         let label = if charging {
-            format!("{}", cap)
+            format!("charging {}", cap)
         } else {
-            format!("{}", cap)
+            format!("battery {}", cap)
         };
         cr.set_source_rgb(1.0, 1.0, 1.0);
         cr.select_font_face(
             "Adwaita Sans",
-            gtk4::cairo::FontSlant::Italic,
+            gtk4::cairo::FontSlant::Normal,
             gtk4::cairo::FontWeight::Normal,
         );
-        cr.set_font_size(15.0);
+        cr.set_font_size(12.0);
         let (tw, th) = cr.text_extents(&label)
             .map(|e| (e.width(), e.height()))
             .unwrap_or((0.0, 0.0));
@@ -165,14 +164,14 @@ pub fn spawn_bat_widget() -> Window {
     win.remove_css_class("background");
 
     let outer = GtkBox::new(Orientation::Vertical, 0);
-    outer.set_css_classes(&["starting", "outerSys"]);
+    outer.set_css_classes(&["starting", "outerBat"]);
 
     let handle = GtkBox::new(Orientation::Horizontal, 0);
     handle.add_css_class("dragHandle");
     handle.set_cursor_from_name(Some("grab"));
-    handle.set_margin_top(3);
-    handle.set_margin_start(80);
-    handle.set_margin_end(80);
+    handle.set_margin_top(5);
+    handle.set_margin_start(50);
+    handle.set_margin_end(50);
     handle.set_hexpand(true);
 
     let spacer = GtkBox::new(Orientation::Horizontal, 0);
@@ -188,7 +187,7 @@ pub fn spawn_bat_widget() -> Window {
     bat_page.set_halign(gtk4::Align::Center);
     bat_page.set_valign(gtk4::Align::Center);
     bat_page.set_width_request(200);
-    bat_page.set_height_request(200);
+    // bat_page.set_height_request(200);
     // bat_page.set_margin_start(30);
     // bat_page.set_margin_end(30);
 
@@ -248,7 +247,7 @@ pub fn spawn_bat_widget() -> Window {
             let bat_charging_rc2 = bat_charging_rc.clone();
             let ring_da2       = ring_da.clone();
             let bat_label2     = bat_label.clone();
-            gtk4::glib::timeout_add_local(std::time::Duration::from_secs(30), move || {
+            gtk4::glib::timeout_add_local(std::time::Duration::from_secs(10), move || {
                 let bca = bat_cap_rc2.clone();
                 let bch = bat_charging_rc2.clone();
                 let rd  = ring_da2.clone();

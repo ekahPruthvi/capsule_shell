@@ -381,23 +381,41 @@ scrollbar {
 
 .jiggling {
     animation: jiggle 0.1s ease-in-out;
-    transform: scale(1.05);
+    transform: scale(1.02);
 }
 
 @keyframes jiggle {
     0%   { transform: scale(1); }
-    100% { transform: scale(1.05); }
+    100% { transform: scale(1.02); }
 }
 
 .widgetBox {
     padding: 10px;
     background-color: rgba(255, 0, 0, 0);
     border-radius: 30px;
+    transition: background-color 400ms cubic-bezier(0.4, 0.0, 0.2, 1);
+}
+
+.widgetBox:hover {
+    background-color: rgba(30, 30, 30, 0.917);
+}
+
+.handleNextBtn {
+    all: unset;
+    min-width: 10px;
+    min-height: 10px;
+    padding: 6px;
+    border-radius: 50px;
+    background-color: rgba(125, 125, 125, 0.104);
+}
+
+.handleNextBtn:hover {
+    background-color: rgba(77, 255, 0, 0.775);
 }
 
 .dragHandle {
     padding: 6px;
-    border-radius: 50px 50px 10px 10px;
+    border-radius: 50px;
     background-color: rgba(125, 125, 125, 0.104);
 }
 
@@ -447,6 +465,10 @@ calendar.view > grid > label.day-name {
     color: #a0a0a0;
 }
 
+calendar.view > grid > label.day-name:hover {
+    color: white;
+}
+
 calendar.view > grid > label.week-number {
     color: #ffffff;
     font-style: italic;
@@ -455,6 +477,10 @@ calendar.view > grid > label.week-number {
 calendar.view > grid > label.day-number {
     color: #ffffffa6;
     background: transparent;
+}
+
+calendar.view > grid > label.day-number:hover {
+    color: white;
 }
 
 calendar.view > grid > label.other-month {
@@ -474,4 +500,70 @@ calendar.view > grid > label:selected {
     border-radius: 50px;
     font-weight: 500;
     color: #ffffff;
+}
+
+.batring {
+    background-color: rgba(45, 45, 45, 0.446);
+    border-radius: 50px;
+    padding: 10px;
+    /* border: 1px solid rgba(112, 112, 112, 0.274); */
+}
+
+.outerBat {
+    background: linear-gradient(0deg ,rgba(0, 0, 0, 0.251) 0%, rgba(0, 0, 0, 0) 100%);
+    padding: 20px;
+    border-radius: 30px;
+}
+
+.batLabel {
+    color: white;
+}
+
+.outerSys {
+    border-radius: 33px;
+    border: 5px solid rgba(255, 255, 255, 0.296);
+}
+.MusicWidget{
+    background: linear-gradient(0deg ,rgb(0, 0, 0) 0%, rgba(0, 0, 0, 0) 100%);
+    padding: 20px;
+    border-radius: 30px;
+    /* backdrop-filter: blur(10px); */
+}
+
+.MuicInfo {
+    background-color: #0000005b;
+    padding: 5px;
+    border-radius: 10px;
+    /* border: 1px solid rgba(255, 255, 255, 0.285); */
+    backdrop-filter: blur(10px);
+}
+
+.trackLabel {
+    font-family: Adwaita Sans;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.artistLabel {
+    font-family: Adwaita Sans;
+    font-size: 10px;
+    font-weight: 200;
+}
+
+.mediaBtn {
+    all: unset;
+    border-radius: 20px;
+    padding: 10px;
+    min-width: 17px;
+    min-height: 17px;
+    /* background-color: #31313163;
+    border: 1px solid rgba(255, 255, 255, 0.285); */
+    background-color: transparent;
+    border: none;
+    transition: background-color 400ms cubic-bezier(0.4, 0.0, 0.2, 1);
+}
+
+.mediaBtn:hover {
+    background-color: #ffffff15;
+    backdrop-filter: blur(10px);
 }
