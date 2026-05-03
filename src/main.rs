@@ -14,7 +14,7 @@ mod notifications;
 mod osd;
 mod widgets;
 
-use widgets::{system::spawn_sys_widget, calendar::spawn_calendar_widget, kill};
+use widgets::{system::spawn_sys_widget, calendar::spawn_calendar_widget, battery::spawn_bat_widget, kill};
 
 const HIDE_WORKSPACE_IDX: u8 = 99;
 
@@ -23,11 +23,12 @@ struct WidgetConfig {
     cal:      bool,
     sys:      bool,
     shellout: String,
+    bat:      bool,
 }
 
 impl Default for WidgetConfig {
     fn default() -> Self {
-        Self { cal: false, sys: false, shellout: String::new() }
+        Self { cal: false, sys: false, shellout: String::new(), bat: false }
     }
 }
 
@@ -67,6 +68,7 @@ fn parse_widget_config(path: &str) -> Option<WidgetConfig> {
         match key {
             "cal" => cfg.cal = val == "true",
             "sys" => cfg.sys = val == "true",
+            "bat" => cfg.bat = val == "true",
             _     => {}
         }
     }
@@ -361,6 +363,7 @@ fn coping_with(app: &Application) {
 
     let active_cal: Rc<RefCell<bool>> = Rc::new(RefCell::new(initial_cfg.cal));
     let active_sys: Rc<RefCell<bool>> = Rc::new(RefCell::new(initial_cfg.sys));
+    let active_bat: Rc<RefCell<bool>> = Rc::new(RefCell::new(initial_cfg.bat));
 
     let cal_win: Rc<RefCell<Option<gtk4::Window>>> = Rc::new(RefCell::new(None));
     if initial_cfg.cal {
@@ -370,11 +373,16 @@ fn coping_with(app: &Application) {
     if initial_cfg.sys {
         *sys_win.borrow_mut() = Some(spawn_sys_widget());
     }
+    let bat_win: Rc<RefCell<Option<gtk4::Window>>> = Rc::new(RefCell::new(None));
+    if initial_cfg.bat {
+        *bat_win.borrow_mut() = Some(spawn_bat_widget());
+    }
 
     let probe_rx     = spawn_probe_watcher(probe_path.to_string(), Duration::from_secs(5));
     let probe_rx     = Rc::new(RefCell::new(probe_rx));
     let active_cal_c = active_cal.clone();
     let active_sys_c = active_sys.clone();
+    let active_bat_c = active_bat.clone();
 
     glib::timeout_add_local(Duration::from_millis(500), move || {
         while let Ok(cfg) = probe_rx.borrow().try_recv() {
@@ -396,6 +404,16 @@ fn coping_with(app: &Application) {
                 let maybe = sys_win.borrow_mut().take();
                 if let Some(w) = maybe { kill(&w); }
                 *active_sys_c.borrow_mut() = false;
+            }
+
+            let bat_active = *active_bat_c.borrow();
+            if cfg.bat && !bat_active {
+                *bat_win.borrow_mut() = Some(spawn_bat_widget());
+                *active_cal_c.borrow_mut() = true;
+            } else if !cfg.bat && bat_active {
+                let maybe = bat_win.borrow_mut().take();
+                if let Some(w) = maybe { kill(&w); }
+                *active_bat_c.borrow_mut() = false;
             }
         }
         glib::ControlFlow::Continue

@@ -89,7 +89,7 @@ pub fn spawn_sys_widget() -> Window {
     let positions = load_positions();
     let (start_x, start_y) = positions.get(NAME).copied().unwrap_or((40, 160));
 
-    let win = Window::builder().title("capsuleWs").build();
+    let win = Window::builder().title("capsuleWmus").build();
     win.init_layer_shell();
     win.set_layer(Layer::Bottom);
     win.set_namespace(Some("cosWidget"));

@@ -74,7 +74,7 @@ fn make_battery_ring(
 
         let rx = w / 2.0 - pad;   // half-width of the bounding rect
         let ry = h / 2.0 - pad;   // half-height  (= corner radius for a true capsule)
-        let r  = ry;               // corner radius
+        let r  = ry;              // corner radius
         let cx = w / 2.0;
         let cy = h / 2.0;
 
@@ -149,7 +149,7 @@ fn make_battery_ring(
     da
 }
 
-pub fn spawn_sys_widget() -> Window {
+pub fn spawn_bat_widget() -> Window {
     let positions = load_positions();
     let (start_x, start_y) = positions.get(NAME).copied().unwrap_or((40, 160));
 
