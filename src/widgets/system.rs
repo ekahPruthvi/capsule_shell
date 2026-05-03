@@ -168,7 +168,7 @@ pub fn spawn_sys_widget() -> Window {
     track_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
     track_label.set_max_width_chars(22);
     track_label.set_halign(gtk4::Align::Start);
-    track_label.set_margin_start(20);
+    track_label.set_margin_start(10);
     track_label.set_margin_end(20);
 
     let artist_label = Label::new(None);
@@ -176,7 +176,7 @@ pub fn spawn_sys_widget() -> Window {
     artist_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
     artist_label.set_max_width_chars(22);
     artist_label.set_halign(gtk4::Align::Start);
-    artist_label.set_margin_start(20);
+    artist_label.set_margin_start(10);
     artist_label.set_margin_end(20);
     
     let info = GtkBox::new(Orientation::Vertical, 0);
@@ -342,6 +342,18 @@ pub fn spawn_sys_widget() -> Window {
     win
 }
 
+fn fetch_pixbuf_from_url(url: &str) -> Option<gtk4::gdk_pixbuf::Pixbuf> {
+    use gtk4::gdk_pixbuf::Pixbuf;
+    use std::io::Read;
+
+    let mut response = ureq::get(url).call().ok()?;
+    let mut bytes = Vec::new();
+    response.body_mut().as_reader().read_to_end(&mut bytes).ok()?;
+
+    let stream = gtk4::gio::MemoryInputStream::from_bytes(&gtk4::glib::Bytes::from(&bytes));
+    Pixbuf::from_stream(&stream, gtk4::gio::Cancellable::NONE).ok()
+}
+
 fn apply_music_state(
     state:        Option<MusicState>,
     track_label:  &Label,
@@ -365,6 +377,8 @@ fn apply_music_state(
             let new_pb = if s.art_url.starts_with("file://") {
                 let path = s.art_url.trim_start_matches("file://");
                 Pixbuf::from_file(path).ok()
+            } else if s.art_url.starts_with("http://") || s.art_url.starts_with("https://") {
+                fetch_pixbuf_from_url(&s.art_url)
             } else {
                 None
             };
