@@ -56,8 +56,8 @@ fn make_battery_ring(
     charging_rc: Rc<Cell<bool>>,
 ) -> DrawingArea {
     let da = DrawingArea::new();
-    da.set_content_width(100);
-    da.set_content_height(50);
+    da.set_content_width(40);
+    da.set_content_height(40);
 
     da.set_draw_func(move |_, cr, w, h| {
         let cap      = capacity_rc.get();
@@ -121,19 +121,19 @@ fn make_battery_ring(
 
         cr.set_dash(&[fill_len, gap_len], 0.0);
         cr.set_source_rgba(fr, fg, fb, 0.10);
-        cr.set_line_width(stroke_w + 6.0);
+        cr.set_line_width(stroke_w + 2.0);
         cr.set_line_cap(gtk4::cairo::LineCap::Round);
         let _ = cr.stroke();
         cr.set_dash(&[], 0.0);
 
         let label = if charging {
-            format!("charging {}", cap)
+            format!("")
         } else {
-            format!("battery {}", cap)
+            format!("",)
         };
         cr.set_source_rgb(1.0, 1.0, 1.0);
         cr.select_font_face(
-            "Adwaita Sans",
+            "Cantarell",
             gtk4::cairo::FontSlant::Normal,
             gtk4::cairo::FontWeight::Normal,
         );
@@ -161,7 +161,10 @@ pub fn spawn_bat_widget() -> Window {
     win.set_exclusive_zone(0);
     win.set_margin(Edge::Top, start_y);
     win.set_margin(Edge::Left, start_x);
+    win.set_width_request(190);
+    win.set_height_request(190);
     win.remove_css_class("background");
+    win.add_css_class("batpage");
 
     let outer = GtkBox::new(Orientation::Vertical, 0);
     outer.set_css_classes(&["starting", "outerBat"]);
@@ -169,10 +172,10 @@ pub fn spawn_bat_widget() -> Window {
     let handle = GtkBox::new(Orientation::Horizontal, 0);
     handle.add_css_class("dragHandle");
     handle.set_cursor_from_name(Some("grab"));
-    handle.set_margin_top(5);
-    handle.set_margin_start(50);
-    handle.set_margin_end(50);
+    handle.set_margin_top(20);
+    handle.set_margin_bottom(10);
     handle.set_hexpand(true);
+    handle.set_halign(gtk4::Align::End);
 
     let spacer = GtkBox::new(Orientation::Horizontal, 0);
     spacer.set_hexpand(true);
@@ -184,10 +187,8 @@ pub fn spawn_bat_widget() -> Window {
     let bat_page = GtkBox::new(Orientation::Vertical, 0);
     bat_page.set_hexpand(true);
     bat_page.set_vexpand(true);
-    bat_page.set_halign(gtk4::Align::Center);
-    bat_page.set_valign(gtk4::Align::Center);
-    bat_page.set_width_request(200);
-    // bat_page.set_height_request(200);
+    bat_page.set_halign(gtk4::Align::Fill);
+    bat_page.set_valign(gtk4::Align::Fill);
     // bat_page.set_margin_start(30);
     // bat_page.set_margin_end(30);
 
@@ -197,22 +198,33 @@ pub fn spawn_bat_widget() -> Window {
     let ring_da = make_battery_ring(bat_cap_rc.clone(), bat_charging_rc.clone());
     ring_da.add_css_class("batring");
     // ring_da.set_vexpand(true);
+    ring_da.set_halign(gtk4::Align::Start);
     ring_da.set_valign(gtk4::Align::Baseline);
 
+    let label_box = GtkBox::new(Orientation::Horizontal, 0);
+    label_box.set_vexpand(true);
+    label_box.set_hexpand(true);
 
-    let bat_label = Label::new(Some("Battery"));
+    let bat_label = Label::new(Some(""));
     bat_label.add_css_class("batLabel");
     bat_label.set_vexpand(true);
-    bat_label.set_halign(gtk4::Align::Fill);
+    bat_label.set_halign(gtk4::Align::Start);
+    bat_label.set_valign(gtk4::Align::End);
 
-    bat_page.add_css_class("batpage");
+    let per = Label::new(Some("%"));
+    per.add_css_class("PercentLabel");
+    per.set_valign(gtk4::Align::End);
+    per.set_margin_bottom(6);
 
-    bat_page.append(&bat_label);
+    label_box.append(&bat_label);
+    label_box.append(&per);
+    label_box.append(&handle);
+
     bat_page.append(&ring_da);
-
+    bat_page.append(&label_box);
 
     outer.append(&bat_page);
-    outer.append(&handle);
+    // outer.append(&handle);
 
     win.set_child(Some(&outer));
     win.present();
@@ -228,7 +240,7 @@ pub fn spawn_bat_widget() -> Window {
                 Some((charging, cap)) => {
                     bat_cap_rc_c.set(cap);
                     bat_charging_rc_c.set(charging);
-                    bat_label_c.set_label("");
+                    bat_label_c.set_label(&format!("{}",cap));
                     ring_da_c.queue_draw();
                 }
                 None => {
@@ -257,7 +269,7 @@ pub fn spawn_bat_widget() -> Window {
                         Some((charging, cap)) => {
                             bca.set(cap);
                             bch.set(charging);
-                            bl.set_label("");
+                            bl.set_label(&format!("{}",cap));
                             rd.queue_draw();
                         }
                         None => { bl.set_label("No battery"); }

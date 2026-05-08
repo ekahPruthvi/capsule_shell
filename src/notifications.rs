@@ -295,7 +295,7 @@ pub fn connect_notifications_to_dock(
                     noti_all.append(&clear_all_btn);
                 }
 
-                noti_all.append(&noti_all_box);
+                noti_all.prepend(&noti_all_box);
 
                 let noti_all_clone = noti_all.clone();
                 delete_btn.connect_clicked( move |_| {
