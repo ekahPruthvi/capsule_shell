@@ -314,8 +314,6 @@ fn coping_with(app: &Application) {
     osd_window.set_anchor(Edge::Bottom, true);
     osd_window.set_exclusive_zone(-1);
 
-    pin_to_monitor(&osd_window, mon);
-
     let osd_capsule = GtkBox::new(Orientation::Vertical, 5);
     osd_capsule.set_css_classes(&["osdCapsule"]);
     osd_capsule.set_halign(gtk4::Align::Center);
