@@ -8,15 +8,13 @@ use chrono::Local;
 use gtk4::gio::File;
 use std::cell::RefCell;
 use std::rc::Rc;
-use niri_ipc::{socket::Socket, Action, Request, Response, WorkspaceReferenceArg};
+use niri_ipc::{socket::Socket, Action, PositionChange, Request, Response, WorkspaceReferenceArg};
 
 mod notifications;
 mod osd;
 mod widgets;
 
 use widgets::{system::spawn_sys_widget, calendar::spawn_calendar_widget, battery::spawn_bat_widget, kill};
-
-const HIDE_WORKSPACE_IDX: u8 = 99;
 
 #[derive(Debug, Clone, PartialEq)]
 struct WidgetConfig {
@@ -119,6 +117,13 @@ struct WindowRecord {
     workspace_id: Option<u64>,
     column_index: Option<usize>,
     row_index:    Option<usize>,
+    is_floating:  bool,
+    float_x:      Option<f64>,
+    float_y:      Option<f64>,
+    float_w:      i32,
+    float_h:      i32,
+    corner_x:     Option<f64>,
+    corner_y:     Option<f64>,
 }
 
 fn get_focused_window_id() -> Option<u64> {
@@ -145,13 +150,84 @@ fn get_windows() -> Vec<WindowRecord> {
                     Some((col, row)) => (Some(col), Some(row)),
                     None             => (None, None),
                 };
-                WindowRecord { id: w.id, workspace_id: w.workspace_id, column_index, row_index }
+                let (float_x, float_y) = match w.layout.tile_pos_in_workspace_view {
+                    Some((x, y)) => (Some(x), Some(y)),
+                    None         => (None, None),
+                };
+                WindowRecord {
+                    id:           w.id,
+                    workspace_id: w.workspace_id,
+                    column_index,
+                    row_index,
+                    is_floating:  w.is_floating,
+                    float_x,
+                    float_y,
+                    float_w:      w.layout.window_size.0,
+                    float_h:      w.layout.window_size.1,
+                    corner_x:     None,
+                    corner_y:     None,
+                }
             })
             .collect(),
         _ => vec![],
     }
 }
 
+
+fn get_focused_output_size() -> Option<(f64, f64)> {
+    let Ok(mut sock) = Socket::connect() else { return None };
+    match sock.send(Request::FocusedOutput) {
+        Ok(Ok(Response::FocusedOutput(Some(output)))) => {
+            output.logical.map(|l| (l.width as f64, l.height as f64))
+        }
+        _ => None,
+    }
+}
+
+fn corner_hide_target(
+    orig_x: f64, orig_y: f64,
+    win_w: i32, win_h: i32,
+    screen_w: f64, screen_h: f64,
+) -> (f64, f64) {
+    const PEEK: f64 = 90.0;
+    let cx = orig_x + win_w as f64 / 2.0;
+    let cy = orig_y + win_h as f64 / 2.0;
+    let to_right  = cx > screen_w / 2.0;
+    let to_bottom = cy > screen_h / 2.0;
+    let tx = if to_right  { screen_w - PEEK } else { PEEK - win_w as f64 };
+    let ty = if to_bottom { screen_h - PEEK } else { PEEK - win_h as f64 };
+    (tx, ty)
+}
+
+fn animate_float_window(
+    win_id:  u64,
+    from_x:  f64, from_y:  f64,
+    to_x:    f64, to_y:    f64,
+    on_done: impl Fn() + 'static,
+) {
+    const STEPS: u32 = 12;
+    const TICK_MS: u64 = 16; // ~60 fps
+    let step = Rc::new(RefCell::new(0u32));
+    glib::timeout_add_local(Duration::from_millis(TICK_MS), move || {
+        let s = *step.borrow();
+        if s >= STEPS {
+            on_done();
+            return glib::ControlFlow::Break;
+        }
+        // Ease-out cubic: t = 1 - (1 - progress)^3
+        let progress = s as f64 / STEPS as f64;
+        let t = 1.0 - (1.0 - progress).powi(3);
+        let x = from_x + (to_x - from_x) * t;
+        let y = from_y + (to_y - from_y) * t;
+        send_action(Action::MoveFloatingWindow {
+            id: Some(win_id),
+            x:  PositionChange::SetFixed(x),
+            y:  PositionChange::SetFixed(y),
+        });
+        *step.borrow_mut() += 1;
+        glib::ControlFlow::Continue
+    });
+}
 
 fn makin_widget_window(
     app:     &Application,
@@ -176,7 +252,6 @@ fn makin_widget_window(
     noti_window.set_child(Some(boxxy));
     noti_window.present();
 }
-
 
 fn coping_with(app: &Application) {
     let rx = notifications::spawn_messaging_daemon();
@@ -437,20 +512,41 @@ fn coping_with(app: &Application) {
         if !*hiding {
             let wins = get_windows();
             *focused_clone.borrow_mut() = get_focused_window_id();
-
-            for w in &wins {
-                send_action(Action::MoveWindowToWorkspace {
-                    window_id: Some(w.id),
-                    reference: WorkspaceReferenceArg::Index(HIDE_WORKSPACE_IDX),
-                    focus:     false,
-                });
-            }
-
-            *records_clone.borrow_mut() = wins;
+            *records_clone.borrow_mut() = wins.clone();
             *hiding = true;
             timendate_clone.append(&show);
+
+            let screen = get_focused_output_size().unwrap_or((1920.0, 1080.0));
+
+            let mut pending = wins.len();
+            let records_c2 = records_clone.clone();
+
+            for w in wins {
+                if w.is_floating {
+                    let orig_x = w.float_x.unwrap_or(0.0);
+                    let orig_y = w.float_y.unwrap_or(0.0);
+                    let (tx, ty) = corner_hide_target(
+                        orig_x, orig_y, w.float_w, w.float_h, screen.0, screen.1,
+                    );
+                    let wid = w.id;
+                    let wspace = w.workspace_id;
+                    let rc = records_c2.clone();
+                    animate_float_window(wid, orig_x, orig_y, tx, ty, move || {
+                        let mut recs = rc.borrow_mut();
+                        if let Some(rec) = recs.iter_mut().find(|r| r.id == wid) {
+                            rec.corner_x = Some(tx);
+                            rec.corner_y = Some(ty);
+                        }
+                        let _ = (wid, wspace);
+                    });
+                }
+                let _ = pending; 
+                pending = pending.saturating_sub(1);
+            }
+
         } else {
             let wins = records_clone.borrow().clone();
+            let screen = get_focused_output_size().unwrap_or((1920.0, 1080.0));
 
             for w in &wins {
                 let target = match w.workspace_id {
@@ -466,7 +562,7 @@ fn coping_with(app: &Application) {
 
             let mut tiled: Vec<&WindowRecord> = wins
                 .iter()
-                .filter(|w| w.column_index.is_some())
+                .filter(|w| w.column_index.is_some() && !w.is_floating)
                 .collect();
             tiled.sort_by_key(|w| (w.column_index.unwrap(), w.row_index.unwrap_or(1)));
 
@@ -485,6 +581,21 @@ fn coping_with(app: &Application) {
                         send_action(Action::MoveWindowUp {});
                     }
                 }
+            }
+
+            for w in wins.iter().filter(|w| w.is_floating) {
+                let orig_x   = w.float_x.unwrap_or(screen.0 * 0.25);
+                let orig_y   = w.float_y.unwrap_or(screen.1 * 0.25);
+                let corner_x = w.corner_x.unwrap_or(orig_x);
+                let corner_y = w.corner_y.unwrap_or(orig_y);
+
+                let wid = w.id;
+                send_action(Action::MoveFloatingWindow {
+                    id: Some(wid),
+                    x:  PositionChange::SetFixed(corner_x),
+                    y:  PositionChange::SetFixed(corner_y),
+                });
+                animate_float_window(wid, corner_x, corner_y, orig_x, orig_y, || {});
             }
 
             send_action(Action::FocusWorkspace {
