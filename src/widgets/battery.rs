@@ -148,7 +148,7 @@ fn make_battery_ring(
     da
 }
 
-pub fn spawn_bat_widget() -> Window {
+pub fn spawn_bat_widget(monitor: Option<&gtk4::gdk::Monitor>) -> Window {
     let positions = load_positions();
     let (start_x, start_y) = positions.get(NAME).copied().unwrap_or((40, 160));
 
@@ -161,6 +161,9 @@ pub fn spawn_bat_widget() -> Window {
     win.set_exclusive_zone(0);
     win.set_margin(Edge::Top, start_y);
     win.set_margin(Edge::Left, start_x);
+    if let Some(m) = monitor {
+        win.set_monitor(Some(m));
+    }
     win.set_width_request(190);
     win.set_height_request(190);
     win.remove_css_class("background");

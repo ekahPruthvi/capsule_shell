@@ -189,7 +189,7 @@ fn corner_hide_target(
     win_w: i32, win_h: i32,
     screen_w: f64, screen_h: f64,
 ) -> (f64, f64) {
-    const PEEK: f64 = 90.0;
+    const PEEK: f64 = 10.0;
     let cx = orig_x + win_w as f64 / 2.0;
     let cy = orig_y + win_h as f64 / 2.0;
     let to_right  = cx > screen_w / 2.0;
@@ -214,7 +214,6 @@ fn animate_float_window(
             on_done();
             return glib::ControlFlow::Break;
         }
-        // Ease-out cubic: t = 1 - (1 - progress)^3
         let progress = s as f64 / STEPS as f64;
         let t = 1.0 - (1.0 - progress).powi(3);
         let x = from_x + (to_x - from_x) * t;
@@ -440,15 +439,15 @@ fn coping_with(app: &Application) {
 
     let cal_win: Rc<RefCell<Option<gtk4::Window>>> = Rc::new(RefCell::new(None));
     if initial_cfg.cal {
-        *cal_win.borrow_mut() = Some(spawn_calendar_widget());
+        *cal_win.borrow_mut() = Some(spawn_calendar_widget(shellout_monitor.as_ref()));
     }
     let sys_win: Rc<RefCell<Option<gtk4::Window>>> = Rc::new(RefCell::new(None));
     if initial_cfg.sys {
-        *sys_win.borrow_mut() = Some(spawn_sys_widget());
+        *sys_win.borrow_mut() = Some(spawn_sys_widget(shellout_monitor.as_ref()));
     }
     let bat_win: Rc<RefCell<Option<gtk4::Window>>> = Rc::new(RefCell::new(None));
     if initial_cfg.bat {
-        *bat_win.borrow_mut() = Some(spawn_bat_widget());
+        *bat_win.borrow_mut() = Some(spawn_bat_widget(shellout_monitor.as_ref()));
     }
 
     let probe_rx     = spawn_probe_watcher(probe_path.to_string(), Duration::from_secs(5));
@@ -456,12 +455,13 @@ fn coping_with(app: &Application) {
     let active_cal_c = active_cal.clone();
     let active_sys_c = active_sys.clone();
     let active_bat_c = active_bat.clone();
+    let pp_monitor = shellout_monitor.clone();
 
     glib::timeout_add_local(Duration::from_millis(500), move || {
         while let Ok(cfg) = probe_rx.borrow().try_recv() {
             let cal_active = *active_cal_c.borrow();
             if cfg.cal && !cal_active {
-                *cal_win.borrow_mut() = Some(spawn_calendar_widget());
+                *cal_win.borrow_mut() = Some(spawn_calendar_widget(pp_monitor.as_ref()));
                 *active_cal_c.borrow_mut() = true;
             } else if !cfg.cal && cal_active {
                 let maybe = cal_win.borrow_mut().take();
@@ -471,7 +471,7 @@ fn coping_with(app: &Application) {
 
             let sys_active = *active_sys_c.borrow();
             if cfg.sys && !sys_active {
-                *sys_win.borrow_mut() = Some(spawn_sys_widget());
+                *sys_win.borrow_mut() = Some(spawn_sys_widget(pp_monitor.as_ref()));
                 *active_cal_c.borrow_mut() = true;
             } else if !cfg.sys && sys_active {
                 let maybe = sys_win.borrow_mut().take();
@@ -481,7 +481,7 @@ fn coping_with(app: &Application) {
 
             let bat_active = *active_bat_c.borrow();
             if cfg.bat && !bat_active {
-                *bat_win.borrow_mut() = Some(spawn_bat_widget());
+                *bat_win.borrow_mut() = Some(spawn_bat_widget(pp_monitor.as_ref()));
                 *active_cal_c.borrow_mut() = true;
             } else if !cfg.bat && bat_active {
                 let maybe = bat_win.borrow_mut().take();

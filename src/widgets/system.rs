@@ -85,7 +85,7 @@ where
     });
 }
 
-pub fn spawn_sys_widget() -> Window {
+pub fn spawn_sys_widget(monitor: Option<&gtk4::gdk::Monitor>) -> Window {
     let positions = load_positions();
     let (start_x, start_y) = positions.get(NAME).copied().unwrap_or((40, 160));
 
@@ -99,6 +99,9 @@ pub fn spawn_sys_widget() -> Window {
     win.set_margin(Edge::Top, start_y);
     win.set_margin(Edge::Left, start_x);
     win.remove_css_class("background");
+    if let Some(m) = monitor {
+        win.set_monitor(Some(m));
+    }
 
     let outer = GtkBox::new(Orientation::Vertical, 0);
     outer.set_css_classes(&["starting", "outerSys"]);    

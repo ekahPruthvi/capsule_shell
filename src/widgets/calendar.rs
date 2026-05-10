@@ -7,7 +7,7 @@ use crate::widgets::position::{load_positions, save_position};
 
 const NAME: &str = "calendar";
 
-pub fn spawn_calendar_widget() -> Window {
+pub fn spawn_calendar_widget(monitor: Option<&gtk4::gdk::Monitor>) -> Window {
     let positions = load_positions();
     let (start_x, start_y) = positions.get(NAME).copied().unwrap_or((40, 160));
 
@@ -24,6 +24,9 @@ pub fn spawn_calendar_widget() -> Window {
     win.set_margin(Edge::Top, start_y);
     win.set_margin(Edge::Left, start_x);
     win.remove_css_class("background");
+    if let Some(m) = monitor {
+        win.set_monitor(Some(m));
+    }
 
     let outer = GtkBox::new(Orientation::Vertical, 0);
     outer.set_width_request(300);
