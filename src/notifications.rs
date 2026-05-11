@@ -187,7 +187,7 @@ pub fn connect_notifications_to_dock(
                     h.push_back(notif.clone());
                 }
 
-                let notification_icon = Image::from_file("/var/lib/cynager/icons/lemon.svg");
+                let notification_icon = Image::from_file("/var/lib/cynager/icons/cos.svg");
                 notification_icon.set_icon_size(gtk4::IconSize::Normal);
                 notification_icon.set_css_classes(&["notiIcon"]);
                 notification_icon.set_height_request(28);
@@ -197,8 +197,7 @@ pub fn connect_notifications_to_dock(
                 {
                     app_img.set_from_file(Some(&notif.icon));
                 } else {
-                    app_img.set_icon_name(Some(&notif.icon));
-                    notification_icon.set_icon_name(Some(&notif.icon));
+                    app_img.set_from_file(Some("/var/lib/cynager/icons/noti.svg"));
                     notification_icon.set_icon_size(gtk4::IconSize::Large);
                 }
                 cos_btn.set_css_classes(&["spinning-coin", "cosIcon"]);
