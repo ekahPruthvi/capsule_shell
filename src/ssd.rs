@@ -43,16 +43,18 @@ pub fn spawn_shelly_side_decorations(app: &gtk4::Application) {
     win.set_margin(Edge::Top, 0);
     win.set_margin(Edge::Left, 0);
 
-    let bar = GtkBox::new(Orientation::Horizontal, 2);
+    let bar = GtkBox::new(Orientation::Horizontal, 0);
     bar.set_css_classes(&["ssdBar"]);
 
-    let hover_btn = make_btn("", &["ssdBtn"]);
+    // let hover_btn = make_btn("", &["ssdBtn"]);
+
+    // i am lazy to chnage the button names according to wat tey do 
 
     let btn_close = make_btn(" ", &["ssdBtn", "ssdClose"]);
     let btn_min   = make_btn(" ", &["ssdBtn", "ssdMin"]);
     let btn_float = make_btn(" ", &["ssdBtn", "ssdFloat"]);
 
-    bar.append(&hover_btn);
+    // bar.append(&hover_btn);
     bar.append(&btn_close);
     bar.append(&btn_min);
     bar.append(&btn_float);
@@ -64,11 +66,11 @@ pub fn spawn_shelly_side_decorations(app: &gtk4::Application) {
     });
 
     btn_min.connect_clicked(|_| {
-        niri_action(Action::FullscreenWindow { id: None });
+        niri_action(Action::ToggleWindowFloating { id: None });
     });
 
     btn_float.connect_clicked(|_| {
-        niri_action(Action::ToggleWindowFloating { id: None });
+        niri_action(Action::FullscreenWindow { id: None });
     });
 
     win.set_visible(false);
@@ -77,7 +79,6 @@ pub fn spawn_shelly_side_decorations(app: &gtk4::Application) {
     std::thread::spawn(move || niri_event_loop(tx));
 
     let win_weak = win.downgrade();
-    // Track which output we're currently pinned to so we only call set_monitor on change.
     let mut current_output: Option<String> = None;
 
     gtk4::glib::timeout_add_local(Duration::from_millis(16), move || {
@@ -112,8 +113,8 @@ pub fn spawn_shelly_side_decorations(app: &gtk4::Application) {
                             }
                         }
                     }
-                    win.set_margin(Edge::Top,  geo.y + 5);
-                    win.set_margin(Edge::Left, geo.x + 5);
+                    win.set_margin(Edge::Top,  geo.y + 6);
+                    win.set_margin(Edge::Left, geo.x + 6);
                     win.set_visible(true);
                 }
                 SsdEvent::NoFocus => {
