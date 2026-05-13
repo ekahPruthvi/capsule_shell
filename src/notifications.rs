@@ -187,7 +187,7 @@ pub fn connect_notifications_to_dock(
                     h.push_back(notif.clone());
                 }
 
-                let notification_icon = Image::from_file("/var/lib/cynager/icons/cos.svg");
+                let notification_icon = Image::from_file("/var/lib/cynager/icons/noti.svg");
                 notification_icon.set_icon_size(gtk4::IconSize::Normal);
                 notification_icon.set_css_classes(&["notiIcon"]);
                 notification_icon.set_height_request(28);
@@ -198,7 +198,6 @@ pub fn connect_notifications_to_dock(
                     app_img.set_from_file(Some(&notif.icon));
                 } else {
                     app_img.set_from_file(Some("/var/lib/cynager/icons/noti.svg"));
-                    notification_icon.set_icon_size(gtk4::IconSize::Large);
                 }
                 cos_btn.set_css_classes(&["spinning-coin", "cosIcon"]);
                 badge.set_visible(true);
@@ -335,7 +334,7 @@ pub fn connect_notifications_to_dock(
                     let target_width = (geometry.width() as f64 * 0.8) as i32;
                     let start_width  = 300i32;
                     let increment_per_frame =
-                        (target_width - start_width) as f64 / (1500.0 / (1000.0 / 60.0));
+                        (target_width - start_width) as f64 / (1500.0 / (1000.0 / 114.0));
 
                     if !is_expanded.get() {
                         is_expanded.set(true);
@@ -349,7 +348,7 @@ pub fn connect_notifications_to_dock(
                         let current_width_anim = Rc::clone(&current_width);
 
                         gtk4::glib::timeout_add_local(
-                            std::time::Duration::from_millis(16),
+                            std::time::Duration::from_millis(6),
                             move || {
                                 let next_w = current_width_anim.get() + increment_per_frame;
                                 if next_w >= target_width as f64 {
@@ -367,7 +366,7 @@ pub fn connect_notifications_to_dock(
                         noti_window.remove_css_class("blip");
                         let noti_window_blip = noti_window.clone();
                         gtk4::glib::timeout_add_local(
-                            std::time::Duration::from_millis(16),
+                            std::time::Duration::from_millis(6),
                             move || {
                                 noti_window_blip.add_css_class("blip");
                                 gtk4::glib::ControlFlow::Break
@@ -399,7 +398,7 @@ pub fn connect_notifications_to_dock(
                             let main_c          = main_window_hide.clone();
 
                             glib::timeout_add_local(
-                                std::time::Duration::from_millis(16),
+                                std::time::Duration::from_millis(6),
                                 move || {
                                     let next_w = current_width_c.get() - increment_per_frame;
                                     if next_w <= start_width as f64 {

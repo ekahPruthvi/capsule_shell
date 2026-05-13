@@ -12,6 +12,7 @@ use niri_ipc::{socket::Socket, Action, PositionChange, Request, Response, Worksp
 
 mod notifications;
 mod osd;
+mod ssd;
 mod widgets;
 
 use widgets::{system::spawn_sys_widget, calendar::spawn_calendar_widget, battery::spawn_bat_widget, kill};
@@ -612,38 +613,7 @@ fn coping_with(app: &Application) {
         }
     });
 
-    let quick_window = ApplicationWindow::builder()
-        .application(app)
-        .title("capsuleQ")
-        .css_classes(["quickWindow"])
-        .build();
-
-    quick_window.init_layer_shell();
-    quick_window.set_namespace(Some("QuickCapsule"));
-    quick_window.set_layer(Layer::Top);
-    quick_window.set_width_request(30);
-    quick_window.remove_css_class("background");
-    quick_window.set_anchor(Edge::Left, true);
-    quick_window.set_exclusive_zone(0);
-    quick_window.set_height_request(400);
-
-
-    pin_to_monitor(&quick_window, mon);
-
-    let quick_capsule = GtkBox::new(Orientation::Horizontal, 5);
-    quick_capsule.set_css_classes(&["timeCapsule", "starting"]);
-    quick_capsule.set_halign(gtk4::Align::Start);
-    quick_capsule.set_valign(gtk4::Align::Center);
-    quick_capsule.set_vexpand(true);
-    quick_capsule.set_margin_start(5);
-    quick_capsule.set_margin_end(5);
-    quick_capsule.set_height_request(300);
-
-    quick_capsule.append(&Label::new(Some("b")));
-    
-    quick_window.set_child(Some(&quick_capsule));
-
-    // quick_window.present();
+    ssd::spawn_shelly_side_decorations(app);
 }
 
 fn main() {
