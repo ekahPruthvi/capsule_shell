@@ -192,8 +192,6 @@ pub fn spawn_bat_widget(monitor: Option<&gtk4::gdk::Monitor>) -> Window {
     bat_page.set_vexpand(true);
     bat_page.set_halign(gtk4::Align::Fill);
     bat_page.set_valign(gtk4::Align::Fill);
-    // bat_page.set_margin_start(30);
-    // bat_page.set_margin_end(30);
 
     let bat_cap_rc      = Rc::new(Cell::new(0u8));
     let bat_charging_rc = Rc::new(Cell::new(false));

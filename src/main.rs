@@ -253,6 +253,248 @@ fn makin_widget_window(
     noti_window.present();
 }
 
+#[derive(Debug, Clone, PartialEq)]
+enum NetworkState {
+    WifiConnected(String),       
+    EthernetConnected(String),   
+    NoInternet,                 
+    Disconnected,
+    WifiOff,
+}
+
+fn wifi_soft_blocked() -> bool {
+    let Ok(entries) = std::fs::read_dir("/sys/class/rfkill") else { return false };
+    for entry in entries.flatten() {
+        let base = entry.path();
+        let type_path = base.join("type");
+        let soft_path = base.join("soft");
+        if std::fs::read_to_string(&type_path)
+            .map(|t| t.trim() == "wlan")
+            .unwrap_or(false)
+        {
+            if std::fs::read_to_string(&soft_path)
+                .map(|s| s.trim() == "1")
+                .unwrap_or(false)
+            {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn has_internet() -> bool {
+    let route_ok = std::fs::read_to_string("/proc/net/route")
+        .map(|content| {
+            content.lines().skip(1).any(|line| {
+                let cols: Vec<&str> = line.split_whitespace().collect();
+                cols.len() >= 2 && cols[1] == "00000000"
+            })
+        })
+        .unwrap_or(false);
+
+    if !route_ok {
+        return false;
+    }
+
+    std::net::TcpStream::connect_timeout(
+        &"1.1.1.1:53".parse().unwrap(),
+        Duration::from_secs(2),
+    )
+    .is_ok()
+}
+
+fn wifi_ssid(iface: &str) -> Option<String> {
+    if let Ok(out) = std::process::Command::new("nmcli")
+        .args(["-t", "-f", "ACTIVE,SSID", "dev", "wifi"])
+        .output()
+    {
+        for line in String::from_utf8_lossy(&out.stdout).lines() {
+            if let Some(ssid) = line.strip_prefix("yes:") {
+                let s = ssid.trim().to_string();
+                if !s.is_empty() { return Some(s); }
+            }
+        }
+    }
+
+    if let Ok(out) = std::process::Command::new("iw")
+        .args(["dev", iface, "link"])
+        .output()
+    {
+        for line in String::from_utf8_lossy(&out.stdout).lines() {
+            let line = line.trim();
+            if let Some(ssid) = line.strip_prefix("SSID:") {
+                let s = ssid.trim().to_string();
+                if !s.is_empty() { return Some(s); }
+            }
+        }
+    }
+
+    if let Ok(out) = std::process::Command::new("iwgetid")
+        .args([iface, "-r"])
+        .output()
+    {
+        let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if !s.is_empty() { return Some(s); }
+    }
+
+    None
+}
+
+fn get_network_state() -> NetworkState {
+    let Ok(entries) = std::fs::read_dir("/sys/class/net") else {
+        return NetworkState::Disconnected;
+    };
+
+    let mut wifi_up:     Option<String> = None;
+    let mut eth_up:      Option<String> = None;
+    let mut wifi_exists: bool           = false;
+
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name == "lo" { continue; }
+
+        let operstate = std::fs::read_to_string(
+            format!("/sys/class/net/{}/operstate", name),
+        )
+        .unwrap_or_default();
+        let is_up = operstate.trim() == "up";
+
+        let is_wireless = entry.path().join("wireless").exists();
+
+        if is_wireless {
+            wifi_exists = true;
+            if is_up { wifi_up = Some(name.clone()); }
+        } else if name.starts_with('e') && is_up {
+            eth_up = Some(name.clone());
+        }
+    }
+
+    if wifi_exists && wifi_up.is_none() && wifi_soft_blocked() {
+        return NetworkState::WifiOff;
+    }
+
+    let connected = wifi_up.is_some() || eth_up.is_some();
+    if !connected {
+        return NetworkState::Disconnected;
+    }
+
+    if !has_internet() {
+        return NetworkState::NoInternet;
+    }
+
+    if let Some(ref iface) = wifi_up {
+        let ssid = wifi_ssid(iface).unwrap_or_else(|| iface.clone());
+        return NetworkState::WifiConnected(ssid);
+    }
+
+    NetworkState::EthernetConnected(eth_up.unwrap())
+}
+
+fn network_icon_and_tip(state: &NetworkState) -> (&'static str, String) {
+    match state {
+        NetworkState::WifiConnected(ssid) => (
+            "/var/lib/cynager/icons/wifi.svg",
+            format!("WiFi: {}", ssid),
+        ),
+        NetworkState::EthernetConnected(iface) => (
+            "/var/lib/cynager/icons/ethernet.svg",
+            format!("Ethernet: ({})", iface),
+        ),
+        NetworkState::NoInternet => (
+            "/var/lib/cynager/icons/nointernet.svg",
+            "Connected with No Internet".to_string(),
+        ),
+        NetworkState::Disconnected => (
+            "/var/lib/cynager/icons/disconnected.svg",
+            "Disconnected".to_string(),
+        ),
+        NetworkState::WifiOff => (
+            "/var/lib/cynager/icons/wifioff.svg",
+            "WiFi: off".to_string(),
+        ),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct BatteryState {
+    percent:  u8,
+    charging: bool,
+}
+
+fn get_battery_state() -> Option<BatteryState> {
+    let entries = std::fs::read_dir("/sys/class/power_supply").ok()?;
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !name.starts_with("BAT") && !name.starts_with("CMB") {
+            continue;
+        }
+        let base = entry.path();
+
+        let capacity: u8 = std::fs::read_to_string(base.join("capacity"))
+            .ok()
+            .and_then(|s| s.trim().parse().ok())
+            .unwrap_or(0);
+
+        let status = std::fs::read_to_string(base.join("status"))
+            .unwrap_or_default();
+        let charging = matches!(status.trim(), "Charging" | "Full");
+
+        return Some(BatteryState { percent: capacity, charging });
+    }
+    None
+}
+
+fn battery_icon(state: &BatteryState) -> &'static str {
+    if state.charging {
+        "/var/lib/cynager/icons/battcharge.svg"
+    } else {
+        match state.percent {
+            75..=100 => "/var/lib/cynager/icons/battfull.svg",
+            40..=74  => "/var/lib/cynager/icons/batthigh.svg",
+            15..=39  => "/var/lib/cynager/icons/battlow.svg",
+            _        => "/var/lib/cynager/icons/battempty.svg",
+        }
+    }
+}
+
+fn battery_tip(state: &BatteryState) -> String {
+    let status = if state.charging { "Charging" } else { "Discharging" };
+    format!("{} · {}%", status, state.percent)
+}
+
+fn spawn_battery_watcher(interval: Duration) -> std::sync::mpsc::Receiver<Option<BatteryState>> {
+    let (tx, rx) = std::sync::mpsc::channel::<Option<BatteryState>>();
+    std::thread::spawn(move || {
+        let mut last: Option<Option<BatteryState>> = None;
+        loop {
+            let state = get_battery_state();
+            if Some(&state) != last.as_ref() {
+                if tx.send(state.clone()).is_err() { break; }
+                last = Some(state);
+            }
+            std::thread::sleep(interval);
+        }
+    });
+    rx
+}
+
+fn spawn_network_watcher(interval: Duration) -> std::sync::mpsc::Receiver<NetworkState> {
+    let (tx, rx) = std::sync::mpsc::channel::<NetworkState>();
+    std::thread::spawn(move || {
+        let mut last: Option<NetworkState> = None;
+        loop {
+            let state = get_network_state();
+            if Some(&state) != last.as_ref() {
+                if tx.send(state.clone()).is_err() { break; }
+                last = Some(state);
+            }
+            std::thread::sleep(interval);
+        }
+    });
+    rx
+}
+
 fn coping_with(app: &Application) {
     let rx = notifications::spawn_messaging_daemon();
 
@@ -331,6 +573,7 @@ fn coping_with(app: &Application) {
     cos_logo.set_icon_size(gtk4::IconSize::Large);
     cos.set_child(Some(&cos_logo));
     cos.set_css_classes(&["cosIcon"]);
+    cos.set_margin_end(15);
 
     let badge = Label::builder()
         .css_classes(["notification_badge"])
@@ -370,21 +613,77 @@ fn coping_with(app: &Application) {
     osd_box.append(&lbl);
     osd_box.append(&osd_revealer);
 
-    let network = Button::builder()
-        .label("w")
-        .css_classes(["netBtn"])
-        .build();
+    let net_image = Image::from_file("/var/lib/cynager/icons/disconnected.svg");
+    net_image.set_icon_size(gtk4::IconSize::Normal);
+
+    let network = Button::new();
+    network.set_child(Some(&net_image));
+    network.set_css_classes(&["netBtn"]);
+    network.set_has_tooltip(true);
+    network.set_tooltip_text(Some("Connecting..."));
+
+    {
+        let net_rx  = spawn_network_watcher(Duration::from_secs(5));
+        let net_rx  = Rc::new(RefCell::new(net_rx));
+        let img_c   = net_image.clone();
+        let btn_c   = network.clone();
+
+        glib::timeout_add_local(Duration::from_millis(500), move || {
+            while let Ok(state) = net_rx.borrow().try_recv() {
+                let (icon, tip) = network_icon_and_tip(&state);
+                img_c.set_from_file(Some(icon));
+                btn_c.set_tooltip_text(Some(&tip));
+            }
+            glib::ControlFlow::Continue
+        });
+    }
+
+    let initial_bat_state = get_battery_state();
+    let has_battery = initial_bat_state.is_some();
+
+    let baty_magy = Image::from_file(
+        initial_bat_state
+            .as_ref()
+            .map(battery_icon)
+            .unwrap_or("/var/lib/cynager/icons/battfull.svg"),
+    );
+    baty_magy.set_icon_size(gtk4::IconSize::Normal);
 
     let battery = Button::builder()
-        .label("b")
         .css_classes(["batBtn"])
+        .has_tooltip(true)
+        .child(&baty_magy)
+        .margin_end(5)
         .build();
+
+    if let Some(ref s) = initial_bat_state {
+        battery.set_tooltip_text(Some(&battery_tip(s)));
+    }
+
+    if has_battery {
+        let bat_rx = spawn_battery_watcher(Duration::from_secs(30));
+        let bat_rx = Rc::new(RefCell::new(bat_rx));
+        let bat_img_c = baty_magy.clone();
+        let bat_btn_c = battery.clone();
+
+        glib::timeout_add_local(Duration::from_millis(500), move || {
+            while let Ok(state_opt) = bat_rx.borrow().try_recv() {
+                if let Some(state) = state_opt {
+                    bat_img_c.set_from_file(Some(battery_icon(&state)));
+                    bat_btn_c.set_tooltip_text(Some(&battery_tip(&state)));
+                }
+            }
+            glib::ControlFlow::Continue
+        });
+    }
 
     time_capsule.append(&cos);
     time_capsule.append(&badge);
     time_capsule.append(&time_and_actions);
     time_capsule.append(&network);
-    time_capsule.append(&battery);
+    if has_battery {
+        time_capsule.append(&battery);
+    }
 
     time_window.set_child(Some(&time_capsule));
 
