@@ -370,9 +370,22 @@ fn coping_with(app: &Application) {
     osd_box.append(&lbl);
     osd_box.append(&osd_revealer);
 
+    let network = Button::builder()
+        .label("w")
+        .css_classes(["netBtn"])
+        .build();
+
+    let battery = Button::builder()
+        .label("b")
+        .css_classes(["batBtn"])
+        .build();
+
     time_capsule.append(&cos);
     time_capsule.append(&badge);
     time_capsule.append(&time_and_actions);
+    time_capsule.append(&network);
+    time_capsule.append(&battery);
+
     time_window.set_child(Some(&time_capsule));
 
     let noti_boxy_inner_notifications_all = GtkBox::new(Orientation::Horizontal, 0);

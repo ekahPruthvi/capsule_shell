@@ -11,6 +11,7 @@ use std::fs::File;
 use std::thread;
 use std::io::{self, BufRead, BufReader};
 use std::time::Duration;
+use gtk4_layer_shell::LayerShell;
 
 #[derive(Debug, Clone)]
 pub struct Notification {
@@ -343,6 +344,7 @@ pub fn connect_notifications_to_dock(
                         main_window.set_width_request(target_width + 50);
                         noti_window.set_width_request(start_width);
                         noti_window.set_css_classes(&["timeCapsule"]);
+                        main_window.set_layer(gtk4_layer_shell::Layer::Overlay);
 
                         let noti_window_anim   = noti_window.clone();
                         let current_width_anim = Rc::clone(&current_width);
@@ -407,6 +409,7 @@ pub fn connect_notifications_to_dock(
                                         main_c.set_visible(false);
                                         main_c.set_visible(true);
                                         main_c.set_width_request(400);
+                                        main_c.set_layer(gtk4_layer_shell::Layer::Top);
                                         return glib::ControlFlow::Break;
                                     }
                                     current_width_c.set(next_w);
