@@ -113,8 +113,8 @@ pub fn spawn_shelly_side_decorations(app: &gtk4::Application) {
                             }
                         }
                     }
-                    win.set_margin(Edge::Top,  geo.y + 6);
-                    win.set_margin(Edge::Left, geo.x + 6);
+                    win.set_margin(Edge::Top,  geo.y + 7);
+                    win.set_margin(Edge::Left, geo.x + 7);
                     win.set_visible(true);
                 }
                 SsdEvent::NoFocus => {
