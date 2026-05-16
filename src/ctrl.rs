@@ -197,10 +197,12 @@ pub fn spawn_ctrl_capsules(
  
     let btns = GtkBox::new(Orientation::Horizontal, 16);
     btns.set_halign(gtk4::Align::Center);
-    btns.set_valign(gtk4::Align::Center);
+    btns.set_valign(gtk4::Align::Start);
+    btns.set_margin_top(100);
     btns.set_can_target(false);
     btns.append(&btn1);
     btns.append(&btn2);
+    btns.add_css_class("starting");
 
     let layout = gtk4::Overlay::new();
     layout.set_child(Some(&backdrop));
