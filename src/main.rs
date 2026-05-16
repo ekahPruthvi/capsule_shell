@@ -14,8 +14,10 @@ mod notifications;
 mod osd;
 mod ssd;
 mod widgets;
+mod ctrl;
 
 use widgets::{system::spawn_sys_widget, calendar::spawn_calendar_widget, battery::spawn_bat_widget, kill};
+use ctrl::{spawn_network_watcher, NetworkState, spawn_ctrl_capsules};
 
 #[derive(Debug, Clone, PartialEq)]
 struct WidgetConfig {
@@ -253,145 +255,7 @@ fn makin_widget_window(
     noti_window.present();
 }
 
-#[derive(Debug, Clone, PartialEq)]
-enum NetworkState {
-    WifiConnected(String),       
-    EthernetConnected(String),   
-    NoInternet,                 
-    Disconnected,
-    WifiOff,
-}
-
-fn wifi_soft_blocked() -> bool {
-    let Ok(entries) = std::fs::read_dir("/sys/class/rfkill") else { return false };
-    for entry in entries.flatten() {
-        let base = entry.path();
-        let type_path = base.join("type");
-        let soft_path = base.join("soft");
-        if std::fs::read_to_string(&type_path)
-            .map(|t| t.trim() == "wlan")
-            .unwrap_or(false)
-        {
-            if std::fs::read_to_string(&soft_path)
-                .map(|s| s.trim() == "1")
-                .unwrap_or(false)
-            {
-                return true;
-            }
-        }
-    }
-    false
-}
-
-fn has_internet() -> bool {
-    let route_ok = std::fs::read_to_string("/proc/net/route")
-        .map(|content| {
-            content.lines().skip(1).any(|line| {
-                let cols: Vec<&str> = line.split_whitespace().collect();
-                cols.len() >= 2 && cols[1] == "00000000"
-            })
-        })
-        .unwrap_or(false);
-
-    if !route_ok {
-        return false;
-    }
-
-    std::net::TcpStream::connect_timeout(
-        &"1.1.1.1:53".parse().unwrap(),
-        Duration::from_secs(2),
-    )
-    .is_ok()
-}
-
-fn wifi_ssid(iface: &str) -> Option<String> {
-    if let Ok(out) = std::process::Command::new("nmcli")
-        .args(["-t", "-f", "ACTIVE,SSID", "dev", "wifi"])
-        .output()
-    {
-        for line in String::from_utf8_lossy(&out.stdout).lines() {
-            if let Some(ssid) = line.strip_prefix("yes:") {
-                let s = ssid.trim().to_string();
-                if !s.is_empty() { return Some(s); }
-            }
-        }
-    }
-
-    if let Ok(out) = std::process::Command::new("iw")
-        .args(["dev", iface, "link"])
-        .output()
-    {
-        for line in String::from_utf8_lossy(&out.stdout).lines() {
-            let line = line.trim();
-            if let Some(ssid) = line.strip_prefix("SSID:") {
-                let s = ssid.trim().to_string();
-                if !s.is_empty() { return Some(s); }
-            }
-        }
-    }
-
-    if let Ok(out) = std::process::Command::new("iwgetid")
-        .args([iface, "-r"])
-        .output()
-    {
-        let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        if !s.is_empty() { return Some(s); }
-    }
-
-    None
-}
-
-fn get_network_state() -> NetworkState {
-    let Ok(entries) = std::fs::read_dir("/sys/class/net") else {
-        return NetworkState::Disconnected;
-    };
-
-    let mut wifi_up:     Option<String> = None;
-    let mut eth_up:      Option<String> = None;
-    let mut wifi_exists: bool           = false;
-
-    for entry in entries.flatten() {
-        let name = entry.file_name().to_string_lossy().to_string();
-        if name == "lo" { continue; }
-
-        let operstate = std::fs::read_to_string(
-            format!("/sys/class/net/{}/operstate", name),
-        )
-        .unwrap_or_default();
-        let is_up = operstate.trim() == "up";
-
-        let is_wireless = entry.path().join("wireless").exists();
-
-        if is_wireless {
-            wifi_exists = true;
-            if is_up { wifi_up = Some(name.clone()); }
-        } else if name.starts_with('e') && is_up {
-            eth_up = Some(name.clone());
-        }
-    }
-
-    if wifi_exists && wifi_up.is_none() && wifi_soft_blocked() {
-        return NetworkState::WifiOff;
-    }
-
-    let connected = wifi_up.is_some() || eth_up.is_some();
-    if !connected {
-        return NetworkState::Disconnected;
-    }
-
-    if !has_internet() {
-        return NetworkState::NoInternet;
-    }
-
-    if let Some(ref iface) = wifi_up {
-        let ssid = wifi_ssid(iface).unwrap_or_else(|| iface.clone());
-        return NetworkState::WifiConnected(ssid);
-    }
-
-    NetworkState::EthernetConnected(eth_up.unwrap())
-}
-
-fn network_icon_and_tip(state: &NetworkState) -> (&'static str, String) {
+fn network_icon_and_tip(state: &ctrl::NetworkState) -> (&'static str, String) {
     match state {
         NetworkState::WifiConnected(ssid) => (
             "/var/lib/cynager/icons/wifi.svg",
@@ -469,22 +333,6 @@ fn spawn_battery_watcher(interval: Duration) -> std::sync::mpsc::Receiver<Option
         let mut last: Option<Option<BatteryState>> = None;
         loop {
             let state = get_battery_state();
-            if Some(&state) != last.as_ref() {
-                if tx.send(state.clone()).is_err() { break; }
-                last = Some(state);
-            }
-            std::thread::sleep(interval);
-        }
-    });
-    rx
-}
-
-fn spawn_network_watcher(interval: Duration) -> std::sync::mpsc::Receiver<NetworkState> {
-    let (tx, rx) = std::sync::mpsc::channel::<NetworkState>();
-    std::thread::spawn(move || {
-        let mut last: Option<NetworkState> = None;
-        loop {
-            let state = get_network_state();
             if Some(&state) != last.as_ref() {
                 if tx.send(state.clone()).is_err() { break; }
                 last = Some(state);
@@ -621,6 +469,7 @@ fn coping_with(app: &Application) {
     network.set_css_classes(&["netBtn"]);
     network.set_has_tooltip(true);
     network.set_tooltip_text(Some("Connecting..."));
+    
 
     {
         let net_rx  = spawn_network_watcher(Duration::from_secs(5));
@@ -661,7 +510,7 @@ fn coping_with(app: &Application) {
     }
 
     if has_battery {
-        let bat_rx = spawn_battery_watcher(Duration::from_secs(30));
+        let bat_rx = spawn_battery_watcher(Duration::from_secs(10));
         let bat_rx = Rc::new(RefCell::new(bat_rx));
         let bat_img_c = baty_magy.clone();
         let bat_btn_c = battery.clone();
@@ -676,6 +525,29 @@ fn coping_with(app: &Application) {
             glib::ControlFlow::Continue
         });
     }
+
+    let overlay_open: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
+ 
+    {
+        let flag  = overlay_open.clone();
+        let app_c = app.clone();
+        network.connect_clicked(move |_| {
+            if *flag.borrow() { return; }
+            *flag.borrow_mut() = true;
+            spawn_ctrl_capsules(&app_c, flag.clone());
+        });
+    }
+ 
+    if has_battery {
+        let flag  = overlay_open.clone();
+        let app_c = app.clone();
+        battery.connect_clicked(move |_| {
+            if *flag.borrow() { return; }
+            *flag.borrow_mut() = true;
+            spawn_ctrl_capsules(&app_c, flag.clone());
+        });
+    }
+
 
     time_capsule.append(&cos);
     time_capsule.append(&badge);
