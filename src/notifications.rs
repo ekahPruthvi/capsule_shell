@@ -165,7 +165,8 @@ pub fn connect_notifications_to_dock(
     cos_btn: &Button,
     badge: &Label,
     noti_all: &GtkBox,
-) {
+) { 
+    
     let history: Rc<RefCell<VecDeque<Notification>>> =
         Rc::new(RefCell::new(VecDeque::with_capacity(50)));
 
@@ -341,13 +342,14 @@ pub fn connect_notifications_to_dock(
                         is_expanded.set(true);
                         current_width.set(start_width as f64);
 
-                        main_window.set_width_request(target_width + 50);
+                        // main_window.set_width_request(target_width + 50);
                         noti_window.set_width_request(start_width);
                         noti_window.set_css_classes(&["timeCapsule"]);
                         main_window.set_layer(gtk4_layer_shell::Layer::Overlay);
 
                         let noti_window_anim   = noti_window.clone();
                         let current_width_anim = Rc::clone(&current_width);
+                        let main_c = main_window.clone();
 
                         gtk4::glib::timeout_add_local(
                             std::time::Duration::from_millis(6),
@@ -356,6 +358,7 @@ pub fn connect_notifications_to_dock(
                                 if next_w >= target_width as f64 {
                                     current_width_anim.set(target_width as f64);
                                     noti_window_anim.set_width_request(target_width);
+                                    main_c.set_width_request(current_width_anim.get() as i32 + 30);
                                     noti_window_anim.set_css_classes(&["blip", "timeCapsule"]);
                                     return gtk4::glib::ControlFlow::Break;
                                 }
@@ -367,10 +370,13 @@ pub fn connect_notifications_to_dock(
                     } else {
                         noti_window.remove_css_class("blip");
                         let noti_window_blip = noti_window.clone();
+                        let main_c = main_window.clone();
+                        let current_width_anim = Rc::clone(&current_width);
                         gtk4::glib::timeout_add_local(
                             std::time::Duration::from_millis(6),
                             move || {
                                 noti_window_blip.add_css_class("blip");
+                                main_c.set_width_request(current_width_anim.get() as i32 + 30);
                                 gtk4::glib::ControlFlow::Break
                             },
                         );
@@ -406,9 +412,6 @@ pub fn connect_notifications_to_dock(
                                     if next_w <= start_width as f64 {
                                         noti_window_c.set_width_request(start_width);
                                         noti_window_c.remove_css_class("blip");
-                                        main_c.set_visible(false);
-                                        main_c.set_visible(true);
-                                        main_c.set_width_request(415);
                                         main_c.set_layer(gtk4_layer_shell::Layer::Top);
                                         return glib::ControlFlow::Break;
                                     }

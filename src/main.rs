@@ -16,7 +16,7 @@ mod ssd;
 mod widgets;
 mod ctrl;
 
-use widgets::{system::spawn_sys_widget, calendar::spawn_calendar_widget, battery::spawn_bat_widget, kill};
+use widgets::{system::spawn_sys_widget, calendar::spawn_calendar_widget, battery::spawn_bat_widget, stick::spawn_stick_widget, kill};
 use ctrl::{spawn_network_watcher, NetworkState, spawn_ctrl_capsules};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -25,11 +25,12 @@ struct WidgetConfig {
     sys:      bool,
     shellout: String,
     bat:      bool,
+    stick:    bool,
 }
 
 impl Default for WidgetConfig {
     fn default() -> Self {
-        Self { cal: false, sys: false, shellout: String::new(), bat: false }
+        Self { cal: false, sys: false, shellout: String::new(), bat: false, stick: false }
     }
 }
 
@@ -70,6 +71,7 @@ fn parse_widget_config(path: &str) -> Option<WidgetConfig> {
             "cal" => cfg.cal = val == "true",
             "sys" => cfg.sys = val == "true",
             "bat" => cfg.bat = val == "true",
+            "stick" => cfg.stick = val == "true",
             _     => {}
         }
     }
@@ -372,11 +374,11 @@ fn coping_with(app: &Application) {
     time_window.init_layer_shell();
     time_window.set_namespace(Some("TimeCapsule"));
     time_window.set_layer(Layer::Top);
-    time_window.set_height_request(30);
     time_window.remove_css_class("background");
     time_window.set_anchor(Edge::Top, true);
+    time_window.set_margin(Edge::Top, 5);
     time_window.set_exclusive_zone(0);
-    time_window.set_width_request(400);
+    time_window.set_default_size(-1, -1);
 
     pin_to_monitor(&time_window, mon);
 
@@ -385,8 +387,8 @@ fn coping_with(app: &Application) {
     time_capsule.set_halign(gtk4::Align::Center);
     time_capsule.set_valign(gtk4::Align::Start);
     time_capsule.set_hexpand(true);
-    time_capsule.set_margin_top(5);
-    time_capsule.set_margin_bottom(5);
+    // time_capsule.set_margin_top(5);
+    // time_capsule.set_margin_bottom(5);
     time_capsule.set_width_request(300);
 
     let timendate = GtkBox::new(Orientation::Horizontal, 5);
@@ -422,6 +424,7 @@ fn coping_with(app: &Application) {
     cos.set_child(Some(&cos_logo));
     cos.set_css_classes(&["cosIcon"]);
     cos.set_margin_end(15);
+    cos_logo.set_cursor_from_name(Some("crosshair"));
 
     let badge = Label::builder()
         .css_classes(["notification_badge"])
@@ -621,6 +624,7 @@ fn coping_with(app: &Application) {
     let active_cal: Rc<RefCell<bool>> = Rc::new(RefCell::new(initial_cfg.cal));
     let active_sys: Rc<RefCell<bool>> = Rc::new(RefCell::new(initial_cfg.sys));
     let active_bat: Rc<RefCell<bool>> = Rc::new(RefCell::new(initial_cfg.bat));
+    let active_stick: Rc<RefCell<bool>> = Rc::new(RefCell::new(initial_cfg.stick));
 
     let cal_win: Rc<RefCell<Option<gtk4::Window>>> = Rc::new(RefCell::new(None));
     if initial_cfg.cal {
@@ -629,6 +633,10 @@ fn coping_with(app: &Application) {
     let sys_win: Rc<RefCell<Option<gtk4::Window>>> = Rc::new(RefCell::new(None));
     if initial_cfg.sys {
         *sys_win.borrow_mut() = Some(spawn_sys_widget(shellout_monitor.as_ref()));
+    }
+    let stick_win: Rc<RefCell<Option<gtk4::Window>>> = Rc::new(RefCell::new(None));
+    if initial_cfg.stick {
+        *stick_win.borrow_mut() = Some(spawn_stick_widget(shellout_monitor.as_ref()));
     }
     let bat_win: Rc<RefCell<Option<gtk4::Window>>> = Rc::new(RefCell::new(None));
     if initial_cfg.bat {
@@ -640,6 +648,7 @@ fn coping_with(app: &Application) {
     let active_cal_c = active_cal.clone();
     let active_sys_c = active_sys.clone();
     let active_bat_c = active_bat.clone();
+    let active_stick_c = active_stick.clone();
     let pp_monitor = shellout_monitor.clone();
 
     glib::timeout_add_local(Duration::from_millis(500), move || {
@@ -672,6 +681,16 @@ fn coping_with(app: &Application) {
                 let maybe = bat_win.borrow_mut().take();
                 if let Some(w) = maybe { kill(&w); }
                 *active_bat_c.borrow_mut() = false;
+            }
+
+            let stick_active = *active_stick_c.borrow();
+            if cfg.stick && !stick_active {
+                *bat_win.borrow_mut() = Some(spawn_bat_widget(pp_monitor.as_ref()));
+                *active_cal_c.borrow_mut() = true;
+            } else if !cfg.stick && stick_active {
+                let maybe = stick_win.borrow_mut().take();
+                if let Some(w) = maybe { kill(&w); }
+                *active_stick_c.borrow_mut() = false;
             }
         }
         glib::ControlFlow::Continue
