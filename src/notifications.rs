@@ -164,7 +164,9 @@ pub fn connect_notifications_to_dock(
     app_img: &Image,
     cos_btn: &Button,
     badge: &Label,
+    badge_head: &Label,
     noti_all: &GtkBox,
+    popover_window: &ApplicationWindow
 ) { 
     
     let history: Rc<RefCell<VecDeque<Notification>>> =
@@ -180,7 +182,9 @@ pub fn connect_notifications_to_dock(
         #[strong] app_img,
         #[strong] cos_btn,
         #[strong] badge,
+        #[strong] badge_head,
         #[strong] noti_all,
+        #[strong] popover_window,
         async move {
             while let Some(notif) = rx.recv().await {
                 {
@@ -194,16 +198,22 @@ pub fn connect_notifications_to_dock(
                 notification_icon.set_css_classes(&["notiIcon"]);
                 notification_icon.set_height_request(28);
 
-                if std::path::Path::new(&notif.icon).is_absolute()
-                    && std::path::Path::new(&notif.icon).exists()
-                {
-                    app_img.set_from_file(Some(&notif.icon));
+                let display = gtk4::gdk::Display::default().expect("Failed to get default GDK display");
+                let icon_theme = gtk4::IconTheme::for_display(&display);
+
+                if icon_theme.has_icon(&notif.icon) {
+                    app_img.set_icon_name(Some(&notif.icon));
+                    notification_icon.set_icon_name(Some(&notif.icon));
                 } else {
                     app_img.set_from_file(Some("/var/lib/cynager/icons/noti.svg"));
                 }
+
                 cos_btn.set_css_classes(&["spinning-coin", "cosIcon"]);
                 badge.set_visible(true);
-                badge.set_text(&format!("{}\n{}", notif.summary, notif.body));
+                badge_head.set_visible(true);
+                badge.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+                badge_head.set_text(&format!("{}",notif.summary));
+                badge.set_text(&format!("{}", notif.body));
 
                 play_notification_sound();
 
@@ -242,36 +252,34 @@ pub fn connect_notifications_to_dock(
                 pop_label.set_max_width_chars(45);
                 pop_label.set_halign(gtk4::Align::Start);
 
-                let popover = gtk4::Popover::new();
-                popover.set_child(Some(&pop_label));
-                popover.set_parent(&noti_all_box);
-                popover.set_has_arrow(false);
-                popover.set_autohide(false);
-                popover.set_position(gtk4::PositionType::Bottom);
+                popover_window.set_child(Some(&pop_label));
 
                 let hover_ctrl = gtk4::EventControllerMotion::new();
+                let hover_leave_ctrl = gtk4::EventControllerMotion::new();
                 let pending: Rc<Cell<bool>> = Rc::new(Cell::new(false));
 
                 let pending_enter = Rc::clone(&pending);
-                let popover_enter = popover.clone();
+                let popover_enter = popover_window.clone();
                 hover_ctrl.connect_enter(move |_, _, _| {
                     pending_enter.set(true);
                     let pop = popover_enter.clone();
                     let pending_timeout = Rc::clone(&pending_enter);
                     glib::timeout_add_local(Duration::from_millis(500), move || {
                         if pending_timeout.get() {
-                            pop.popup();
+                            pop.set_visible(true);
                         }
                         glib::ControlFlow::Break
                     });
                 });
 
                 let pending_leave = Rc::clone(&pending);
-                let popover_leave = popover.clone();
-                hover_ctrl.connect_leave(move |_| {
+                let popover_leave = popover_window.clone();
+                hover_leave_ctrl.connect_leave(move |_| {
                     pending_leave.set(false);
-                    popover_leave.popdown();
+                    popover_leave.set_visible(false);
                 });
+
+                popover_window.add_controller(hover_leave_ctrl);
                 noti_all_box.add_controller(hover_ctrl);
 
                 let delete_btn = Button::new();
@@ -430,12 +438,14 @@ pub fn connect_notifications_to_dock(
                     let app_img_hide       = app_img.clone();
                     let cos_btn_hide       = cos_btn.clone();
                     let badge_hide         = badge.clone();
+                    let badgeh_hide         = badge_head.clone();
 
                     glib::timeout_add_local(std::time::Duration::from_millis(10000), move || {
                         let remaining = pending_count_hide.get().saturating_sub(1);
                         pending_count_hide.set(remaining);
 
                         if remaining == 0 {
+                            badgeh_hide.set_text("");
                             badge_hide.set_text("");
                             app_img_hide.set_from_file(Some("/var/lib/cynager/icons/cos.svg"));
                             cos_btn_hide.remove_css_class("spinning-coin");

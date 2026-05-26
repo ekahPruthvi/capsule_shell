@@ -402,15 +402,28 @@ fn coping_with(app: &Application) {
     cos.set_margin_end(15);
     cos_logo.set_cursor_from_name(Some("crosshair"));
 
+    let badge_container = GtkBox::new(Orientation::Vertical, 1);
+
+    let badge_head = Label::builder()
+        .css_classes(["notification_badge"])
+        .halign(gtk4::Align::Start)
+        .visible(false)
+        .label("bruh")
+        .build();
+
     let badge = Label::builder()
         .css_classes(["notification_badge"])
-        .halign(gtk4::Align::Center)
+        .halign(gtk4::Align::Start)
         .visible(false)
         .label("")
         .build();
-    badge.set_wrap(true);
-    badge.set_max_width_chars(500);
+    badge.set_wrap(false);
+    badge.set_single_line_mode(true);
+    badge.set_max_width_chars(100);
     badge.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+
+    badge_container.append(&badge_head);
+    badge_container.append(&badge);
 
     let osd_box = GtkBox::new(Orientation::Vertical, 5);
     osd_box.set_hexpand(true);
@@ -529,7 +542,7 @@ fn coping_with(app: &Application) {
 
 
     time_capsule.append(&cos);
-    time_capsule.append(&badge);
+    time_capsule.append(&badge_container);
     time_capsule.append(&time_and_actions);
     time_capsule.append(&network);
     if has_battery {
@@ -605,10 +618,25 @@ fn coping_with(app: &Application) {
     noti_panel_window.set_child(Some(&scrolled_window));
     noti_panel_window.present();
 
+    let popover_window = ApplicationWindow::builder()
+        .application(app)
+        .title("capsuleNl")
+        .build();
+
+    popover_window.init_layer_shell();
+    popover_window.set_namespace(Some("NotificationText"));
+    popover_window.set_layer(Layer::Overlay);
+    popover_window.remove_css_class("background");
+    popover_window.set_anchor(Edge::Bottom, true);
+    popover_window.set_exclusive_zone(-1);
+    popover_window.set_default_size(-1, -1);
+
+    popover_window.present();
+    popover_window.set_visible(false);
 
     notifications::connect_notifications_to_dock(
-        rx, &time_capsule, &time_window, &cos_logo, &cos, &badge,
-        &noti_boxy_inner_notifications_all,
+        rx, &time_capsule, &time_window, &cos_logo, &cos, &badge, &badge_head,
+        &noti_boxy_inner_notifications_all, &popover_window,
     );
     osd::connect_osd_to_dock(&osd, &osd_revealer, &osd_capsule, &osd_window, &lbl);
 
