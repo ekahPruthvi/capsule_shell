@@ -165,6 +165,7 @@ pub fn connect_notifications_to_dock(
     cos_btn: &Button,
     badge: &Label,
     noti_all: &GtkBox,
+    noti_panel_window: &ApplicationWindow,
 ) { 
     
     let history: Rc<RefCell<VecDeque<Notification>>> =
@@ -181,6 +182,7 @@ pub fn connect_notifications_to_dock(
         #[strong] cos_btn,
         #[strong] badge,
         #[strong] noti_all,
+        #[strong] noti_panel_window,
         async move {
             while let Some(notif) = rx.recv().await {
                 {
@@ -242,13 +244,16 @@ pub fn connect_notifications_to_dock(
                 let bod_enter = noti_label_bod.clone();
                 let box_enter = noti_all_box.clone();
                 let pending_enter = Rc::clone(&pending);
+                let winyyy = noti_panel_window.clone();
                 hover_ctrl.connect_enter(move |_, _, _| {
                     pending_enter.set(true);
                     let bod = bod_enter.clone();
                     let bx  = box_enter.clone();
+                    let win = winyyy.clone();
                     let pending_timeout = Rc::clone(&pending_enter);
                     glib::timeout_add_local(Duration::from_millis(500), move || {
                         if pending_timeout.get() {
+                            win.set_layer(gtk4_layer_shell::Layer::Top);
                             bod.set_single_line_mode(false);
                             bod.set_wrap(true);
                             bod.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
@@ -264,7 +269,9 @@ pub fn connect_notifications_to_dock(
                 let bod_leave = noti_label_bod.clone();
                 let box_leave = noti_all_box.clone();
                 let pending_leave = Rc::clone(&pending);
+                let winyyy = noti_panel_window.clone();
                 hover_ctrl.connect_leave(move |_| {
+                    winyyy.set_layer(gtk4_layer_shell::Layer::Bottom);
                     pending_leave.set(false);
                     bod_leave.set_wrap(false);
                     bod_leave.set_single_line_mode(true);

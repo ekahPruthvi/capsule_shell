@@ -238,23 +238,7 @@ fn makin_widget_window(
     boxxy:   &gtk4::ScrolledWindow,
     monitor: Option<&gtk4::gdk::Monitor>,
 ) {
-    let noti_window = ApplicationWindow::builder()
-        .application(app)
-        .title("capsuleN")
-        .build();
-
-    noti_window.init_layer_shell();
-    noti_window.set_namespace(Some("Notifications"));
-    noti_window.set_layer(Layer::Bottom);
-    noti_window.set_height_request(100);
-    noti_window.remove_css_class("background");
-    noti_window.set_anchor(Edge::Bottom, true);
-    noti_window.set_exclusive_zone(-1);
-
-    pin_to_monitor(&noti_window, monitor);
-
-    noti_window.set_child(Some(boxxy));
-    noti_window.present();
+    
 }
 
 fn network_icon_and_tip(state: &ctrl::NetworkState) -> (&'static str, String) {
@@ -589,14 +573,6 @@ fn coping_with(app: &Application) {
     osd_capsule.append(&osd_box);
     osd_window.set_child(Some(&osd_capsule));
 
-    notifications::connect_notifications_to_dock(
-        rx, &time_capsule, &time_window, &cos_logo, &cos, &badge,
-        &noti_boxy_inner_notifications_all,
-    );
-    osd::connect_osd_to_dock(&osd, &osd_revealer, &osd_capsule, &osd_window, &lbl);
-
-    time_window.present();
-
     let noti_boxy = GtkBox::new(Orientation::Vertical, 0);
     noti_boxy.append(&noti_boxy_inner_notifications_all);
     noti_boxy.set_css_classes(&["notificationWindow"]);
@@ -619,7 +595,32 @@ fn coping_with(app: &Application) {
         scrolled_window.set_width_request(m.geometry().width());
     }
 
-    makin_widget_window(app, &scrolled_window, mon);
+    let noti_panel_window = ApplicationWindow::builder()
+        .application(app)
+        .title("capsuleN")
+        .build();
+
+    noti_panel_window.init_layer_shell();
+    noti_panel_window.set_namespace(Some("Notifications"));
+    noti_panel_window.set_layer(Layer::Bottom);
+    noti_panel_window.set_height_request(100);
+    noti_panel_window.remove_css_class("background");
+    noti_panel_window.set_anchor(Edge::Bottom, true);
+    noti_panel_window.set_exclusive_zone(-1);
+    noti_panel_window.set_default_size(-1, -1);
+
+    pin_to_monitor(&noti_panel_window, mon);
+
+    noti_panel_window.set_child(Some(&scrolled_window));
+    noti_panel_window.present();
+
+    notifications::connect_notifications_to_dock(
+        rx, &time_capsule, &time_window, &cos_logo, &cos, &badge,
+        &noti_boxy_inner_notifications_all, &noti_panel_window
+    );
+    osd::connect_osd_to_dock(&osd, &osd_revealer, &osd_capsule, &osd_window, &lbl);
+
+    time_window.present();
 
     let active_cal: Rc<RefCell<bool>> = Rc::new(RefCell::new(initial_cfg.cal));
     let active_sys: Rc<RefCell<bool>> = Rc::new(RefCell::new(initial_cfg.sys));
