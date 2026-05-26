@@ -74,7 +74,7 @@ pub fn spawn_stick_widget(monitor: Option<&gtk4::gdk::Monitor>) -> Window {
     handle.set_halign(gtk4::Align::Center);
 
     let sticker_img = Image::new();
-    sticker_img.set_pixel_size(200);
+    sticker_img.set_pixel_size(180);
     sticker_img.set_size_request(-1, 200);
     sticker_img.add_css_class("stickerImage");
     handle.append(&sticker_img);

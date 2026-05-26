@@ -214,11 +214,11 @@ pub fn connect_notifications_to_dock(
                 let noti_label_bod = Label::new(Some(&notif.body));
                 noti_label_bod.set_css_classes(&["notificationAllLabelBody"]);
                 noti_label_bod.set_halign(gtk4::Align::Start);
-                noti_label_bod.set_wrap(true);
-                noti_label_bod.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
-                noti_label_bod.set_width_request(50);
-                noti_label_bod.set_max_width_chars(10);
-                noti_label_bod.set_lines(2);
+                noti_label_bod.set_valign(gtk4::Align::Center);
+                noti_label_bod.set_wrap(false);
+                noti_label_bod.set_single_line_mode(true);
+                noti_label_bod.set_width_request(30);
+                noti_label_bod.set_max_width_chars(1);
                 noti_label_bod.set_ellipsize(gtk4::pango::EllipsizeMode::End);
 
                 let noti_label_all = GtkBox::new(gtk4::Orientation::Horizontal, 20);
@@ -232,7 +232,48 @@ pub fn connect_notifications_to_dock(
                 noti_all_box.set_hexpand(true);
                 noti_all_box.set_margin_start(10);
                 noti_all_box.set_margin_end(10);
+                noti_all_box.set_vexpand(false);
+                noti_all_box.set_valign(gtk4::Align::End);
                 noti_all_box.set_halign(gtk4::Align::Center);
+
+                let hover_ctrl = gtk4::EventControllerMotion::new();
+                let pending: Rc<Cell<bool>> = Rc::new(Cell::new(false));
+
+                let bod_enter = noti_label_bod.clone();
+                let box_enter = noti_all_box.clone();
+                let pending_enter = Rc::clone(&pending);
+                hover_ctrl.connect_enter(move |_, _, _| {
+                    pending_enter.set(true);
+                    let bod = bod_enter.clone();
+                    let bx  = box_enter.clone();
+                    let pending_timeout = Rc::clone(&pending_enter);
+                    glib::timeout_add_local(Duration::from_millis(500), move || {
+                        if pending_timeout.get() {
+                            bod.set_single_line_mode(false);
+                            bod.set_wrap(true);
+                            bod.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
+                            bod.set_ellipsize(gtk4::pango::EllipsizeMode::None);
+                            bod.set_width_request(-1);
+                            bod.set_max_width_chars(-1);
+                            bx.set_height_request(-1);
+                        }
+                        glib::ControlFlow::Break
+                    });
+                });
+
+                let bod_leave = noti_label_bod.clone();
+                let box_leave = noti_all_box.clone();
+                let pending_leave = Rc::clone(&pending);
+                hover_ctrl.connect_leave(move |_| {
+                    pending_leave.set(false);
+                    bod_leave.set_wrap(false);
+                    bod_leave.set_single_line_mode(true);
+                    bod_leave.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+                    bod_leave.set_width_request(30);
+                    bod_leave.set_max_width_chars(1);
+                    box_leave.set_height_request(30);
+                });
+                noti_all_box.add_controller(hover_ctrl);
 
                 let delete_btn = Button::new();
                 let delete = Image::from_file("/var/lib/cynager/icons/close.svg");
