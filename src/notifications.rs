@@ -166,7 +166,6 @@ pub fn connect_notifications_to_dock(
     badge: &Label,
     badge_head: &Label,
     noti_all: &GtkBox,
-    popover_window: &ApplicationWindow
 ) { 
     
     let history: Rc<RefCell<VecDeque<Notification>>> =
@@ -184,7 +183,6 @@ pub fn connect_notifications_to_dock(
         #[strong] badge,
         #[strong] badge_head,
         #[strong] noti_all,
-        #[strong] popover_window,
         async move {
             while let Some(notif) = rx.recv().await {
                 {
@@ -252,34 +250,39 @@ pub fn connect_notifications_to_dock(
                 pop_label.set_max_width_chars(45);
                 pop_label.set_halign(gtk4::Align::Start);
 
-                popover_window.set_child(Some(&pop_label));
+                let popover = gtk4::Popover::new();
+                popover.set_child(Some(&pop_label));
+                popover.set_parent(&noti_all_box);
+                popover.set_has_arrow(false);
+                popover.set_autohide(false);
+                popover.set_width_request(400);
+                popover.set_vexpand(true);
+                popover.set_position(gtk4::PositionType::Top);
 
                 let hover_ctrl = gtk4::EventControllerMotion::new();
-                let hover_leave_ctrl = gtk4::EventControllerMotion::new();
                 let pending: Rc<Cell<bool>> = Rc::new(Cell::new(false));
-
+ 
                 let pending_enter = Rc::clone(&pending);
-                let popover_enter = popover_window.clone();
+                let popover_enter = popover.clone();
                 hover_ctrl.connect_enter(move |_, _, _| {
                     pending_enter.set(true);
                     let pop = popover_enter.clone();
                     let pending_timeout = Rc::clone(&pending_enter);
                     glib::timeout_add_local(Duration::from_millis(500), move || {
                         if pending_timeout.get() {
-                            pop.set_visible(true);
+                            pop.popup();
                         }
                         glib::ControlFlow::Break
                     });
                 });
-
+ 
                 let pending_leave = Rc::clone(&pending);
-                let popover_leave = popover_window.clone();
-                hover_leave_ctrl.connect_leave(move |_| {
+                let popover_leave = popover.clone();
+                hover_ctrl.connect_leave(move |_| {
                     pending_leave.set(false);
-                    popover_leave.set_visible(false);
+                    popover_leave.popdown();
                 });
 
-                popover_window.add_controller(hover_leave_ctrl);
                 noti_all_box.add_controller(hover_ctrl);
 
                 let delete_btn = Button::new();

@@ -618,25 +618,9 @@ fn coping_with(app: &Application) {
     noti_panel_window.set_child(Some(&scrolled_window));
     noti_panel_window.present();
 
-    let popover_window = ApplicationWindow::builder()
-        .application(app)
-        .title("capsuleNl")
-        .build();
-
-    popover_window.init_layer_shell();
-    popover_window.set_namespace(Some("NotificationText"));
-    popover_window.set_layer(Layer::Overlay);
-    popover_window.remove_css_class("background");
-    popover_window.set_anchor(Edge::Bottom, true);
-    popover_window.set_exclusive_zone(-1);
-    popover_window.set_default_size(-1, -1);
-
-    popover_window.present();
-    popover_window.set_visible(false);
-
     notifications::connect_notifications_to_dock(
         rx, &time_capsule, &time_window, &cos_logo, &cos, &badge, &badge_head,
-        &noti_boxy_inner_notifications_all, &popover_window,
+        &noti_boxy_inner_notifications_all,
     );
     osd::connect_osd_to_dock(&osd, &osd_revealer, &osd_capsule, &osd_window, &lbl);
 
