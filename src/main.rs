@@ -603,7 +603,6 @@ fn coping_with(app: &Application) {
     noti_panel_window.init_layer_shell();
     noti_panel_window.set_namespace(Some("Notifications"));
     noti_panel_window.set_layer(Layer::Bottom);
-    noti_panel_window.set_height_request(100);
     noti_panel_window.remove_css_class("background");
     noti_panel_window.set_anchor(Edge::Bottom, true);
     noti_panel_window.set_exclusive_zone(-1);
@@ -616,7 +615,7 @@ fn coping_with(app: &Application) {
 
     notifications::connect_notifications_to_dock(
         rx, &time_capsule, &time_window, &cos_logo, &cos, &badge,
-        &noti_boxy_inner_notifications_all, &noti_panel_window
+        &noti_boxy_inner_notifications_all,
     );
     osd::connect_osd_to_dock(&osd, &osd_revealer, &osd_capsule, &osd_window, &lbl);
 

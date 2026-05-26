@@ -219,7 +219,7 @@ pub fn connect_notifications_to_dock(
                 noti_label_bod.set_valign(gtk4::Align::Center);
                 noti_label_bod.set_wrap(false);
                 noti_label_bod.set_single_line_mode(true);
-                noti_label_bod.set_width_request(30);
+                noti_label_bod.set_width_request(100);
                 noti_label_bod.set_max_width_chars(1);
                 noti_label_bod.set_ellipsize(gtk4::pango::EllipsizeMode::End);
 
