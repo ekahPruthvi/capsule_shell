@@ -165,7 +165,6 @@ pub fn connect_notifications_to_dock(
     cos_btn: &Button,
     badge: &Label,
     noti_all: &GtkBox,
-    noti_panel_window: &ApplicationWindow,
 ) { 
     
     let history: Rc<RefCell<VecDeque<Notification>>> =
@@ -182,7 +181,6 @@ pub fn connect_notifications_to_dock(
         #[strong] cos_btn,
         #[strong] badge,
         #[strong] noti_all,
-        #[strong] noti_panel_window,
         async move {
             while let Some(notif) = rx.recv().await {
                 {
@@ -220,7 +218,6 @@ pub fn connect_notifications_to_dock(
                 noti_label_bod.set_wrap(false);
                 noti_label_bod.set_single_line_mode(true);
                 noti_label_bod.set_width_request(100);
-                noti_label_bod.set_max_width_chars(1);
                 noti_label_bod.set_ellipsize(gtk4::pango::EllipsizeMode::End);
 
                 let noti_label_all = GtkBox::new(gtk4::Orientation::Horizontal, 20);
@@ -238,47 +235,42 @@ pub fn connect_notifications_to_dock(
                 noti_all_box.set_valign(gtk4::Align::End);
                 noti_all_box.set_halign(gtk4::Align::Center);
 
+                let pop_label = Label::new(Some(&notif.body));
+                pop_label.set_css_classes(&["notificationAllLabelBody"]);
+                pop_label.set_wrap(true);
+                pop_label.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
+                pop_label.set_max_width_chars(45);
+                pop_label.set_halign(gtk4::Align::Start);
+
+                let popover = gtk4::Popover::new();
+                popover.set_child(Some(&pop_label));
+                popover.set_parent(&noti_all_box);
+                popover.set_has_arrow(false);
+                popover.set_autohide(false);
+                popover.set_position(gtk4::PositionType::Bottom);
+
                 let hover_ctrl = gtk4::EventControllerMotion::new();
                 let pending: Rc<Cell<bool>> = Rc::new(Cell::new(false));
 
-                let bod_enter = noti_label_bod.clone();
-                let box_enter = noti_all_box.clone();
                 let pending_enter = Rc::clone(&pending);
-                let winyyy = noti_panel_window.clone();
+                let popover_enter = popover.clone();
                 hover_ctrl.connect_enter(move |_, _, _| {
                     pending_enter.set(true);
-                    let bod = bod_enter.clone();
-                    let bx  = box_enter.clone();
-                    let win = winyyy.clone();
+                    let pop = popover_enter.clone();
                     let pending_timeout = Rc::clone(&pending_enter);
                     glib::timeout_add_local(Duration::from_millis(500), move || {
                         if pending_timeout.get() {
-                            win.set_layer(gtk4_layer_shell::Layer::Top);
-                            bod.set_single_line_mode(false);
-                            bod.set_wrap(true);
-                            bod.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
-                            bod.set_ellipsize(gtk4::pango::EllipsizeMode::None);
-                            bod.set_width_request(-1);
-                            bod.set_max_width_chars(-1);
-                            bx.set_height_request(-1);
+                            pop.popup();
                         }
                         glib::ControlFlow::Break
                     });
                 });
 
-                let bod_leave = noti_label_bod.clone();
-                let box_leave = noti_all_box.clone();
                 let pending_leave = Rc::clone(&pending);
-                let winyyy = noti_panel_window.clone();
+                let popover_leave = popover.clone();
                 hover_ctrl.connect_leave(move |_| {
-                    winyyy.set_layer(gtk4_layer_shell::Layer::Bottom);
                     pending_leave.set(false);
-                    bod_leave.set_wrap(false);
-                    bod_leave.set_single_line_mode(true);
-                    bod_leave.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-                    bod_leave.set_width_request(30);
-                    bod_leave.set_max_width_chars(1);
-                    box_leave.set_height_request(30);
+                    popover_leave.popdown();
                 });
                 noti_all_box.add_controller(hover_ctrl);
 

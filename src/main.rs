@@ -233,14 +233,6 @@ fn animate_float_window(
     });
 }
 
-fn makin_widget_window(
-    app:     &Application,
-    boxxy:   &gtk4::ScrolledWindow,
-    monitor: Option<&gtk4::gdk::Monitor>,
-) {
-    
-}
-
 fn network_icon_and_tip(state: &ctrl::NetworkState) -> (&'static str, String) {
     match state {
         NetworkState::WifiConnected(ssid) => (
@@ -612,6 +604,7 @@ fn coping_with(app: &Application) {
 
     noti_panel_window.set_child(Some(&scrolled_window));
     noti_panel_window.present();
+
 
     notifications::connect_notifications_to_dock(
         rx, &time_capsule, &time_window, &cos_logo, &cos, &badge,
