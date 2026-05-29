@@ -266,17 +266,16 @@ pub fn connect_notifications_to_dock(
  
                 let pending_enter = Rc::clone(&pending);
                 let popover_enter = popover.clone();
-                let noti_all_box_enter = noti_all_box.clone();
+                // let noti_all_box_enter = noti_all_box.clone();
                 hover_ctrl.connect_enter(move |_, _, _| {
                     pending_enter.set(true);
                     let pop = popover_enter.clone();
                     pop.set_width_request(500);
                     let pending_timeout = Rc::clone(&pending_enter);
-                    let box_clone = noti_all_box_enter.clone();
+                    // let box_clone = noti_all_box_enter.clone();
                     glib::timeout_add_local(Duration::from_millis(500), move || {
                         if pending_timeout.get() {
                             // pop.set_width_request(box_clone.width());
-                            eprintln!("{}", box_clone.width());
                             pop.popup();
                             pop.add_css_class("popupanim");
                         }
