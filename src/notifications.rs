@@ -251,26 +251,34 @@ pub fn connect_notifications_to_dock(
                 pop_label.set_halign(gtk4::Align::Start);
 
                 let popover = gtk4::Popover::new();
+                popover.popdown();
                 popover.set_child(Some(&pop_label));
                 popover.set_parent(&noti_all_box);
+                popover.set_css_classes(&["notiPopup"]);
                 popover.set_has_arrow(false);
                 popover.set_autohide(false);
-                popover.set_width_request(400);
+                popover.set_width_request(-1);
                 popover.set_vexpand(true);
-                popover.set_position(gtk4::PositionType::Top);
+                popover.set_position(gtk4::PositionType::Bottom);
 
                 let hover_ctrl = gtk4::EventControllerMotion::new();
                 let pending: Rc<Cell<bool>> = Rc::new(Cell::new(false));
  
                 let pending_enter = Rc::clone(&pending);
                 let popover_enter = popover.clone();
+                let noti_all_box_enter = noti_all_box.clone();
                 hover_ctrl.connect_enter(move |_, _, _| {
                     pending_enter.set(true);
                     let pop = popover_enter.clone();
+                    pop.set_width_request(500);
                     let pending_timeout = Rc::clone(&pending_enter);
+                    let box_clone = noti_all_box_enter.clone();
                     glib::timeout_add_local(Duration::from_millis(500), move || {
                         if pending_timeout.get() {
+                            // pop.set_width_request(box_clone.width());
+                            eprintln!("{}", box_clone.width());
                             pop.popup();
+                            pop.add_css_class("popupanim");
                         }
                         glib::ControlFlow::Break
                     });
@@ -281,6 +289,7 @@ pub fn connect_notifications_to_dock(
                 hover_ctrl.connect_leave(move |_| {
                     pending_leave.set(false);
                     popover_leave.popdown();
+                    popover_leave.remove_css_class("starting");
                 });
 
                 noti_all_box.add_controller(hover_ctrl);
