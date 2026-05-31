@@ -282,7 +282,7 @@ fn get_battery_state() -> Option<BatteryState> {
             .unwrap_or_default();
         let charging = matches!(status.trim(), "Charging" | "Full");
 
-        if capacity < 20 && !charging {
+        if capacity < 20 && !charging && !std::path::Path::new("/tmp/batt_no_ask.var").exists() {
             let _ = Command::new("batt_low").status();
         }
 
