@@ -3,7 +3,7 @@ use gtk4::{
 };
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use gtk4::gdk::Display;
-use std::{env, time::Duration};
+use std::{env, time::Duration, process::Command};
 use chrono::Local;
 use gtk4::gio::File;
 use std::cell::RefCell;
@@ -281,6 +281,10 @@ fn get_battery_state() -> Option<BatteryState> {
         let status = std::fs::read_to_string(base.join("status"))
             .unwrap_or_default();
         let charging = matches!(status.trim(), "Charging" | "Full");
+
+        if capacity < 20 && !charging {
+            let _ = Command::new("batt_low").status();
+        }
 
         return Some(BatteryState { percent: capacity, charging });
     }
