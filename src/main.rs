@@ -282,7 +282,7 @@ fn get_battery_state() -> Option<BatteryState> {
             .unwrap_or_default();
         let charging = matches!(status.trim(), "Charging" | "Full");
 
-        if capacity < 20 && !charging && !std::path::Path::new("/tmp/batt_no_ask.var").exists() {
+        if capacity < 30 && !charging && !std::path::Path::new("/tmp/batt_no_ask.var").exists() {
             let _ = Command::new("batt_low").status();
         }
 
@@ -357,6 +357,7 @@ fn coping_with(app: &Application) {
     time_window.remove_css_class("background");
     time_window.set_anchor(Edge::Top, true);
     time_window.set_margin(Edge::Top, 5);
+    time_window.set_width_request(400);
     time_window.set_exclusive_zone(0);
     time_window.set_default_size(-1, -1);
 

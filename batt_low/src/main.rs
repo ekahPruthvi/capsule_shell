@@ -22,55 +22,27 @@ fn is_charging() -> bool {
 
 fn activate(app: &Application) {
     
-    // css auto reload 
-
-    timeout_add_local(Duration::from_millis(100), || {
-        if is_charging() {
-            println!("Charging detected. Exiting...");
-            process::exit(0);
-        }
-        glib::ControlFlow::Continue
-    });
+    // timeout_add_local(Duration::from_millis(100), || {
+    //     if is_charging() {
+    //         println!("Charging detected. Exiting...");
+    //         process::exit(0);
+    //     }
+    //     glib::ControlFlow::Continue
+    // });
 
     let css = CssProvider::new();
     css.load_from_data(
         "
         #mainshadow {
-            background-color:rgba(0, 0, 0, 0.6);
-            background: linear-gradient(
-                135deg,
-                rgba(18, 18, 18, 0.9) 25%,
-                rgba(26, 26, 26, 0.9) 25%,
-                rgba(26, 26, 26, 0.9) 50%,
-                rgba(18, 18, 18, 0.9) 50%,
-                rgba(18, 18, 18, 0.9) 75%,
-                rgba(26, 26, 26, 0.9) 75%,
-                rgba(26, 26, 26, 0.9)
-            );
-            background-size: 40px 40px;
-
-            /* Animation */
-            animation: move 4s linear infinite;
-
+            background-color:rgba(0, 0, 0, 0);
         }
-
-        @keyframes move {
-            0% {
-                background-position: 0 0;
-            }
-            100% {
-                background-position: 40px 40px;
-            }
-        }
-
 
         #main {
             background-color:rgba(0, 0, 0, 0);
         }
 
         #error_box {
-            background: rgba(48, 48, 48, 0.17);
-            border: 10px solid rgba(0, 0, 0, 0.22);
+            background: rgba(0, 0, 0, 0.22);
             background-clip: padding-box;
             border-radius: 25px;
             padding-top: 10px;
@@ -80,25 +52,22 @@ fn activate(app: &Application) {
         }
 
         #icon_circle {
-            background-color: #ff0066;
-            border-radius: 48%;
+            // background-color: #ff0066;
+            background-color: rgb(40, 40, 40);
+            border-radius: 50%;
             padding: 20px;
-            margin-bottom: 10px;
             animation: pulse 1.5s infinite ease-in-out;
             transition: transform 0.2s;
         }
 
         @keyframes pulse {
             0% {
-                transform: scale(1.0);
                 box-shadow: 0 0 0px rgba(255, 0, 102, 0.6);
             }
             50% {
-                transform: scale(1.08);
-                box-shadow: 0 0 20px rgba(255, 0, 102, 0.8);
+                box-shadow: 0 0 50px rgba(255, 0, 102, 0.8);
             }
             100% {
-                transform: scale(1.0);
                 box-shadow: 0 0 0px rgba(255, 0, 102, 0.6);
             }
         }
@@ -147,26 +116,19 @@ fn activate(app: &Application) {
 
     let window = ApplicationWindow::new(app);
     window.init_layer_shell();
-    window.set_layer(Layer::Top);
-    window.auto_exclusive_zone_enable();
+    window.set_layer(Layer::Overlay);
+    // window.auto_exclusive_zone_enable();
     window.fullscreen();
     window.set_decorated(false);
-    window.set_namespace(Some("batlow"));
-
-    for (edge, anchor) in [
-        (Edge::Left, true),
-        (Edge::Right, true),
-        (Edge::Top, true),
-        (Edge::Bottom, true),
-    ] {
-        window.set_anchor(edge, anchor);
-    }
-
-    let batt = GtkBox::new(Orientation::Vertical, 10);
+    window.set_namespace(Some("cynideProtocols"));
+    window.set_anchor(Edge::Bottom, true);
+    window.set_margin(Edge::Bottom, 100);
+    
+    let batt = GtkBox::new(Orientation::Horizontal, 10);
     batt.set_halign(gtk4::Align::Center);
     batt.set_valign(gtk4::Align::Center);
     batt.set_widget_name("error_box");
-    batt.set_size_request(400, 500);
+    batt.set_size_request(400, 50);
 
     let exit_button = Button::builder().child(&Label::new(Some("exit"))).build();
     exit_button.set_widget_name("ok_button");
@@ -179,12 +141,11 @@ fn activate(app: &Application) {
         process::exit(0);
     }); 
 
-    let image = Image::from_icon_name("gnome-power-manager");
-    image.set_pixel_size(86);
+    let image = Image::from_file("/var/lib/cynager/icons/!con.svg");
+    image.set_pixel_size(44);
     let icon_box = Box::new(gtk4::Orientation::Vertical, 0);
     icon_box.set_hexpand(true);
     icon_box.set_vexpand(true);
-    icon_box.set_margin_bottom(20);
     icon_box.set_halign(gtk4::Align::Center);
     icon_box.set_valign(gtk4::Align::Center);
     icon_box.set_widget_name("icon_circle");
@@ -197,14 +158,14 @@ fn activate(app: &Application) {
         "get a nuclear reactor",
         "build a solar farm",
         "install a hamster-powered turbine",
-        "fly to the moon",
+        "fly her to the moon",
         "get static from cat fur",
         "harness lightning",
         "plug into the Matrix",
     ];
 
 
-    let mut rng = ThreadRng::default(); // modern thread-local RNG
+    let mut rng = ThreadRng::default();
     let random_phrase = dont_do_this
         .choose(&mut rng)
         .unwrap_or(&"do nothing");
@@ -216,42 +177,14 @@ fn activate(app: &Application) {
     subtitle.set_justify(gtk4::Justification::Center);
     subtitle.set_widget_name("subtitle_label");
 
-    batt.append(&exit_button);
     batt.append(&icon_box);
     batt.append(&title);
     batt.append(&subtitle);
+    batt.append(&exit_button);
 
     window.set_child(Some(&batt));
     window.set_widget_name("main");
 
-    let shadow = ApplicationWindow::new(app);
-    shadow.init_layer_shell();
-    shadow.set_layer(Layer::Top);
-    shadow.auto_exclusive_zone_enable();
-    shadow.fullscreen();
-    shadow.set_decorated(false);
-    shadow.set_namespace(Some("batlow_bg"));
-
-    for (edge, anchor) in [
-        (Edge::Left, true),
-        (Edge::Right, true),
-        (Edge::Top, true),
-        (Edge::Bottom, true),
-    ] {
-        shadow.set_anchor(edge, anchor);
-    }
-
-    let shadow_box= GtkBox::new(Orientation::Vertical, 0);
-    shadow_box.append(&Label::new(Some("this is supposed to be hidden")));
-    shadow_box.set_widget_name("shadow");
-    shadow_box.set_halign(gtk4::Align::Center);
-    shadow_box.set_valign(gtk4::Align::Center);
-    shadow_box.set_size_request(400, 500);
-
-    shadow.set_child(Some(&shadow_box));
-    shadow.set_widget_name("mainshadow");
-
-    shadow.show();
     window.show();
 }
 
