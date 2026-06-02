@@ -46,7 +46,7 @@ fn activate(app: &Application) {
             animation: pulse 1.5s infinite ease-in-out;
         }
 
-        #error_box {
+        .error_box {
             border-radius: 20px;
             padding: 5px;
             background-color: rgba(34, 34, 34, 0.559);
@@ -63,7 +63,6 @@ fn activate(app: &Application) {
             border-radius: 50%;
             padding: 5px;
             transition: transform 0.2s;
-
 
             animation: shake 0.5s infinite ease-in-out;
         }
@@ -101,7 +100,7 @@ fn activate(app: &Application) {
             font-size: 12px;
         }
 
-        #ok_button {
+        .ok_button {
             all: unset;
             min-height: 20px;
             min-width: 20px;
@@ -114,7 +113,7 @@ fn activate(app: &Application) {
         }
         
 
-        #ok_button:hover {
+        .ok_button:hover {
             background-color:rgba(255, 230, 0, 0.92);
             color: rgb(198, 198, 198);
             font-style: italic;
@@ -122,7 +121,7 @@ fn activate(app: &Application) {
             font-weight: 300;
         }
 
-        #ok_button_bye {
+        .ok_button_bye {
             all: unset;
             min-height: 20px;
             min-width: 20px;
@@ -134,8 +133,7 @@ fn activate(app: &Application) {
             transition: all 300ms ease;
         }
         
-
-        #ok_button_bye:hover {
+        .ok_button_bye:hover {
             background-color:rgba(255, 85, 116, 0.55);
             color: rgb(198, 198, 198);
             font-style: italic;
@@ -147,6 +145,21 @@ fn activate(app: &Application) {
             color: rgba(255, 0, 0, 0);
             box-shadow: rgba(0, 0, 0, 0.25) 0px 54px 55px, rgba(0, 0, 0, 0.12) 0px -12px 30px, rgba(0, 0, 0, 0.12) 0px 4px 6px, rgba(0, 0, 0, 0.17) 0px 12px 13px, rgba(0, 0, 0, 0.09) 0px -3px 5px;
             border-radius: 25px;
+        }
+
+        .osd-hide {
+            animation: osd-disappear 0.3s ease-in forwards;
+        }
+
+        @keyframes osd-disappear {
+            from {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+            to {
+                opacity: 0;
+                transform: translateY(10px) scale(0.95);
+            }
         }
     ",
     );
@@ -169,7 +182,7 @@ fn activate(app: &Application) {
     // window.set_margin(Edge::Bottom, 100);
     
     let batt = GtkBox::new(Orientation::Horizontal, 10);
-    batt.set_widget_name("error_box");
+    batt.set_css_classes(&["error_box"]);
     batt.set_hexpand(false);
     batt.set_halign(gtk4::Align::Center);
     batt.set_size_request(100, 20);
@@ -188,7 +201,7 @@ fn activate(app: &Application) {
 
     let exit_button = Button::builder().child(&Label::new(Some(""))).build();
     exit_button.set_tooltip_text(Some("Close"));
-    exit_button.set_widget_name("ok_button");
+    exit_button.set_css_classes(&["ok_button"]);
     exit_button.set_hexpand(true);
     exit_button.set_vexpand(false);
     exit_button.set_halign(gtk4::Align::End);
@@ -196,7 +209,7 @@ fn activate(app: &Application) {
     exit_button.set_margin_end(0);
 
     let bye_foreva = Button::builder().child(&Label::new(Some(""))).build();
-    bye_foreva.set_widget_name("ok_button_bye");
+    bye_foreva.set_css_classes(&["ok_button_bye"]);
     bye_foreva.set_tooltip_text(Some("Hide Completely"));
     bye_foreva.set_hexpand(false);
     bye_foreva.set_vexpand(false);
@@ -204,14 +217,25 @@ fn activate(app: &Application) {
     bye_foreva.set_valign(gtk4::Align::Center);
     bye_foreva.set_margin_end(10);
 
+    let batt_c = batt.clone();
     exit_button.connect_clicked(move |_| {
-        process::exit(0);
+        batt_c.add_css_class("osd-hide");
+        gtk4::glib::timeout_add_local( std::time::Duration::from_millis(300), move || {
+            process::exit(0);
+            glib::ControlFlow::Break
+        });
     }); 
 
+    let batt_b = batt.clone();
     bye_foreva.connect_clicked(move |_| {
         if let Err(e) = File::create("/tmp/batt_no_ask.var") {
-        eprintln!("Failed to create file: {}", e);
-    }
+            eprintln!("Failed to create file: {}", e);
+        }
+        batt_b.add_css_class("osd-hide");
+        gtk4::glib::timeout_add_local( std::time::Duration::from_millis(300), move || {
+            process::exit(0);
+            glib::ControlFlow::Break
+        });
     });
 
     let image = Image::from_file("/var/lib/cynager/icons/!con.svg");
@@ -268,7 +292,7 @@ fn activate(app: &Application) {
             if next_w >= target_width {
                 current_width_clone.set(target_width);
                 batt_clone.set_width_request(target_width as i32);
-                batt_clone.set_css_classes(&["blip", "timeCapsule"]);
+                batt_clone.add_css_class("blip");
                 batt_clone.append(&text);
                 batt_clone.append(&exit_button);
                 batt_clone.append(&bye_foreva);
