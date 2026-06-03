@@ -7,7 +7,7 @@ use std::rc::Rc;
 use std::thread;
 use crate::widgets::position::{load_positions, save_position};
 
-// i am too lazy to rename this from system to music as i have decided tht battery and other will be seperate and music will be seperate
+// i dont feel like renaming this from system to music but i have decided tht battery and other will be seperate and music will be seperate
 
 const NAME: &str = "system";
 
@@ -103,20 +103,25 @@ pub fn spawn_sys_widget(monitor: Option<&gtk4::gdk::Monitor>) -> Window {
         win.set_monitor(Some(m));
     }
 
-    let outer = GtkBox::new(Orientation::Vertical, 0);
+    let outer = GtkBox::new(Orientation::Horizontal, 5);
     outer.set_css_classes(&["starting", "outerSys"]);    
     outer.set_width_request(200);
     outer.set_height_request(200);
 
     let handle = GtkBox::new(Orientation::Horizontal, 0);
-    handle.add_css_class("dragHandle");
+    handle.add_css_class("dragHandleM");
     handle.set_cursor_from_name(Some("grab"));
-    handle.set_margin_top(3);
-    handle.set_margin_start(5);
-    handle.set_margin_end(5);
-    handle.set_hexpand(true);
+    handle.set_margin_top(60);
+    handle.set_margin_start(10);
+    handle.set_margin_end(3);
+    handle.set_margin_bottom(10);
+    handle.set_width_request(10);
+    handle.set_vexpand(true);
 
     let music_overlay = gtk4::Overlay::new();
+    // music_overlay.set_margin_top(10);
+    // music_overlay.set_margin_end(10);
+    // music_overlay.set_margin_start(10);
 
     let music_page = GtkBox::new(Orientation::Vertical, 6);
     music_page.add_css_class("MusicWidget");
@@ -128,38 +133,75 @@ pub fn spawn_sys_widget(monitor: Option<&gtk4::gdk::Monitor>) -> Window {
     let art_pixbuf: Rc<RefCell<Option<Pixbuf>>> = Rc::new(RefCell::new(None));
 
     let art_canvas = gtk4::DrawingArea::new();
+    art_canvas.set_content_width(200);
+    art_canvas.set_content_height(200);
     art_canvas.add_css_class("albumArt");
-    art_canvas.set_content_width(250);
-    art_canvas.set_content_height(250);
 
     {
         let pb_ref = art_pixbuf.clone();
         art_canvas.set_draw_func(move |_w, cr, width, height| {
-            let r = 30.0_f64;
-            let w = width  as f64;
+            let w = width as f64;
             let h = height as f64;
+            let cx = w / 2.0;
+            let cy = h / 2.0;
+            let outer_r = cx.min(cy);
 
-            cr.new_sub_path();
-            cr.arc(r,     r,     r, std::f64::consts::PI,             3.0 * std::f64::consts::PI / 2.0);
-            cr.arc(w - r, r,     r, 3.0 * std::f64::consts::PI / 2.0, 0.0);
-            cr.arc(w - r, h - r, r, 0.0,                               std::f64::consts::PI / 2.0);
-            cr.arc(r,     h - r, r, std::f64::consts::PI / 2.0,        std::f64::consts::PI);
-            cr.close_path();
-            let _ = cr.clip();
+            let tau = 2.0 * std::f64::consts::PI;
 
+            cr.arc(cx, cy, outer_r, 0.0, tau);
+            cr.clip();
+            cr.new_path();
+
+            cr.arc(cx, cy, outer_r, 0.0, tau);
+            cr.set_source_rgb(0.08, 0.08, 0.08);
+            let _ = cr.fill();
+
+            let label_r = outer_r * 0.38;
+            cr.set_line_width(0.6);
+            let mut r = outer_r - 4.0;
+            while r > label_r + 4.0 {
+                cr.arc(cx, cy, r, 0.0, tau);
+                cr.set_source_rgba(1.0, 1.0, 1.0, 0.07);
+                let _ = cr.stroke();
+                r -= 3.5;
+            }
+
+            let _ = cr.save();
+            cr.arc(cx, cy, label_r, 0.0, tau);
+            cr.clip();
+            cr.new_path();
             match *pb_ref.borrow() {
                 Some(ref pb) => {
-                    let sx = w / pb.width()  as f64;
-                    let sy = h / pb.height() as f64;
+                    let diameter = label_r * 2.0;
+                    let sx = diameter / pb.width() as f64;
+                    let sy = diameter / pb.height() as f64;
+                    cr.translate(cx - label_r, cy - label_r);
                     cr.scale(sx, sy);
                     cr.set_source_pixbuf(pb, 0.0, 0.0);
                     let _ = cr.paint();
                 }
                 None => {
-                    cr.set_source_rgb(0.15, 0.15, 0.15);
+                    cr.set_source_rgb(0.22, 0.10, 0.10);
                     let _ = cr.paint();
                 }
             }
+            let _ = cr.restore();
+
+            cr.arc(cx, cy, label_r, 0.0, tau);
+            cr.set_source_rgba(0.0, 0.0, 0.0, 0.4);
+            cr.set_line_width(1.5);
+            let _ = cr.stroke();
+
+            let hole_r = outer_r * 0.04;
+            cr.arc(cx, cy, hole_r, 0.0, tau);
+            cr.set_operator(gtk4::cairo::Operator::Clear);
+            let _ = cr.fill();
+            cr.set_operator(gtk4::cairo::Operator::Over);
+
+            cr.arc(cx, cy, outer_r - 1.5, 0.0, tau);
+            cr.set_source_rgba(1.0, 1.0, 1.0, 0.08);
+            cr.set_line_width(2.5);
+            let _ = cr.stroke();
         });
     }
 
@@ -190,12 +232,11 @@ pub fn spawn_sys_widget(monitor: Option<&gtk4::gdk::Monitor>) -> Window {
     info.append(&track_label);
     info.append(&artist_label);
 
-    music_page.append(&info);
 
-    let controls = GtkBox::new(Orientation::Horizontal, 6);
-    controls.set_halign(gtk4::Align::Center);
+    let controls = GtkBox::new(Orientation::Vertical, 6);
+    controls.set_valign(gtk4::Align::Center);
 
-    let play = Image::from_file("/var/lib/cynager/icons/play.svg");
+    let play: Image = Image::from_file("/var/lib/cynager/icons/transperent.svg");
     play.set_icon_size(gtk4::IconSize::Large);
     let pause = Image::from_file("/var/lib/cynager/icons/pause.svg");
     pause.set_icon_size(gtk4::IconSize::Large);
@@ -207,6 +248,7 @@ pub fn spawn_sys_widget(monitor: Option<&gtk4::gdk::Monitor>) -> Window {
 
     let prev_btn       = Button::builder().child(&prev).build();
     let play_btn       = Button::builder().child(&play).build();
+    play_btn.set_cursor_from_name(Some("pointer"));
     let next_track_btn = Button::builder().child(&next).build();
 
     for btn in &[&prev_btn, &play_btn, &next_track_btn] {
@@ -218,13 +260,16 @@ pub fn spawn_sys_widget(monitor: Option<&gtk4::gdk::Monitor>) -> Window {
     spacer.set_valign(gtk4::Align::Baseline);
 
     music_page.append(&spacer);
-    controls.append(&prev_btn);
+
+    // controls.append(&prev_btn);
     controls.append(&play_btn);
-    controls.append(&next_track_btn);
+    // controls.append(&next_track_btn);
+    
     music_page.append(&controls);
+    music_page.append(&info);
 
     outer.append(&music_overlay);
-    music_page.append(&handle);
+    outer.append(&handle);
 
     win.set_child(Some(&outer));
     win.present();
@@ -376,6 +421,12 @@ fn apply_music_state(
             artist_label.set_label(&s.artist);
             is_playing.set(s.playing);
             play_btn.set_child(Some(if s.playing { pause_img } else { play_img }));
+
+            if s.playing {
+                art_canvas.add_css_class("albumArtspinn");
+            } else {
+                art_canvas.remove_css_class("albumArtspinn");
+            }
 
             let new_pb = if s.art_url.starts_with("file://") {
                 let path = s.art_url.trim_start_matches("file://");

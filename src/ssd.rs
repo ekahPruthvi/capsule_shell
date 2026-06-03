@@ -72,13 +72,13 @@ pub fn spawn_shelly_side_decorations(app: &gtk4::Application) {
             let mut held = alt_held.borrow_mut();
             if *held {
                 let _ = std::process::Command::new("ydotool")
-                    .args(["key", "--key-delay=0", "56:0"])
+                    .args(["key", "--key-delay=0", "125:0"])
                     .spawn();
                 *held = false;
                 btn.remove_css_class("ssdMinActive");
             } else {
                 let _ = std::process::Command::new("ydotool")
-                    .args(["key", "--key-delay=0", "56:1"])
+                    .args(["key", "--key-delay=0", "125:1"])
                     .spawn();
                 *held = true;
                 btn.add_css_class("ssdMinActive");
