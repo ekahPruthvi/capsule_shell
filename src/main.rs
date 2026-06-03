@@ -46,7 +46,6 @@ fn parse_widget_config(path: &str) -> Option<WidgetConfig> {
     for line in set_body.lines() {
         let line = line.trim();
         if let Some(rest) = line.strip_prefix("shellout") {
-            // format: `shellout :eDP-1`
             if let Some(val) = rest.trim().strip_prefix(':') {
                 shellout = val.trim().to_string();
                 break;

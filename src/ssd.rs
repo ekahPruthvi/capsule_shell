@@ -24,6 +24,7 @@ enum SsdEvent {
 pub fn spawn_shelly_side_decorations(app: &gtk4::Application) {
     let (tx, rx) = mpsc::channel::<SsdEvent>();
     let rx = Rc::new(RefCell::new(rx));
+    let alt_held = Rc::new(RefCell::new(false));
 
     let win = ApplicationWindow::builder()
         .application(app)
@@ -65,9 +66,25 @@ pub fn spawn_shelly_side_decorations(app: &gtk4::Application) {
         niri_action(Action::CloseWindow { id: None });
     });
 
-    btn_min.connect_clicked(|_| {
-        niri_action(Action::ToggleWindowFloating { id: None });
-    });
+    {
+        let alt_held = alt_held.clone();
+        btn_min.connect_clicked(move |btn| {
+            let mut held = alt_held.borrow_mut();
+            if *held {
+                let _ = std::process::Command::new("ydotool")
+                    .args(["key", "--key-delay=0", "56:0"])
+                    .spawn();
+                *held = false;
+                btn.remove_css_class("ssdMinActive");
+            } else {
+                let _ = std::process::Command::new("ydotool")
+                    .args(["key", "--key-delay=0", "56:1"])
+                    .spawn();
+                *held = true;
+                btn.add_css_class("ssdMinActive");
+            }
+        });
+    }
 
     btn_float.connect_clicked(|_| {
         niri_action(Action::FullscreenWindow { id: None });
