@@ -1,5 +1,6 @@
 use gtk4::{
-    Application, ApplicationWindow, Box as GtkBox, Button, CssProvider, Image, Label, Orientation, glib, prelude::*
+    Application, ApplicationWindow, Box as GtkBox, Button, CssProvider, EventControllerMotion,
+    Image, Label, Orientation, glib, prelude::*,
 };
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use gtk4::gdk::Display;
@@ -8,6 +9,7 @@ use chrono::Local;
 use gtk4::gio::File;
 use std::cell::RefCell;
 use std::rc::Rc;
+use libc;
 use niri_ipc::{socket::Socket, Action, PositionChange, Request, Response, WorkspaceReferenceArg};
 
 mod notifications;
@@ -37,41 +39,44 @@ impl Default for WidgetConfig {
 fn parse_widget_config(path: &str) -> Option<WidgetConfig> {
     let content = std::fs::read_to_string(path).ok()?;
 
-    let set_start  = content.find(":set")?;
-    let set_body   = &content[set_start..];
-    let set_end    = set_body.find(":end")?;
-    let set_body   = &set_body[..set_end];
+    let set_start = content.find(":set")?;
+    let set_body  = &content[set_start + 4..];
+    let set_end   = set_body.find(":end")?;
+    let set_body  = &set_body[..set_end];
 
     let mut shellout = String::new();
     for line in set_body.lines() {
         let line = line.trim();
         if let Some(rest) = line.strip_prefix("shellout") {
-            if let Some(val) = rest.trim().strip_prefix(':') {
+            let rest = rest.trim();
+            if let Some(val) = rest.strip_prefix(':') {
                 shellout = val.trim().to_string();
                 break;
             }
         }
     }
 
-    let w_start     = set_body.find("widgets")?.saturating_add("widgets".len());
-    let brace_open  = set_body[w_start..].find(':')?.saturating_add(w_start + 1);
-    let brace_open  = set_body[brace_open..].find('{')?.saturating_add(brace_open + 1);
-    let brace_close = set_body[brace_open..].find('}')?.saturating_add(brace_open);
-    let widget_block = &set_body[brace_open..brace_close];
+    let w_start      = set_body.find("widgets")?;
+    let after_w      = &set_body[w_start + "widgets".len()..];
+    let brace_open   = after_w.find('{')? + 1;
+    let widget_block = &after_w[brace_open..];
+    let brace_close  = widget_block.find('}')?;
+    let widget_block = &widget_block[..brace_close];
 
     let mut cfg = WidgetConfig { shellout, ..Default::default() };
     for line in widget_block.lines() {
         let line = line.trim();
         if line.is_empty() { continue; }
+        let line = line.strip_prefix(':').unwrap_or(line);
         let mut parts = line.splitn(2, ':');
         let key = parts.next().map(str::trim).unwrap_or("");
         let val = parts.next().map(str::trim).unwrap_or("false");
         match key {
-            "cal" => cfg.cal = val == "true",
-            "sys" => cfg.sys = val == "true",
-            "bat" => cfg.bat = val == "true",
+            "cal"   => cfg.cal   = val == "true",
+            "sys"   => cfg.sys   = val == "true",
+            "bat"   => cfg.bat   = val == "true",
             "stick" => cfg.stick = val == "true",
-            _     => {}
+            _       => {}
         }
     }
     Some(cfg)
@@ -544,9 +549,217 @@ fn coping_with(app: &Application) {
         });
     }
 
+    let clippy = GtkBox::new(Orientation::Horizontal, 4);
+    clippy.set_width_request(5);
+    clippy.add_css_class("clippy");
+    clippy.set_hexpand(true);
+    clippy.set_halign(gtk4::Align::End);
+
+    let clip_hover = EventControllerMotion::new();
+    let clippy_enter_clone = clippy.clone();
+    clip_hover.connect_enter(move |_, _, _| {
+        clippy_enter_clone.add_css_class("clippy");
+        clippy_enter_clone.set_width_request(100);
+    });
+    let clippy_lev_clone = clippy.clone();
+    clip_hover.connect_leave(move |_| {
+        clippy_lev_clone.remove_css_class("clippy");
+        clippy_lev_clone.set_width_request(5);
+    });
+    clippy.add_controller(clip_hover);
+
+    fn icon_for_path(path: &std::path::Path) -> String {
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+        match ext.as_str() {
+            // images
+            "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp" | "tiff" | "ico"
+                => "image-x-generic".to_string(),
+            // video
+            "mp4" | "mkv" | "avi" | "mov" | "webm" | "flv" | "wmv"
+                => "video-x-generic".to_string(),
+            // audio
+            "mp3" | "flac" | "ogg" | "wav" | "aac" | "m4a" | "opus"
+                => "audio-x-generic".to_string(),
+            // documents
+            "pdf"  => "application-pdf".to_string(),
+            "doc" | "docx" => "application-msword".to_string(),
+            "xls" | "xlsx" => "application-vnd.ms-excel".to_string(),
+            "ppt" | "pptx" => "application-vnd.ms-powerpoint".to_string(),
+            "odt"  => "application-vnd.oasis.opendocument.text".to_string(),
+            // text / code
+            "txt" | "md" | "rst" => "text-x-generic".to_string(),
+            "rs"   => "text-x-rust".to_string(),
+            "py"   => "text-x-python".to_string(),
+            "js" | "ts" => "text-x-javascript".to_string(),
+            "html" | "htm" => "text-html".to_string(),
+            "css"  => "text-css".to_string(),
+            "c" | "h"  => "text-x-csrc".to_string(),
+            "cpp" | "hpp" => "text-x-c++src".to_string(),
+            "sh" | "bash" => "application-x-shellscript".to_string(),
+            // archives
+            "zip" | "tar" | "gz" | "bz2" | "xz" | "7z" | "rar"
+                => "application-x-archive".to_string(),
+            // executables
+            "exe" | "bin" => "application-x-executable".to_string(),
+            _ => {
+                if path.is_dir() {
+                    "folder".to_string()
+                } else {
+                    "text-x-generic".to_string()
+                }
+            }
+        }
+    }
+
+    fn add_file_to_clippy(clippy: &GtkBox, uri: &str) {
+        let path = if let Some(p) = uri.strip_prefix("file://") {
+            let decoded = percent_decode(p);
+            std::path::PathBuf::from(decoded)
+        } else {
+            std::path::PathBuf::from(uri)
+        };
+
+        let file_name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(uri)
+            .to_string();
+        let icon_name = icon_for_path(&path);
+        let uri_owned = uri.to_string();
+
+        let img = Image::new();
+        img.set_icon_name(Some(&icon_name));
+        img.set_icon_size(gtk4::IconSize::Normal);
+
+        let btn = Button::new();
+        btn.set_child(Some(&img));
+        btn.set_css_classes(&["clippyFileBtn"]);
+        btn.set_has_tooltip(false); 
+
+        let hover_ctl = EventControllerMotion::new();
+        let btn_enter = btn.clone();
+        let name_for_tooltip = file_name.clone();
+        hover_ctl.connect_enter(move |_, _, _| {
+            btn_enter.set_has_tooltip(true);
+            btn_enter.set_tooltip_text(Some(&name_for_tooltip));
+        });
+        let btn_leave = btn.clone();
+        hover_ctl.connect_leave(move |_| {
+            btn_leave.set_has_tooltip(false);
+        });
+        btn.add_controller(hover_ctl);
+
+        let drag_src = gtk4::DragSource::new();
+        drag_src.set_actions(gtk4::gdk::DragAction::COPY | gtk4::gdk::DragAction::MOVE);
+
+        let uri_for_drag = uri_owned.clone();
+        drag_src.connect_prepare(move |src, _, _| {
+            // text/uri-list is the MIME type file managers expect (RFC 2483)
+            let uri_list = format!("{}\r\n", uri_for_drag);
+            let bytes = glib::Bytes::from(uri_list.as_bytes());
+            let content = gtk4::gdk::ContentProvider::for_bytes("text/uri-list", &bytes);
+            src.set_content(Some(&content));
+            Some(content)
+        });
+
+        let icon_name_drag = icon_name.clone();
+        drag_src.connect_drag_begin(move |src, _drag| {
+            let theme = gtk4::IconTheme::default();
+            let paintable = theme.lookup_icon(
+                &icon_name_drag,
+                &[],
+                48, 1,
+                gtk4::TextDirection::None,
+                gtk4::IconLookupFlags::empty(),
+            );
+            src.set_icon(Some(&paintable), 24, 24);
+        });
+
+        // Remove from clippy after drag completes (whether COPY or MOVE)
+        let btn_for_drag_end = btn.clone();
+        let clippy_for_drag_end = clippy.clone();
+        drag_src.connect_drag_end(move |_, _drag, _delete_data| {
+            clippy_for_drag_end.remove(&btn_for_drag_end);
+        });
+
+        btn.add_controller(drag_src);
+
+        let gesture = gtk4::GestureClick::new();
+        gesture.set_button(3); // right mouse button
+        let btn_for_remove = btn.clone();
+        let clippy_for_remove = clippy.clone();
+        gesture.connect_released(move |_, _, _, _| {
+            clippy_for_remove.remove(&btn_for_remove);
+        });
+        btn.add_controller(gesture);
+
+        clippy.append(&btn);
+        clippy.set_visible(true);
+    }
+
+    fn percent_decode(s: &str) -> String {
+        let mut out = String::with_capacity(s.len());
+        let mut bytes = s.bytes().peekable();
+        while let Some(b) = bytes.next() {
+            if b == b'%' {
+                let h1 = bytes.next().unwrap_or(b'?');
+                let h2 = bytes.next().unwrap_or(b'?');
+                if let Ok(n) = u8::from_str_radix(
+                    &format!("{}{}", h1 as char, h2 as char), 16
+                ) {
+                    out.push(n as char);
+                    continue;
+                }
+            }
+            out.push(b as char);
+        }
+        out
+    }
+
+    {
+        let drop_target = gtk4::DropTarget::new(
+            glib::Type::STRING,
+            gtk4::gdk::DragAction::COPY | gtk4::gdk::DragAction::MOVE,
+        );
+
+
+        let clippy_drop = clippy.clone();
+        drop_target.connect_drop(move |_, value, _, _| {
+            if let Ok(uri_list) = value.get::<String>() {
+                for raw in uri_list.split(['\n', '\r']) {
+                    let uri = raw.trim();
+                    if uri.starts_with("file://") || uri.starts_with('/') {
+                        let normalized = if uri.starts_with('/') {
+                            format!("file://{uri}")
+                        } else {
+                            uri.to_string()
+                        };
+                        add_file_to_clippy(&clippy_drop, &normalized);
+                    }
+                }
+                clippy_drop.set_width_request(100);
+                return true;
+            }
+            false
+        });
+
+        let clippy_motion = clippy.clone();
+        drop_target.connect_enter(move |_, _, _| {
+            clippy_motion.set_width_request(100);
+            gtk4::gdk::DragAction::COPY
+        });
+
+        clippy.add_controller(drop_target);
+    }
+
 
     time_capsule.append(&cos);
     time_capsule.append(&badge_container);
+    time_capsule.append(&clippy);
     time_capsule.append(&time_and_actions);
     time_capsule.append(&network);
     if has_battery {
@@ -675,7 +888,7 @@ fn coping_with(app: &Application) {
             let sys_active = *active_sys_c.borrow();
             if cfg.sys && !sys_active {
                 *sys_win.borrow_mut() = Some(spawn_sys_widget(pp_monitor.as_ref()));
-                *active_cal_c.borrow_mut() = true;
+                *active_sys_c.borrow_mut() = true;
             } else if !cfg.sys && sys_active {
                 let maybe = sys_win.borrow_mut().take();
                 if let Some(w) = maybe { kill(&w); }
@@ -685,7 +898,7 @@ fn coping_with(app: &Application) {
             let bat_active = *active_bat_c.borrow();
             if cfg.bat && !bat_active {
                 *bat_win.borrow_mut() = Some(spawn_bat_widget(pp_monitor.as_ref()));
-                *active_cal_c.borrow_mut() = true;
+                *active_bat_c.borrow_mut() = true;
             } else if !cfg.bat && bat_active {
                 let maybe = bat_win.borrow_mut().take();
                 if let Some(w) = maybe { kill(&w); }
@@ -694,8 +907,8 @@ fn coping_with(app: &Application) {
 
             let stick_active = *active_stick_c.borrow();
             if cfg.stick && !stick_active {
-                *bat_win.borrow_mut() = Some(spawn_bat_widget(pp_monitor.as_ref()));
-                *active_cal_c.borrow_mut() = true;
+                *stick_win.borrow_mut() = Some(spawn_stick_widget(pp_monitor.as_ref()));
+                *active_stick_c.borrow_mut() = true;
             } else if !cfg.stick && stick_active {
                 let maybe = stick_win.borrow_mut().take();
                 if let Some(w) = maybe { kill(&w); }
@@ -711,7 +924,7 @@ fn coping_with(app: &Application) {
 
     let records_clone  = records.clone();
     let is_hidden_clone = is_hidden.clone();
-    let timendate_clone = timendate.clone();
+    // let timendate_clone = timendate.clone(); this is for focus time mode
     let focused_clone  = focused_before_hide.clone();
 
     let show = Image::from_file("/var/lib/cynager/icons/min.svg");
@@ -719,7 +932,7 @@ fn coping_with(app: &Application) {
     show.set_margin_start(10);
     show.set_margin_end(5);
 
-    time_and_actions.connect_clicked(move |_| {
+    glib::unix_signal_add_local(libc::SIGUSR1, move || {
         let mut hiding = is_hidden_clone.borrow_mut();
 
         if !*hiding {
@@ -727,7 +940,7 @@ fn coping_with(app: &Application) {
             *focused_clone.borrow_mut() = get_focused_window_id();
             *records_clone.borrow_mut() = wins.clone();
             *hiding = true;
-            timendate_clone.append(&show);
+            // timendate_clone.append(&show);
 
             let screen = get_focused_output_size().unwrap_or((1920.0, 1080.0));
 
@@ -753,7 +966,7 @@ fn coping_with(app: &Application) {
                         let _ = (wid, wspace);
                     });
                 }
-                let _ = pending; 
+                let _ = pending;
                 pending = pending.saturating_sub(1);
             }
 
@@ -821,8 +1034,10 @@ fn coping_with(app: &Application) {
             records_clone.borrow_mut().clear();
             *focused_clone.borrow_mut() = None;
             *hiding = false;
-            timendate_clone.remove(&show);
+            // timendate_clone.remove(&show);
         }
+
+        glib::ControlFlow::Continue
     });
 
     ssd::spawn_shelly_side_decorations(app);

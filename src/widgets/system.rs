@@ -246,8 +246,8 @@ pub fn spawn_sys_widget(monitor: Option<&gtk4::gdk::Monitor>) -> Window {
     next.set_icon_size(gtk4::IconSize::Normal);
 
 
-    let prev_btn       = Button::builder().child(&prev).build();
-    let play_btn       = Button::builder().child(&play).build();
+    let prev_btn = Button::builder().child(&prev).build();
+    let play_btn = Button::builder().child(&play).build();
     play_btn.set_cursor_from_name(Some("pointer"));
     let next_track_btn = Button::builder().child(&next).build();
 

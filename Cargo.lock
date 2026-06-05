@@ -303,6 +303,7 @@ dependencies = [
  "gtk4",
  "gtk4-layer-shell",
  "inotify",
+ "libc",
  "libpulse-binding",
  "libpulse-glib-binding",
  "niri-ipc",

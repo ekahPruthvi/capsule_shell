@@ -9,11 +9,15 @@ const PROBE_PATH: &str = "/var/lib/cynager/info.probe";
 
 fn parse_stick_image_path(probe_text: &str) -> Option<String> {
     for line in probe_text.lines() {
-        let trimmed = line.trim();
-        if let Some(rest) = trimmed.strip_prefix("sticker:") {
-            let path = rest.trim().to_string();
-            if !path.is_empty() {
-                return Some(path);
+        let line = line.trim();
+        let line = line.strip_prefix(':').unwrap_or(line);
+        if let Some(rest) = line.strip_prefix("sticker") {
+            let rest = rest.trim();
+            if let Some(path) = rest.strip_prefix(':') {
+                let path = path.trim().to_string();
+                if !path.is_empty() {
+                    return Some(path);
+                }
             }
         }
     }
