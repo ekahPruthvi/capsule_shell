@@ -615,6 +615,29 @@ fn coping_with(app: &Application) {
         }
     }
 
+    fn mime_for_path(path: &std::path::Path) -> &'static str {
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+        match ext.as_str() {
+            "png"  => "image/png",
+            "jpg" | "jpeg" => "image/jpeg",
+            "gif"  => "image/gif",
+            "webp" => "image/webp",
+            "svg"  => "image/svg+xml",
+            "bmp"  => "image/bmp",
+            "mp4"  => "video/mp4",
+            "mkv"  => "video/x-matroska",
+            "webm" => "video/webm",
+            "mp3"  => "audio/mpeg",
+            "ogg"  => "audio/ogg",
+            "flac" => "audio/flac",
+            "wav"  => "audio/wav",
+            "pdf"  => "application/pdf",
+            "txt" | "md" => "text/plain",
+            "html" | "htm" => "text/html",
+            _      => "application/octet-stream",
+        }
+    }
+
     fn add_file_to_clippy(clippy: &GtkBox, uri: &str) {
         let path = if let Some(p) = uri.strip_prefix("file://") {
             let decoded = percent_decode(p);
@@ -658,12 +681,30 @@ fn coping_with(app: &Application) {
 
         let uri_for_drag = uri_owned.clone();
         drag_src.connect_prepare(move |_src, _, _| {
-            // text/uri-list: standard MIME type for file drops (RFC 2483)
-            // Format: one URI per line, each terminated with \r\n
             let uri_list = format!("{}\r\n", uri_for_drag);
-            let bytes = glib::Bytes::from(uri_list.as_bytes());
-            let content = gtk4::gdk::ContentProvider::for_bytes("text/uri-list", &bytes);
-            Some(content)
+            let uri_bytes = glib::Bytes::from(uri_list.as_bytes());
+            let uri_provider = gtk4::gdk::ContentProvider::for_bytes("text/uri-list", &uri_bytes);
+
+            let file_provider = if let Some(local_path) = uri_for_drag.strip_prefix("file://") {
+                let decoded = percent_decode(local_path);
+                if let Ok(file_bytes) = std::fs::read(&decoded) {
+                    let mime = mime_for_path(std::path::Path::new(&decoded));
+                    let gbytes = glib::Bytes::from_owned(file_bytes);
+                    Some(gtk4::gdk::ContentProvider::for_bytes(mime, &gbytes))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            let providers: Vec<gtk4::gdk::ContentProvider> = if let Some(fp) = file_provider {
+                vec![fp, uri_provider]
+            } else {
+                vec![uri_provider]
+            };
+
+            Some(gtk4::gdk::ContentProvider::new_union(&providers))
         });
 
         let icon_name_drag = icon_name.clone();
