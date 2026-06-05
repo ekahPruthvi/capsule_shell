@@ -286,7 +286,7 @@ fn get_battery_state() -> Option<BatteryState> {
             .unwrap_or_default();
         let charging = matches!(status.trim(), "Charging" | "Full");
 
-        if capacity < 30 && !charging && !std::path::Path::new("/tmp/batt_no_ask.var").exists() {
+        if capacity < 20 && !charging && !std::path::Path::new("/tmp/batt_no_ask.var").exists() {
             let _ = Command::new("batt_low").status();
         }
 
@@ -657,12 +657,12 @@ fn coping_with(app: &Application) {
         drag_src.set_actions(gtk4::gdk::DragAction::COPY | gtk4::gdk::DragAction::MOVE);
 
         let uri_for_drag = uri_owned.clone();
-        drag_src.connect_prepare(move |src, _, _| {
-            // text/uri-list is the MIME type file managers expect (RFC 2483)
+        drag_src.connect_prepare(move |_src, _, _| {
+            // text/uri-list: standard MIME type for file drops (RFC 2483)
+            // Format: one URI per line, each terminated with \r\n
             let uri_list = format!("{}\r\n", uri_for_drag);
             let bytes = glib::Bytes::from(uri_list.as_bytes());
             let content = gtk4::gdk::ContentProvider::for_bytes("text/uri-list", &bytes);
-            src.set_content(Some(&content));
             Some(content)
         });
 
@@ -679,7 +679,7 @@ fn coping_with(app: &Application) {
             src.set_icon(Some(&paintable), 24, 24);
         });
 
-        // Remove from clippy after drag completes (whether COPY or MOVE)
+        // Remove from clippy when the drag finishes (dropped anywhere)
         let btn_for_drag_end = btn.clone();
         let clippy_for_drag_end = clippy.clone();
         drag_src.connect_drag_end(move |_, _drag, _delete_data| {
@@ -721,14 +721,25 @@ fn coping_with(app: &Application) {
     }
 
     {
-        let drop_target = gtk4::DropTarget::new(
-            glib::Type::STRING,
-            gtk4::gdk::DragAction::COPY | gtk4::gdk::DragAction::MOVE,
-        );
-
+        // Accept gio::File (from GTK4 apps using ContentProvider::for_value) and
+        // plain STRING / text/uri-list (from file managers like Nautilus, Thunar, etc.)
+        let drop_target = gtk4::DropTarget::builder()
+            .actions(gtk4::gdk::DragAction::COPY | gtk4::gdk::DragAction::MOVE)
+            .build();
+        drop_target.set_types(&[gtk4::gio::File::static_type(), glib::Type::STRING]);
 
         let clippy_drop = clippy.clone();
         drop_target.connect_drop(move |_, value, _, _| {
+            // Try gio::File first — matches sources using ContentProvider::for_value(&file.to_value())
+            if let Ok(file) = value.get::<gtk4::gio::File>() {
+                let uri = file.uri().to_string();
+                if !uri.is_empty() {
+                    add_file_to_clippy(&clippy_drop, &uri);
+                }
+                clippy_drop.set_width_request(100);
+                return true;
+            }
+            // Fallback: plain text/uri-list string (file managers send this)
             if let Ok(uri_list) = value.get::<String>() {
                 for raw in uri_list.split(['\n', '\r']) {
                     let uri = raw.trim();
