@@ -664,6 +664,17 @@ fn coping_with(app: &Application) {
         });
         btn.add_controller(hover_ctl);
 
+        // Left-click: copy URL to clipboard
+        // let url_for_click = url_owned.clone();
+        // let gesture_click = gtk4::GestureClick::new();
+        // gesture_click.set_button(1);
+        // gesture_click.connect_released(move |_, _, _, _| {
+        //     if let Some(display) = gtk4::gdk::Display::default() {
+        //         display.clipboard().set_text(&url_for_click);
+        //     }
+        // });
+        // btn.add_controller(gesture_click);
+
         let drag_src = gtk4::DragSource::new();
         drag_src.set_actions(gtk4::gdk::DragAction::COPY | gtk4::gdk::DragAction::MOVE);
 
@@ -693,21 +704,21 @@ fn coping_with(app: &Application) {
             src.set_icon(Some(&paintable), 24, 24);
         });
 
-        let btn_for_drag_end = btn.clone();
-        let clippy_for_drag_end = clippy.clone();
-        drag_src.connect_drag_end(move |_, _drag, _delete_data| {
-            clippy_for_drag_end.remove(&btn_for_drag_end);
-        });
+        // let btn_for_drag_end = btn.clone();
+        // let clippy_for_drag_end = clippy.clone();
+        // drag_src.connect_drag_end(move |_, _drag, _delete_data| {
+        //     clippy_for_drag_end.remove(&btn_for_drag_end);
+        // });
         btn.add_controller(drag_src);
 
-        // let gesture_rm = gtk4::GestureClick::new();
-        // gesture_rm.set_button(3);
-        // let btn_for_remove = btn.clone();
-        // let clippy_for_remove = clippy.clone();
-        // gesture_rm.connect_released(move |_, _, _, _| {
-        //     clippy_for_remove.remove(&btn_for_remove);
-        // });
-        // btn.add_controller(gesture_rm);
+        let gesture_rm = gtk4::GestureClick::new();
+        gesture_rm.set_button(3);
+        let btn_for_remove = btn.clone();
+        let clippy_for_remove = clippy.clone();
+        gesture_rm.connect_released(move |_, _, _, _| {
+            clippy_for_remove.remove(&btn_for_remove);
+        });
+        btn.add_controller(gesture_rm);
 
         clippy.append(&btn);
         clippy.set_visible(true);
@@ -779,22 +790,21 @@ fn coping_with(app: &Application) {
             src.set_icon(Some(&paintable), 24, 24);
         });
 
-        let btn_for_drag_end = btn.clone();
-        let clippy_for_drag_end = clippy.clone();
-        drag_src.connect_drag_end(move |_, _drag, _delete_data| {
-            clippy_for_drag_end.remove(&btn_for_drag_end);
-        });
+        // let btn_for_drag_end = btn.clone();
+        // let clippy_for_drag_end = clippy.clone();
+        // drag_src.connect_drag_end(move |_, _drag, _delete_data| {
+        //     clippy_for_drag_end.remove(&btn_for_drag_end);
+        // });
         btn.add_controller(drag_src);
 
-        // // Right-click: remove
-        // let gesture_rm = gtk4::GestureClick::new();
-        // gesture_rm.set_button(3);
-        // let btn_for_remove = btn.clone();
-        // let clippy_for_remove = clippy.clone();
-        // gesture_rm.connect_released(move |_, _, _, _| {
-        //     clippy_for_remove.remove(&btn_for_remove);
-        // });
-        // btn.add_controller(gesture_rm);
+        let gesture_rm = gtk4::GestureClick::new();
+        gesture_rm.set_button(3);
+        let btn_for_remove = btn.clone();
+        let clippy_for_remove = clippy.clone();
+        gesture_rm.connect_released(move |_, _, _, _| {
+            clippy_for_remove.remove(&btn_for_remove);
+        });
+        btn.add_controller(gesture_rm);
 
         clippy.append(&btn);
         clippy.set_visible(true);
@@ -884,22 +894,22 @@ fn coping_with(app: &Application) {
             src.set_icon(Some(&paintable), 24, 24);
         });
 
-        let btn_for_drag_end = btn.clone();
-        let clippy_for_drag_end = clippy.clone();
-        drag_src.connect_drag_end(move |_, _drag, _delete_data| {
-            clippy_for_drag_end.remove(&btn_for_drag_end);
-        });
+        // let btn_for_drag_end = btn.clone();
+        // let clippy_for_drag_end = clippy.clone();
+        // drag_src.connect_drag_end(move |_, _drag, _delete_data| {
+        //     clippy_for_drag_end.remove(&btn_for_drag_end);
+        // });
 
         btn.add_controller(drag_src);
 
-        // let gesture = gtk4::GestureClick::new();
-        // gesture.set_button(3);
-        // let btn_for_remove = btn.clone();
-        // let clippy_for_remove = clippy.clone();
-        // gesture.connect_released(move |_, _, _, _| {
-        //     clippy_for_remove.remove(&btn_for_remove);
-        // });
-        // btn.add_controller(gesture);
+        let gesture = gtk4::GestureClick::new();
+        gesture.set_button(3);
+        let btn_for_remove = btn.clone();
+        let clippy_for_remove = clippy.clone();
+        gesture.connect_released(move |_, _, _, _| {
+            clippy_for_remove.remove(&btn_for_remove);
+        });
+        btn.add_controller(gesture);
 
         clippy.append(&btn);
         clippy.set_visible(true);
@@ -941,16 +951,13 @@ fn coping_with(app: &Application) {
                 return true;
             }
             if let Ok(text) = value.get::<String>() {
-                // Split into lines and classify each non-empty token
                 let mut handled = false;
-                // Collect all meaningful tokens first
                 let tokens: Vec<&str> = text
                     .split(['\n', '\r'])
                     .map(str::trim)
                     .filter(|s| !s.is_empty())
                     .collect();
 
-                // Heuristic: if every token looks like a URI/path, treat as URI list
                 let all_uris = !tokens.is_empty() && tokens.iter().all(|t| {
                     t.starts_with("file://")
                         || t.starts_with("http://")
@@ -977,7 +984,6 @@ fn coping_with(app: &Application) {
                         handled = true;
                     }
                 } else if !text.trim().is_empty() {
-                    // Treat the whole thing as plain text
                     add_text_to_clippy(&clippy_drop, text.trim());
                     handled = true;
                 }
