@@ -639,6 +639,167 @@ fn coping_with(app: &Application) {
         }
     }
 
+    fn add_link_to_clippy(clippy: &GtkBox, url: &str) {
+        let url_owned = url.to_string();
+
+        let img = Image::new();
+        img.set_icon_name(Some("emblem-web"));
+        img.set_icon_size(gtk4::IconSize::Large);
+
+        let btn = Button::new();
+        btn.set_child(Some(&img));
+        btn.set_css_classes(&["clippyFileBtn"]);
+        btn.set_has_tooltip(false);
+
+        let hover_ctl = EventControllerMotion::new();
+        let btn_enter = btn.clone();
+        let url_for_tip = url_owned.clone();
+        hover_ctl.connect_enter(move |_, _, _| {
+            btn_enter.set_has_tooltip(true);
+            btn_enter.set_tooltip_text(Some(&url_for_tip));
+        });
+        let btn_leave = btn.clone();
+        hover_ctl.connect_leave(move |_| {
+            btn_leave.set_has_tooltip(false);
+        });
+        btn.add_controller(hover_ctl);
+
+        let drag_src = gtk4::DragSource::new();
+        drag_src.set_actions(gtk4::gdk::DragAction::COPY | gtk4::gdk::DragAction::MOVE);
+
+        let url_for_drag = url_owned.clone();
+        drag_src.connect_prepare(move |_src, _, _| {
+            let uri_list = format!("{}\r\n", url_for_drag);
+            let uri_bytes = glib::Bytes::from(uri_list.as_bytes());
+            let uri_provider = gtk4::gdk::ContentProvider::for_bytes("text/uri-list", &uri_bytes);
+
+            let text_bytes = glib::Bytes::from(url_for_drag.as_bytes());
+            let text_provider = gtk4::gdk::ContentProvider::for_bytes("text/plain;charset=utf-8", &text_bytes);
+
+            Some(gtk4::gdk::ContentProvider::new_union(&[uri_provider, text_provider]))
+        });
+
+        drag_src.connect_drag_begin(move |src, _drag| {
+            let display = gtk4::gdk::Display::default().expect("No display found");
+            let theme = gtk4::IconTheme::for_display(&display);
+            let paintable = theme.lookup_icon(
+                "emblem-web",
+                &["application-x-executable"],
+                48,
+                1,
+                gtk4::TextDirection::None,
+                gtk4::IconLookupFlags::empty(),
+            );
+            src.set_icon(Some(&paintable), 24, 24);
+        });
+
+        let btn_for_drag_end = btn.clone();
+        let clippy_for_drag_end = clippy.clone();
+        drag_src.connect_drag_end(move |_, _drag, _delete_data| {
+            clippy_for_drag_end.remove(&btn_for_drag_end);
+        });
+        btn.add_controller(drag_src);
+
+        // let gesture_rm = gtk4::GestureClick::new();
+        // gesture_rm.set_button(3);
+        // let btn_for_remove = btn.clone();
+        // let clippy_for_remove = clippy.clone();
+        // gesture_rm.connect_released(move |_, _, _, _| {
+        //     clippy_for_remove.remove(&btn_for_remove);
+        // });
+        // btn.add_controller(gesture_rm);
+
+        clippy.append(&btn);
+        clippy.set_visible(true);
+    }
+
+    fn add_text_to_clippy(clippy: &GtkBox, text: &str) {
+        let text_owned = text.to_string();
+        let preview: String = text_owned.chars().take(40).collect();
+        let display_label = if text_owned.chars().count() > 40 {
+            format!("{}…", preview)
+        } else {
+            preview.clone()
+        };
+
+        let lbl = gtk4::Label::new(Some(&display_label));
+        lbl.set_max_width_chars(12);
+        lbl.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+        lbl.set_single_line_mode(true);
+
+        let btn = Button::new();
+        btn.set_child(Some(&lbl));
+        btn.set_css_classes(&["clippyFileBtn", "clippyTextBtn"]);
+        btn.set_has_tooltip(false);
+
+        let hover_ctl = EventControllerMotion::new();
+        let btn_enter = btn.clone();
+        let text_for_tip = text_owned.clone();
+        hover_ctl.connect_enter(move |_, _, _| {
+            btn_enter.set_has_tooltip(true);
+            btn_enter.set_tooltip_text(Some(&text_for_tip));
+        });
+        let btn_leave = btn.clone();
+        hover_ctl.connect_leave(move |_| {
+            btn_leave.set_has_tooltip(false);
+        });
+        btn.add_controller(hover_ctl);
+
+        let text_for_click = text_owned.clone();
+        let gesture_click = gtk4::GestureClick::new();
+        gesture_click.set_button(1);
+        gesture_click.connect_released(move |_, _, _, _| {
+            if let Some(display) = gtk4::gdk::Display::default() {
+                display.clipboard().set_text(&text_for_click);
+            }
+        });
+        btn.add_controller(gesture_click);
+
+        let drag_src = gtk4::DragSource::new();
+        drag_src.set_actions(gtk4::gdk::DragAction::COPY | gtk4::gdk::DragAction::MOVE);
+
+        let text_for_drag = text_owned.clone();
+        drag_src.connect_prepare(move |_src, _, _| {
+            let bytes = glib::Bytes::from(text_for_drag.as_bytes());
+            let provider = gtk4::gdk::ContentProvider::for_bytes("text/plain;charset=utf-8", &bytes);
+            Some(provider)
+        });
+
+        drag_src.connect_drag_begin(move |src, _drag| {
+            let display = gtk4::gdk::Display::default().expect("No display found");
+            let theme = gtk4::IconTheme::for_display(&display);
+            let paintable = theme.lookup_icon(
+                "text-x-generic",
+                &["application-x-executable"],
+                48,
+                1,
+                gtk4::TextDirection::None,
+                gtk4::IconLookupFlags::empty(),
+            );
+            src.set_icon(Some(&paintable), 24, 24);
+        });
+
+        let btn_for_drag_end = btn.clone();
+        let clippy_for_drag_end = clippy.clone();
+        drag_src.connect_drag_end(move |_, _drag, _delete_data| {
+            clippy_for_drag_end.remove(&btn_for_drag_end);
+        });
+        btn.add_controller(drag_src);
+
+        // // Right-click: remove
+        // let gesture_rm = gtk4::GestureClick::new();
+        // gesture_rm.set_button(3);
+        // let btn_for_remove = btn.clone();
+        // let clippy_for_remove = clippy.clone();
+        // gesture_rm.connect_released(move |_, _, _, _| {
+        //     clippy_for_remove.remove(&btn_for_remove);
+        // });
+        // btn.add_controller(gesture_rm);
+
+        clippy.append(&btn);
+        clippy.set_visible(true);
+    }
+
     fn add_file_to_clippy(clippy: &GtkBox, uri: &str) {
         let path = if let Some(p) = uri.strip_prefix("file://") {
             let decoded = percent_decode(p);
@@ -731,14 +892,14 @@ fn coping_with(app: &Application) {
 
         btn.add_controller(drag_src);
 
-        let gesture = gtk4::GestureClick::new();
-        gesture.set_button(3); // right mouse button
-        let btn_for_remove = btn.clone();
-        let clippy_for_remove = clippy.clone();
-        gesture.connect_released(move |_, _, _, _| {
-            clippy_for_remove.remove(&btn_for_remove);
-        });
-        btn.add_controller(gesture);
+        // let gesture = gtk4::GestureClick::new();
+        // gesture.set_button(3);
+        // let btn_for_remove = btn.clone();
+        // let clippy_for_remove = clippy.clone();
+        // gesture.connect_released(move |_, _, _, _| {
+        //     clippy_for_remove.remove(&btn_for_remove);
+        // });
+        // btn.add_controller(gesture);
 
         clippy.append(&btn);
         clippy.set_visible(true);
@@ -779,20 +940,52 @@ fn coping_with(app: &Application) {
                 clippy_drop.set_width_request(50);
                 return true;
             }
-            if let Ok(uri_list) = value.get::<String>() {
-                for raw in uri_list.split(['\n', '\r']) {
-                    let uri = raw.trim();
-                    if uri.starts_with("file://") || uri.starts_with('/') {
-                        let normalized = if uri.starts_with('/') {
-                            format!("file://{uri}")
-                        } else {
-                            uri.to_string()
-                        };
-                        add_file_to_clippy(&clippy_drop, &normalized);
+            if let Ok(text) = value.get::<String>() {
+                // Split into lines and classify each non-empty token
+                let mut handled = false;
+                // Collect all meaningful tokens first
+                let tokens: Vec<&str> = text
+                    .split(['\n', '\r'])
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .collect();
+
+                // Heuristic: if every token looks like a URI/path, treat as URI list
+                let all_uris = !tokens.is_empty() && tokens.iter().all(|t| {
+                    t.starts_with("file://")
+                        || t.starts_with("http://")
+                        || t.starts_with("https://")
+                        || t.starts_with("ftp://")
+                        || t.starts_with('/')
+                });
+
+                if all_uris {
+                    for token in &tokens {
+                        if token.starts_with("file://") || token.starts_with('/') {
+                            let normalized = if token.starts_with('/') {
+                                format!("file://{token}")
+                            } else {
+                                token.to_string()
+                            };
+                            add_file_to_clippy(&clippy_drop, &normalized);
+                        } else if token.starts_with("http://")
+                            || token.starts_with("https://")
+                            || token.starts_with("ftp://")
+                        {
+                            add_link_to_clippy(&clippy_drop, token);
+                        }
+                        handled = true;
                     }
+                } else if !text.trim().is_empty() {
+                    // Treat the whole thing as plain text
+                    add_text_to_clippy(&clippy_drop, text.trim());
+                    handled = true;
                 }
-                clippy_drop.set_width_request(50);
-                return true;
+
+                if handled {
+                    clippy_drop.set_width_request(50);
+                    return true;
+                }
             }
             false
         });
