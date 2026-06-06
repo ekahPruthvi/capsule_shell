@@ -372,8 +372,6 @@ fn coping_with(app: &Application) {
     time_capsule.set_halign(gtk4::Align::Center);
     time_capsule.set_valign(gtk4::Align::Start);
     time_capsule.set_hexpand(true);
-    // time_capsule.set_margin_top(5);
-    // time_capsule.set_margin_bottom(5);
     time_capsule.set_width_request(300);
 
     let timendate = GtkBox::new(Orientation::Horizontal, 5);
@@ -388,11 +386,11 @@ fn coping_with(app: &Application) {
     let time_and_actions = Button::builder()
         .css_classes(["tNa"])
         .child(&timendate)
-        .hexpand(true)
-        .halign(gtk4::Align::End)
+        // .hexpand(true)
+        // .halign(gtk4::Align::End)
         .build();
 
-    let time_win           = time_capsule.clone();
+    let time_win = time_capsule.clone();
     let time_actual_window = time_window.clone();
     glib::timeout_add_local(Duration::from_millis(1200), move || {
         let now = Local::now();
@@ -403,7 +401,7 @@ fn coping_with(app: &Application) {
         glib::ControlFlow::Continue
     });
 
-    let cos      = Button::new();
+    let cos= Button::new();
     let cos_logo = Image::from_file("/var/lib/cynager/icons/cos.svg");
     cos_logo.set_icon_size(gtk4::IconSize::Large);
     cos.set_child(Some(&cos_logo));
@@ -412,6 +410,7 @@ fn coping_with(app: &Application) {
     cos_logo.set_cursor_from_name(Some("crosshair"));
 
     let badge_container = GtkBox::new(Orientation::Vertical, 1);
+    badge_container.set_hexpand(true);
 
     let badge_head = Label::builder()
         .css_classes(["notification_badge"])
@@ -549,10 +548,12 @@ fn coping_with(app: &Application) {
         });
     }
 
+    let dummy_fill = GtkBox::new(Orientation::Horizontal, 0);
+    dummy_fill.set_hexpand(true);
+
     let clippy = GtkBox::new(Orientation::Horizontal, 4);
     clippy.set_width_request(5);
-    clippy.add_css_class("clippy");
-    clippy.set_hexpand(true);
+    clippy.set_hexpand(false);
     clippy.set_halign(gtk4::Align::End);
 
     let clip_hover = EventControllerMotion::new();
@@ -656,7 +657,7 @@ fn coping_with(app: &Application) {
 
         let img = Image::new();
         img.set_icon_name(Some(&icon_name));
-        img.set_icon_size(gtk4::IconSize::Normal);
+        img.set_icon_size(gtk4::IconSize::Large);
 
         let btn = Button::new();
         btn.set_child(Some(&img));
@@ -709,18 +710,19 @@ fn coping_with(app: &Application) {
 
         let icon_name_drag = icon_name.clone();
         drag_src.connect_drag_begin(move |src, _drag| {
-            let theme = gtk4::IconTheme::default();
+            let display = gtk4::gdk::Display::default().expect("No display found");
+            let theme = gtk4::IconTheme::for_display(&display);
             let paintable = theme.lookup_icon(
                 &icon_name_drag,
-                &[],
-                48, 1,
+                &["application-x-executable"],
+                48, 
+                1,
                 gtk4::TextDirection::None,
                 gtk4::IconLookupFlags::empty(),
             );
             src.set_icon(Some(&paintable), 24, 24);
         });
 
-        // Remove from clippy when the drag finishes (dropped anywhere)
         let btn_for_drag_end = btn.clone();
         let clippy_for_drag_end = clippy.clone();
         drag_src.connect_drag_end(move |_, _drag, _delete_data| {
@@ -762,8 +764,6 @@ fn coping_with(app: &Application) {
     }
 
     {
-        // Accept gio::File (from GTK4 apps using ContentProvider::for_value) and
-        // plain STRING / text/uri-list (from file managers like Nautilus, Thunar, etc.)
         let drop_target = gtk4::DropTarget::builder()
             .actions(gtk4::gdk::DragAction::COPY | gtk4::gdk::DragAction::MOVE)
             .build();
@@ -771,16 +771,14 @@ fn coping_with(app: &Application) {
 
         let clippy_drop = clippy.clone();
         drop_target.connect_drop(move |_, value, _, _| {
-            // Try gio::File first — matches sources using ContentProvider::for_value(&file.to_value())
             if let Ok(file) = value.get::<gtk4::gio::File>() {
                 let uri = file.uri().to_string();
                 if !uri.is_empty() {
                     add_file_to_clippy(&clippy_drop, &uri);
                 }
-                clippy_drop.set_width_request(100);
+                clippy_drop.set_width_request(50);
                 return true;
             }
-            // Fallback: plain text/uri-list string (file managers send this)
             if let Ok(uri_list) = value.get::<String>() {
                 for raw in uri_list.split(['\n', '\r']) {
                     let uri = raw.trim();
@@ -793,7 +791,7 @@ fn coping_with(app: &Application) {
                         add_file_to_clippy(&clippy_drop, &normalized);
                     }
                 }
-                clippy_drop.set_width_request(100);
+                clippy_drop.set_width_request(50);
                 return true;
             }
             false
@@ -802,17 +800,21 @@ fn coping_with(app: &Application) {
         let clippy_motion = clippy.clone();
         drop_target.connect_enter(move |_, _, _| {
             clippy_motion.set_width_request(100);
+            clippy_motion.add_css_class("clippy");
             gtk4::gdk::DragAction::COPY
         });
 
         clippy.add_controller(drop_target);
     }
 
+    let c_tna = GtkBox::new(Orientation::Horizontal, 5);
+
+    c_tna.append(&clippy);
+    c_tna.append(&time_and_actions);
 
     time_capsule.append(&cos);
     time_capsule.append(&badge_container);
-    time_capsule.append(&clippy);
-    time_capsule.append(&time_and_actions);
+    time_capsule.append(&c_tna);
     time_capsule.append(&network);
     if has_battery {
         time_capsule.append(&battery);
