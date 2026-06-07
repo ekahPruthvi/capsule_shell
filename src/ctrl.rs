@@ -162,14 +162,33 @@ pub fn spawn_network_watcher(interval: Duration) -> std::sync::mpsc::Receiver<Ne
     rx
 }
 
-/// Returns `(icon_name, label_text)` for a given `NetworkState`.
-fn network_state_display(state: &NetworkState) -> (&'static str, String) {
+fn network_icon_and_tip(state: NetworkState) -> (&'static str, String, String) {
     match state {
-        NetworkState::WifiConnected(ssid)      => ("network-wireless-symbolic",        ssid.clone()),
-        NetworkState::EthernetConnected(iface) => ("network-wired-symbolic",           iface.clone()),
-        NetworkState::NoInternet               => ("network-error-symbolic",           "No internet".to_string()),
-        NetworkState::Disconnected             => ("network-offline-symbolic",         "Disconnected".to_string()),
-        NetworkState::WifiOff                  => ("network-wireless-disabled-symbolic","Wi-Fi off".to_string()),
+        NetworkState::WifiConnected(ssid) => (
+            "/var/lib/cynager/icons/wifi.svg",
+            "Wifi".to_string(),
+            ssid,
+        ),
+        NetworkState::EthernetConnected(iface) => (
+            "/var/lib/cynager/icons/ethernet.svg",
+            "Ethernet".to_string(), 
+            iface,
+        ),
+        NetworkState::NoInternet => (
+            "/var/lib/cynager/icons/nointernet.svg",
+            "Connected".to_string(),
+            "with No Internet".to_string(),
+        ),
+        NetworkState::Disconnected => (
+            "/var/lib/cynager/icons/disconnected.svg",
+            "Disconnected".to_string(),
+            "Connect to a network?".to_string(),
+        ),
+        NetworkState::WifiOff => (
+            "/var/lib/cynager/icons/wifioff.svg",
+            "Network OFF".to_string(),
+            "Turn on Network?".to_string(),
+        ),
     }
 }
 
@@ -271,39 +290,51 @@ pub fn spawn_ctrl_capsules(
     
     let usr = Button::builder()
         .child(&usrbox)
-        .css_classes(["ctrlBtn"])
+        .css_classes(["ctrlBtnL"])
         .build();
 
 
     let net_rx = spawn_network_watcher(Duration::from_secs(5));
     let initial_state = get_network_state();
-    let (init_icon, init_label) = network_state_display(&initial_state);
+    let (init_icon, init_label, init_body) = network_icon_and_tip(initial_state);
 
-    let net_icon  = Image::from_icon_name(init_icon);
+    let net_icon  = Image::from_file(init_icon);
+    net_icon.set_icon_size(gtk4::IconSize::Large);
     let net_label = Label::new(Some(&init_label));
     net_label.add_css_class("netBtnLabel");
+    net_label.set_halign(gtk4::Align::Start);
+    let net_body = Label::new(Some(&init_body));
+    net_body.add_css_class("netBtnBody");
+    net_body.set_halign(gtk4::Align::Start);
 
     let net_box = GtkBox::builder()
         .orientation(Orientation::Horizontal)
-        .spacing(8)
+        .spacing(10)
         .build();
+    
+    let net_labels_box = GtkBox::new(Orientation::Vertical, 2);
+    net_labels_box.append(&net_label);
+    net_labels_box.append(&net_body);
+
     net_box.append(&net_icon);
-    net_box.append(&net_label);
+    net_box.append(&net_labels_box);
 
     let netbtn = Button::builder()
         .child(&net_box)
-        .css_classes(["ctrlBtn"])
+        .css_classes(["ctrlBtnL"])
         .build();
 
     let net_icon_rc  = Rc::new(net_icon);
     let net_label_rc = Rc::new(net_label);
+    let net_body_rc = Rc::new(net_body);
 
     let net_rx = Rc::new(RefCell::new(net_rx));
 
     {
         let net_icon_rc  = net_icon_rc.clone();
         let net_label_rc = net_label_rc.clone();
-        let net_rx       = net_rx.clone();
+        let net_body_rc = net_body_rc.clone();
+        let net_rx = net_rx.clone();
 
         glib::timeout_add_local(Duration::from_millis(500), move || {
             let rx = net_rx.borrow();
@@ -312,14 +343,16 @@ pub fn spawn_ctrl_capsules(
                 latest = Some(state);
             }
             if let Some(state) = latest {
-                let (icon_name, label_text) = network_state_display(&state);
-                net_icon_rc.set_icon_name(Some(icon_name));
+                let (icon_name, label_text, label_body) = network_icon_and_tip(state);
+                net_icon_rc.set_from_file(Some(icon_name));
                 net_label_rc.set_label(&label_text);
+                net_body_rc.set_label(&label_body);
             }
             glib::ControlFlow::Continue
         });
     }
 
+    
     let btns = GtkBox::new(Orientation::Horizontal, 16);
     btns.set_halign(gtk4::Align::Center);
     btns.set_valign(gtk4::Align::Start);
@@ -336,8 +369,8 @@ pub fn spawn_ctrl_capsules(
     win.set_child(Some(&layout));
  
     let close = {
-        let win_c  = win.clone();
-        let flag   = overlay_open.clone();
+        let win_c = win.clone();
+        let flag = overlay_open.clone();
         Rc::new(move || {
             *flag.borrow_mut() = false;
             win_c.close();
