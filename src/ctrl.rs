@@ -352,7 +352,14 @@ pub fn spawn_ctrl_capsules(
         });
     }
 
-    
+    let airplaneicon = Image::from_file("/var/lib/cynager/icons/wifioff.svg");
+    airplaneicon.set_icon_size(gtk4::IconSize::Large);
+
+    let airplane: Button = Button::builder()
+        .child(&airplaneicon)
+        .css_classes(["ctrlBtnS"])
+        .build();
+
     let btns = GtkBox::new(Orientation::Horizontal, 16);
     btns.set_halign(gtk4::Align::Center);
     btns.set_valign(gtk4::Align::Start);
@@ -360,6 +367,7 @@ pub fn spawn_ctrl_capsules(
     btns.set_can_target(true);
     btns.append(&usr);
     btns.append(&netbtn);
+    btns.append(&airplane);
     btns.add_css_class("starting");
 
     let layout = gtk4::Overlay::new();
@@ -393,6 +401,14 @@ pub fn spawn_ctrl_capsules(
     {
         let close = close.clone();
         netbtn.connect_clicked(move |_| {
+            // let _ = std::process::Command::new("nm-connection-editor").spawn();
+            close();
+        });
+    }
+
+    {
+        let close = close.clone();
+        airplane.connect_clicked(move |_| {
             // let _ = std::process::Command::new("nm-connection-editor").spawn();
             close();
         });
