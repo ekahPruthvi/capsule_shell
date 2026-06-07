@@ -535,7 +535,7 @@ fn coping_with(app: &Application) {
             if *flag.borrow() { return; }
             *flag.borrow_mut() = true;
             spawn_ctrl_capsules(&app_c, flag.clone());
-        });
+        }); 
     }
  
     if has_battery {

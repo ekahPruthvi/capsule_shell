@@ -1,5 +1,5 @@
 use gtk4::{
-    Application, ApplicationWindow, Box as GtkBox, Button, Orientation, prelude::*
+    Application, ApplicationWindow, Label, Box as GtkBox, Button, Orientation, prelude::*, DrawingArea, gdk_pixbuf::Pixbuf
 };
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use std::time::Duration;
@@ -171,7 +171,7 @@ pub fn spawn_ctrl_capsules(
         .build();
  
     win.init_layer_shell();
-    win.set_namespace(Some("CtrlOverlay"));
+    win.set_namespace(Some("CtrlOerlay"));
     win.set_layer(Layer::Overlay);
     win.remove_css_class("background");
     win.set_anchor(Edge::Top,    true);
@@ -185,11 +185,83 @@ pub fn spawn_ctrl_capsules(
         .hexpand(true)
         .vexpand(true)
         .build();
- 
-    let btn1 = Button::builder()
-        .label("Network settings")
+    
+    let dir_path = "/usr/share/octobacillus/";
+    let base_name = "usericon.";
+    let valid_extensions = ["png", "jpeg", "jpg"];
+
+    let mut final_path = String::from("/usr/share/octobacillus/usericon.png"); 
+
+    if let Ok(entries) = std::fs::read_dir(dir_path) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
+                if file_name.starts_with(base_name) {
+                    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                        if valid_extensions.contains(&ext.to_lowercase().as_str()) {
+                            final_path = path.to_string_lossy().into_owned();
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+
+    let pixbuf = Pixbuf::from_file(&final_path).unwrap();
+    let size = 30;
+
+    let usricon = DrawingArea::new();
+    usricon.set_content_width(size);
+    usricon.set_content_height(size);
+
+    usricon.set_draw_func(move |_, cr, w, h| {
+        let w = w as f64;
+        let h = h as f64;
+
+        cr.arc(w / 2.0, h / 2.0, w / 2.0, 0.0, 2.0 * std::f64::consts::PI);
+        cr.clip();
+
+        let pb = pixbuf.scale_simple(w as i32, h as i32, gtk4::gdk_pixbuf::InterpType::Bilinear).unwrap();
+        cr.set_source_pixbuf(&pb, 0.0, 0.0);
+        cr.paint().unwrap();
+    });
+    
+    let usrname = match std::fs::read_to_string("/usr/share/octobacillus/user.octo") {
+        Ok(content) => content,
+        Err(err) => {
+            eprintln!("Error reading file: {}", err);
+            "name = user4.0".to_string()
+        }
+    };
+
+    let name = usrname
+        .lines()
+        .find(|line| line.trim().starts_with("name"))
+        .and_then(|line| line.split_once("="))
+        .map(|(_, value)| value.trim().to_string())
+        .unwrap_or_else(|| "user4.0".to_string());
+
+    let usrbox = GtkBox::builder()
+        .orientation(Orientation::Horizontal)
+        .spacing(10)
+        .build();
+
+    usrbox.append(&usricon);
+
+    usrbox.append(&Label::builder()
+        .label(&format!("Hello,{}.", name))
+        .css_classes(["username"])
+        .build()
+    );
+    
+    let usr = Button::builder()
+        .child(&usrbox)
         .css_classes(["ctrlBtn"])
         .build();
+
+
     let btn2 = Button::builder()
         .label("Power options")
         .css_classes(["ctrlBtn"])
@@ -199,8 +271,8 @@ pub fn spawn_ctrl_capsules(
     btns.set_halign(gtk4::Align::Center);
     btns.set_valign(gtk4::Align::Start);
     btns.set_margin_top(100);
-    btns.set_can_target(false);
-    btns.append(&btn1);
+    btns.set_can_target(true);
+    btns.append(&usr);
     btns.append(&btn2);
     btns.add_css_class("starting");
 
@@ -226,8 +298,8 @@ pub fn spawn_ctrl_capsules(
  
     {
         let close = close.clone();
-        btn1.connect_clicked(move |_| {
-            let _ = std::process::Command::new("nm-connection-editor").spawn();
+        usr.connect_clicked(move |_| {
+            // let _ = std::process::Command::new("nm-connection-editor").spawn();
             close();
         });
     }
