@@ -686,8 +686,9 @@ fn coping_with(app: &Application) {
 
             let text_bytes = glib::Bytes::from(url_for_drag.as_bytes());
             let text_provider = gtk4::gdk::ContentProvider::for_bytes("text/plain;charset=utf-8", &text_bytes);
+            let text_plain   = gtk4::gdk::ContentProvider::for_bytes("text/plain", &text_bytes);
 
-            Some(gtk4::gdk::ContentProvider::new_union(&[uri_provider, text_provider]))
+            Some(gtk4::gdk::ContentProvider::new_union(&[text_plain, text_provider, uri_provider]))
         });
 
         drag_src.connect_drag_begin(move |src, _drag| {
@@ -772,8 +773,10 @@ fn coping_with(app: &Application) {
         let text_for_drag = text_owned.clone();
         drag_src.connect_prepare(move |_src, _, _| {
             let bytes = glib::Bytes::from(text_for_drag.as_bytes());
-            let provider = gtk4::gdk::ContentProvider::for_bytes("text/plain;charset=utf-8", &bytes);
-            Some(provider)
+            let provider_utf8  = gtk4::gdk::ContentProvider::for_bytes("text/plain;charset=utf-8", &bytes);
+            let provider_plain = gtk4::gdk::ContentProvider::for_bytes("text/plain", &bytes);
+            // Offer both variants — some webapps (Discord) only accept bare text/plain
+            Some(gtk4::gdk::ContentProvider::new_union(&[provider_utf8, provider_plain]))
         });
 
         drag_src.connect_drag_begin(move |src, _drag| {
@@ -853,11 +856,10 @@ fn coping_with(app: &Application) {
 
         let uri_for_drag = uri_owned.clone();
         drag_src.connect_prepare(move |_src, _, _| {
-            let uri_list = format!("{}\r\n", uri_for_drag);
-            let uri_bytes = glib::Bytes::from(uri_list.as_bytes());
-            let uri_provider = gtk4::gdk::ContentProvider::for_bytes("text/uri-list", &uri_bytes);
-
-            let file_provider = if let Some(local_path) = uri_for_drag.strip_prefix("file://") {
+            let gfile = gtk4::gio::File::for_uri(&uri_for_drag);
+            let gfile_val = glib::Value::from(&gfile);
+            let gfile_provider = gtk4::gdk::ContentProvider::for_value(&gfile_val);
+            let mime_provider = if let Some(local_path) = uri_for_drag.strip_prefix("file://") {
                 let decoded = percent_decode(local_path);
                 if let Ok(file_bytes) = std::fs::read(&decoded) {
                     let mime = mime_for_path(std::path::Path::new(&decoded));
@@ -870,10 +872,13 @@ fn coping_with(app: &Application) {
                 None
             };
 
-            let providers: Vec<gtk4::gdk::ContentProvider> = if let Some(fp) = file_provider {
-                vec![fp, uri_provider]
-            } else {
-                vec![uri_provider]
+            let uri_list  = format!("{}\r\n", uri_for_drag);
+            let uri_bytes = glib::Bytes::from(uri_list.as_bytes());
+            let uri_provider = gtk4::gdk::ContentProvider::for_bytes("text/uri-list", &uri_bytes);
+
+            let providers: Vec<gtk4::gdk::ContentProvider> = match mime_provider {
+                Some(mp) => vec![gfile_provider, mp, uri_provider],
+                None     => vec![gfile_provider, uri_provider],
             };
 
             Some(gtk4::gdk::ContentProvider::new_union(&providers))
@@ -946,6 +951,8 @@ fn coping_with(app: &Application) {
                 let uri = file.uri().to_string();
                 if !uri.is_empty() {
                     add_file_to_clippy(&clippy_drop, &uri);
+                } else {
+                    clippy_drop.add_css_class("nooclip");
                 }
                 clippy_drop.set_width_request(50);
                 return true;
