@@ -203,8 +203,8 @@ pub fn spawn_ctrl_capsules(
         .build();
  
     win.init_layer_shell();
-    win.set_namespace(Some("CtrlOerlay"));
-    win.set_layer(Layer::Overlay);
+    win.set_namespace(Some("CtrlOverlay"));
+    win.set_layer(Layer::Top);
     win.remove_css_class("background");
     win.set_anchor(Edge::Top,    true);
     win.set_anchor(Edge::Bottom, true);
@@ -358,16 +358,40 @@ pub fn spawn_ctrl_capsules(
     let airplane: Button = Button::builder()
         .child(&airplaneicon)
         .css_classes(["ctrlBtnS"])
+        .tooltip_text("Airplane Mode")
+        .build();
+
+    let dndicon = Label::builder()
+        .label("DnD.")
+        .css_classes(["dndicon"])
+        .build();
+
+    let dnd: Button = Button::builder()
+        .child(&dndicon)
+        .css_classes(["ctrlBtnS"])
+        .tooltip_text("Airplane Mode")
+        .build();
+
+    let setticon = Image::from_file("/var/lib/cynager/icons/cog.svg");
+    setticon.set_icon_size(gtk4::IconSize::Large);
+
+    let setting: Button = Button::builder()
+        .child(&setticon)
+        .css_classes(["ctrlBtnS"])
+        .tooltip_text("Airplane Mode")
         .build();
 
     let btns = GtkBox::new(Orientation::Horizontal, 16);
+    btns.set_css_classes(&["ctrlBTNSbox"]);
     btns.set_halign(gtk4::Align::Center);
     btns.set_valign(gtk4::Align::Start);
-    btns.set_margin_top(100);
+    btns.set_margin_top(80);
     btns.set_can_target(true);
     btns.append(&usr);
     btns.append(&netbtn);
     btns.append(&airplane);
+    btns.append(&dnd);
+    btns.append(&setting);
     btns.add_css_class("starting");
 
     let layout = gtk4::Overlay::new();
@@ -409,6 +433,14 @@ pub fn spawn_ctrl_capsules(
     {
         let close = close.clone();
         airplane.connect_clicked(move |_| {
+            // let _ = std::process::Command::new("nm-connection-editor").spawn();
+            close();
+        });
+    }
+
+    {
+        let close = close.clone();
+        setting.connect_clicked(move |_| {
             // let _ = std::process::Command::new("nm-connection-editor").spawn();
             close();
         });
