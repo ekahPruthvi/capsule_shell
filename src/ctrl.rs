@@ -1,6 +1,8 @@
 use gtk4::{
-    Application, ApplicationWindow, Label, Box as GtkBox, Button, Orientation, prelude::*, DrawingArea, gdk_pixbuf::Pixbuf
+    Application, ApplicationWindow, Label, Box as GtkBox, Button, Orientation, prelude::*,
+    DrawingArea, gdk_pixbuf::Pixbuf, Image,
 };
+use gtk4::glib;
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use std::time::Duration;
 use std::cell::RefCell;
@@ -160,6 +162,17 @@ pub fn spawn_network_watcher(interval: Duration) -> std::sync::mpsc::Receiver<Ne
     rx
 }
 
+/// Returns `(icon_name, label_text)` for a given `NetworkState`.
+fn network_state_display(state: &NetworkState) -> (&'static str, String) {
+    match state {
+        NetworkState::WifiConnected(ssid)      => ("network-wireless-symbolic",        ssid.clone()),
+        NetworkState::EthernetConnected(iface) => ("network-wired-symbolic",           iface.clone()),
+        NetworkState::NoInternet               => ("network-error-symbolic",           "No internet".to_string()),
+        NetworkState::Disconnected             => ("network-offline-symbolic",         "Disconnected".to_string()),
+        NetworkState::WifiOff                  => ("network-wireless-disabled-symbolic","Wi-Fi off".to_string()),
+    }
+}
+
 pub fn spawn_ctrl_capsules(
     app:          &Application,
     overlay_open: Rc<RefCell<bool>>,
@@ -262,18 +275,58 @@ pub fn spawn_ctrl_capsules(
         .build();
 
 
-    let btn2 = Button::builder()
-        .label("Power options")
+    let net_rx = spawn_network_watcher(Duration::from_secs(5));
+    let initial_state = get_network_state();
+    let (init_icon, init_label) = network_state_display(&initial_state);
+
+    let net_icon  = Image::from_icon_name(init_icon);
+    let net_label = Label::new(Some(&init_label));
+    net_label.add_css_class("netBtnLabel");
+
+    let net_box = GtkBox::builder()
+        .orientation(Orientation::Horizontal)
+        .spacing(8)
+        .build();
+    net_box.append(&net_icon);
+    net_box.append(&net_label);
+
+    let netbtn = Button::builder()
+        .child(&net_box)
         .css_classes(["ctrlBtn"])
         .build();
- 
+
+    let net_icon_rc  = Rc::new(net_icon);
+    let net_label_rc = Rc::new(net_label);
+
+    let net_rx = Rc::new(RefCell::new(net_rx));
+
+    {
+        let net_icon_rc  = net_icon_rc.clone();
+        let net_label_rc = net_label_rc.clone();
+        let net_rx       = net_rx.clone();
+
+        glib::timeout_add_local(Duration::from_millis(500), move || {
+            let rx = net_rx.borrow();
+            let mut latest: Option<NetworkState> = None;
+            while let Ok(state) = rx.try_recv() {
+                latest = Some(state);
+            }
+            if let Some(state) = latest {
+                let (icon_name, label_text) = network_state_display(&state);
+                net_icon_rc.set_icon_name(Some(icon_name));
+                net_label_rc.set_label(&label_text);
+            }
+            glib::ControlFlow::Continue
+        });
+    }
+
     let btns = GtkBox::new(Orientation::Horizontal, 16);
     btns.set_halign(gtk4::Align::Center);
     btns.set_valign(gtk4::Align::Start);
     btns.set_margin_top(100);
     btns.set_can_target(true);
     btns.append(&usr);
-    btns.append(&btn2);
+    btns.append(&netbtn);
     btns.add_css_class("starting");
 
     let layout = gtk4::Overlay::new();
@@ -306,8 +359,8 @@ pub fn spawn_ctrl_capsules(
  
     {
         let close = close.clone();
-        btn2.connect_clicked(move |_| {
-            let _ = std::process::Command::new("systemctl").arg("poweroff").spawn();
+        netbtn.connect_clicked(move |_| {
+            // let _ = std::process::Command::new("nm-connection-editor").spawn();
             close();
         });
     }
