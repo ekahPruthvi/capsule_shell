@@ -1,6 +1,6 @@
 use gtk4::{
     Application, ApplicationWindow, Label, Box as GtkBox, Button, Orientation, prelude::*,
-    DrawingArea, gdk_pixbuf::Pixbuf, Image,
+    DrawingArea, gdk_pixbuf::Pixbuf, Image, EventControllerScroll, EventControllerScrollFlags,
 };
 use gtk4::glib;
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
@@ -15,6 +15,95 @@ pub enum NetworkState {
     NoInternet,                 
     Disconnected,
     WifiOff,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SoundState {
+    pub volume:  u32,
+    pub muted:   bool,
+    pub sink:    String,
+}
+
+fn get_sound_state() -> SoundState {
+    let wpctl = std::process::Command::new("wpctl")
+        .args(["get-volume", "@DEFAULT_AUDIO_SINK@"])
+        .output();
+
+    let (volume, muted) = if let Ok(out) = wpctl {
+        let text = String::from_utf8_lossy(&out.stdout).to_string();
+        let is_muted = text.contains("[MUTED]");
+        let vol = text
+            .split_whitespace()
+            .nth(1)
+            .and_then(|v| v.parse::<f32>().ok())
+            .map(|v| (v * 100.0).round() as u32)
+            .unwrap_or(0);
+        (vol, is_muted)
+    } else {
+        (0, false)
+    };
+
+    let sink = std::process::Command::new("pactl")
+        .args(["get-default-sink"])
+        .output()
+        .ok()
+        .and_then(|o| {
+            let raw = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            if raw.is_empty() { return None; }
+
+            let list = std::process::Command::new("pactl")
+                .args(["list", "sinks"])
+                .output()
+                .ok()?;
+            let list_text = String::from_utf8_lossy(&list.stdout).to_string();
+
+            let mut in_sink  = false;
+            let mut desc: Option<String> = None;
+            for line in list_text.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with("Name:") {
+                    in_sink = trimmed.contains(&raw);
+                }
+                if in_sink {
+                    if let Some(d) = trimmed.strip_prefix("Description:") {
+                        desc = Some(d.trim().to_string());
+                        break;
+                    }
+                }
+            }
+            desc.or(Some(raw))
+        })
+        .unwrap_or_else(|| "Unknown Output".to_string());
+
+    SoundState { volume, muted, sink }
+}
+
+fn sound_icon(state: &SoundState) -> &'static str {
+    if state.muted || state.volume == 0 {
+        "/var/lib/cynager/icons/soundmute.svg"
+    } else if state.volume <= 33 {
+        "/var/lib/cynager/icons/soundlow.svg"
+    } else if state.volume <= 66 {
+        "/var/lib/cynager/icons/soundmed.svg"
+    } else {
+        "/var/lib/cynager/icons/soundhigh.svg"
+    }
+}
+
+pub fn spawn_sound_watcher(interval: Duration) -> std::sync::mpsc::Receiver<SoundState> {
+    let (tx, rx) = std::sync::mpsc::channel::<SoundState>();
+    std::thread::spawn(move || {
+        let mut last: Option<SoundState> = None;
+        loop {
+            let state = get_sound_state();
+            if Some(&state) != last.as_ref() {
+                if tx.send(state.clone()).is_err() { break; }
+                last = Some(state);
+            }
+            std::thread::sleep(interval);
+        }
+    });
+    rx
 }
 
 fn wifi_soft_blocked() -> bool {
@@ -206,11 +295,12 @@ pub fn spawn_ctrl_capsules(
     win.set_namespace(Some("CtrlOverlay"));
     win.set_layer(Layer::Top);
     win.remove_css_class("background");
-    win.set_anchor(Edge::Top,    true);
-    win.set_anchor(Edge::Bottom, true);
-    win.set_anchor(Edge::Left,   true);
-    win.set_anchor(Edge::Right,  true);
-    win.set_exclusive_zone(-1);
+    win.set_anchor(Edge::Top, true);
+    win.set_anchor(Edge::Bottom,true);
+    win.set_anchor(Edge::Left,true);
+    win.set_anchor(Edge::Right,true);
+    // win.set_exclusive_zone(200);
+    // win.auto_exclusive_zone_enable();
  
     let backdrop = Button::builder()
         .css_classes(["ctrlBackdrop"])
@@ -352,6 +442,62 @@ pub fn spawn_ctrl_capsules(
         });
     }
 
+    let sound_rx = spawn_sound_watcher(Duration::from_secs(3));
+    let init_snd = get_sound_state();
+
+    let snd_icon = Image::from_file(sound_icon(&init_snd));
+    snd_icon.set_icon_size(gtk4::IconSize::Large);
+
+    let snd_label = Label::new(Some(&format!("{}%", init_snd.volume)));
+    snd_label.add_css_class("netBtnLabel");
+    snd_label.set_halign(gtk4::Align::Start);
+
+    let snd_body = Label::new(Some(&init_snd.sink));
+    snd_body.add_css_class("netBtnBody");
+    snd_body.set_halign(gtk4::Align::Start);
+
+    let snd_labels_box = GtkBox::new(Orientation::Vertical, 2);
+    snd_labels_box.append(&snd_label);
+    snd_labels_box.append(&snd_body);
+
+    let sound_box = GtkBox::builder()
+        .orientation(Orientation::Horizontal)
+        .spacing(10)
+        .build();
+    sound_box.append(&snd_icon);
+    sound_box.append(&snd_labels_box);
+
+    let soundbtn = Button::builder()
+        .child(&sound_box)
+        .css_classes(["ctrlBtnL"])
+        .build();
+
+    let snd_icon_rc = Rc::new(snd_icon);
+    let snd_label_rc = Rc::new(snd_label);
+    let snd_body_rc = Rc::new(snd_body);
+    let sound_rx = Rc::new(RefCell::new(sound_rx));
+
+    {
+        let snd_icon_rc = snd_icon_rc.clone();
+        let snd_label_rc = snd_label_rc.clone();
+        let snd_body_rc = snd_body_rc.clone();
+        let sound_rx = sound_rx.clone();
+
+        glib::timeout_add_local(Duration::from_millis(500), move || {
+            let rx = sound_rx.borrow();
+            let mut latest: Option<SoundState> = None;
+            while let Ok(state) = rx.try_recv() {
+                latest = Some(state);
+            }
+            if let Some(state) = latest {
+                snd_icon_rc.set_from_file(Some(sound_icon(&state)));
+                snd_label_rc.set_label(&format!("{}%", state.volume));
+                snd_body_rc.set_label(&state.sink);
+            }
+            glib::ControlFlow::Continue
+        });
+    }
+
     let airplaneicon = Image::from_file("/var/lib/cynager/icons/wifioff.svg");
     airplaneicon.set_icon_size(gtk4::IconSize::Large);
 
@@ -392,7 +538,8 @@ pub fn spawn_ctrl_capsules(
     btns.append(&airplane);
     btns.append(&dnd);
     btns.append(&setting);
-    btns.add_css_class("starting");
+    btns.append(&soundbtn);
+    btns.add_css_class("startingOSD");
 
     let layout = gtk4::Overlay::new();
     layout.set_child(Some(&backdrop));
@@ -444,6 +591,47 @@ pub fn spawn_ctrl_capsules(
             // let _ = std::process::Command::new("nm-connection-editor").spawn();
             close();
         });
+    }
+
+    {
+        let close = close.clone();
+        soundbtn.connect_clicked(move |_| {
+            // let _ = std::process::Command::new("pavucontrol").spawn();
+            close();
+        });
+    }
+
+    {
+        let snd_icon_rc  = snd_icon_rc.clone();
+        let snd_label_rc = snd_label_rc.clone();
+        let snd_body_rc  = snd_body_rc.clone();
+
+        let scroll = EventControllerScroll::new(
+            EventControllerScrollFlags::VERTICAL | EventControllerScrollFlags::DISCRETE,
+        );
+
+        scroll.connect_scroll(move |_, _dx, dy| {
+            let step = if dy < 0.0 { "5%+" } else { "5%-" };
+            let _ = std::process::Command::new("wpctl")
+                .args(["set-volume", "-l", "1.0", "@DEFAULT_AUDIO_SINK@", step])
+                .spawn();
+
+            glib::timeout_add_local_once(Duration::from_millis(80), {
+                let snd_icon_rc  = snd_icon_rc.clone();
+                let snd_label_rc = snd_label_rc.clone();
+                let snd_body_rc  = snd_body_rc.clone();
+                move || {
+                    let state = get_sound_state();
+                    snd_icon_rc.set_from_file(Some(sound_icon(&state)));
+                    snd_label_rc.set_label(&format!("{}%", state.volume));
+                    snd_body_rc.set_label(&state.sink);
+                }
+            });
+
+            glib::Propagation::Stop
+        });
+
+        soundbtn.add_controller(scroll);
     }
  
     win.present();
