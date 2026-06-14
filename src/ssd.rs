@@ -86,6 +86,16 @@ pub fn spawn_shelly_side_decorations(app: &gtk4::Application) {
         });
     }
 
+    gtk4::glib::unix_signal_add_local(libc::SIGUSR2, move || {
+        let mut held = alt_held.borrow_mut();
+        let _ = std::process::Command::new("ydotool")
+            .args(["key", "--key-delay=0", "125:0"])
+            .spawn();
+        *held = false;
+        btn_min.remove_css_class("ssdMinActive");
+        gtk4::glib::ControlFlow::Continue
+    });
+
     btn_float.connect_clicked(|_| {
         niri_action(Action::FullscreenWindow { id: None });
     });
