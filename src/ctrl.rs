@@ -281,6 +281,45 @@ fn network_icon_and_tip(state: NetworkState) -> (&'static str, String, String) {
     }
 }
 
+fn toggle_wifi_adapter(enable: bool) {
+    let action = if enable { "unblock" } else { "block" };
+    let _ = std::process::Command::new("rfkill")
+        .args([action, "wifi"])
+        .spawn();
+}
+
+fn get_wifi_networks() -> Vec<(String, String, bool)> {
+    // Returns Vec<(ssid, signal_strength_bars, is_connected)>
+    if let Ok(out) = std::process::Command::new("nmcli")
+        .args(["-t", "-f", "ACTIVE,SSID,SIGNAL,SECURITY", "dev", "wifi", "list"])
+        .output()
+    {
+        let mut nets: Vec<(String, String, bool)> = String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .filter_map(|line| {
+                let parts: Vec<&str> = line.splitn(4, ':').collect();
+                if parts.len() >= 3 {
+                    let active = parts[0] == "yes";
+                    let ssid = parts[1].trim().to_string();
+                    if ssid.is_empty() { return None; }
+                    let signal: u32 = parts[2].trim().parse().unwrap_or(0);
+                    let bars = match signal {
+                        0..=20  => "▂___",
+                        21..=40 => "▂▄__",
+                        41..=60 => "▂▄▆_",
+                        _       => "▂▄▆█",
+                    };
+                    Some((ssid, bars.to_string(), active))
+                } else { None }
+            })
+            .collect();
+        // active first
+        nets.sort_by(|a, b| b.2.cmp(&a.2));
+        return nets;
+    }
+    vec![]
+}
+
 pub fn spawn_ctrl_capsules(
     app:          &Application,
     overlay_open: Rc<RefCell<bool>>,
@@ -416,14 +455,164 @@ pub fn spawn_ctrl_capsules(
 
     let net_icon_rc  = Rc::new(net_icon);
     let net_label_rc = Rc::new(net_label);
-    let net_body_rc = Rc::new(net_body);
+    let net_body_rc  = Rc::new(net_body);
+
+    // ── Network expansion panel ──────────────────────────────────────
+    let net_expanded = Rc::new(RefCell::new(false));
+
+    // Row 1: wifi toggle | refresh | settings
+    let wifi_toggle_icon = Image::from_file("/var/lib/cynager/icons/wifi.svg");
+    wifi_toggle_icon.set_icon_size(gtk4::IconSize::Large);
+    let wifi_toggle_btn = Button::builder()
+        .child(&wifi_toggle_icon)
+        .css_classes(["netPanelBtn"])
+        .tooltip_text("Toggle WiFi adapter")
+        .build();
+
+    let refresh_icon = Image::from_file("/var/lib/cynager/icons/refresh.svg");
+    refresh_icon.set_icon_size(gtk4::IconSize::Large);
+    let refresh_btn = Button::builder()
+        .child(&refresh_icon)
+        .css_classes(["netPanelBtn"])
+        .tooltip_text("Refresh networks")
+        .build();
+
+    let net_settings_icon = Image::from_file("/var/lib/cynager/icons/cog.svg");
+    net_settings_icon.set_icon_size(gtk4::IconSize::Large);
+    let net_settings_btn = Button::builder()
+        .child(&net_settings_icon)
+        .css_classes(["netPanelBtn"])
+        .tooltip_text("Network settings")
+        .build();
+
+    let net_panel_actions = GtkBox::new(Orientation::Horizontal, 8);
+    net_panel_actions.add_css_class("netPanelActions");
+    net_panel_actions.append(&wifi_toggle_btn);
+    net_panel_actions.append(&refresh_btn);
+    net_panel_actions.append(&net_settings_btn);
+
+    // Row 2: scrollable list of networks
+    let net_list_box = gtk4::ListBox::new();
+    net_list_box.add_css_class("netList");
+    net_list_box.set_selection_mode(gtk4::SelectionMode::None);
+
+    let net_list_rc = Rc::new(net_list_box);
+
+    let populate_networks = {
+        let net_list_rc = net_list_rc.clone();
+        move || {
+            // Clear existing rows
+            while let Some(child) = net_list_rc.first_child() {
+                net_list_rc.remove(&child);
+            }
+            let networks = get_wifi_networks();
+            if networks.is_empty() {
+                let row = gtk4::Label::new(Some("No networks found"));
+                row.add_css_class("netListEmpty");
+                net_list_rc.append(&row);
+            } else {
+                for (ssid, bars, active) in networks {
+                    let row_box = GtkBox::new(Orientation::Horizontal, 10);
+                    row_box.add_css_class("netListRow");
+                    if active { row_box.add_css_class("netListRowActive"); }
+
+                    let ssid_lbl = gtk4::Label::new(Some(&ssid));
+                    ssid_lbl.set_hexpand(true);
+                    ssid_lbl.set_halign(gtk4::Align::Start);
+                    ssid_lbl.add_css_class("netListSSID");
+
+                    let signal_lbl = gtk4::Label::new(Some(&bars));
+                    signal_lbl.add_css_class("netListSignal");
+
+                    if active {
+                        let connected_lbl = gtk4::Label::new(Some("✓"));
+                        connected_lbl.add_css_class("netListConnected");
+                        row_box.append(&connected_lbl);
+                    }
+                    row_box.append(&ssid_lbl);
+                    row_box.append(&signal_lbl);
+
+                    // clicking a row connects to that network
+                    let row_btn = Button::builder()
+                        .child(&row_box)
+                        .css_classes(["netListRowBtn"])
+                        .build();
+                    let ssid_clone = ssid.clone();
+                    row_btn.connect_clicked(move |_| {
+                        let _ = std::process::Command::new("nmcli")
+                            .args(["dev", "wifi", "connect", &ssid_clone])
+                            .spawn();
+                    });
+                    net_list_rc.append(&row_btn);
+                }
+            }
+        }
+    };
+    let populate_networks_rc = Rc::new(populate_networks);
+
+    let scroll_win = gtk4::ScrolledWindow::new();
+    scroll_win.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
+    scroll_win.set_max_content_height(220);
+    scroll_win.set_propagate_natural_height(true);
+    scroll_win.set_child(Some(&*net_list_rc));
+    scroll_win.add_css_class("netListScroll");
+
+    let net_panel = GtkBox::new(Orientation::Vertical, 6);
+    net_panel.add_css_class("netPanel");
+    net_panel.append(&net_panel_actions);
+    net_panel.append(&scroll_win);
+    net_panel.set_visible(false);
+
+    let net_panel_rc = Rc::new(net_panel);
+
+    // wifi toggle logic
+    {
+        let wifi_toggle_icon_c = wifi_toggle_icon.clone();
+        // track adapter state based on rfkill at build time
+        let adapter_on = Rc::new(RefCell::new(!wifi_soft_blocked()));
+        wifi_toggle_btn.connect_clicked(move |_| {
+            let currently_on = *adapter_on.borrow();
+            toggle_wifi_adapter(!currently_on);
+            *adapter_on.borrow_mut() = !currently_on;
+            let icon = if !currently_on {
+                "/var/lib/cynager/icons/wifi.svg"
+            } else {
+                "/var/lib/cynager/icons/wifioff.svg"
+            };
+            wifi_toggle_icon_c.set_from_file(Some(icon));
+        });
+    }
+
+    // refresh button
+    {
+        let pop = populate_networks_rc.clone();
+        refresh_btn.connect_clicked(move |btn| {
+            btn.add_css_class("spinning");
+            let _ = std::process::Command::new("nmcli")
+                .args(["dev", "wifi", "rescan"])
+                .spawn();
+            let pop = pop.clone();
+            let btn_c = btn.clone();
+            glib::timeout_add_local_once(Duration::from_millis(1500), move || {
+                pop();
+                btn_c.remove_css_class("spinning");
+            });
+        });
+    }
+
+    // settings button
+    {
+        net_settings_btn.connect_clicked(move |_| {
+            let _ = std::process::Command::new("nm-connection-editor").spawn();
+        });
+    }
 
     let net_rx = Rc::new(RefCell::new(net_rx));
 
     {
         let net_icon_rc  = net_icon_rc.clone();
         let net_label_rc = net_label_rc.clone();
-        let net_body_rc = net_body_rc.clone();
+        let net_body_rc  = net_body_rc.clone();
         let net_rx = net_rx.clone();
 
         glib::timeout_add_local(Duration::from_millis(500), move || {
@@ -541,9 +730,16 @@ pub fn spawn_ctrl_capsules(
     btns.append(&soundbtn);
     btns.add_css_class("startingOSD");
 
+    // Wrap the button row and the expandable net panel together
+    let ctrl_column = GtkBox::new(Orientation::Vertical, 0);
+    ctrl_column.set_halign(gtk4::Align::Center);
+    ctrl_column.set_valign(gtk4::Align::Start);
+    ctrl_column.append(&btns);
+    ctrl_column.append(&*net_panel_rc);
+
     let layout = gtk4::Overlay::new();
     layout.set_child(Some(&backdrop));
-    layout.add_overlay(&btns);
+    layout.add_overlay(&ctrl_column);
  
     win.set_child(Some(&layout));
  
@@ -555,46 +751,58 @@ pub fn spawn_ctrl_capsules(
             win_c.close();
         })
     };
- 
+
     {
         let close = close.clone();
         backdrop.connect_clicked(move |_| close());
     }
  
     {
-        let close = close.clone();
         usr.connect_clicked(move |_| {
             // let _ = std::process::Command::new("nm-connection-editor").spawn();
-            close();
         });
     }
  
     {
-        let close = close.clone();
+        let net_panel_rc  = net_panel_rc.clone();
+        let net_expanded  = net_expanded.clone();
+        let populate      = populate_networks_rc.clone();
+        let netbtn_c      = netbtn.clone();
         netbtn.connect_clicked(move |_| {
-            // let _ = std::process::Command::new("nm-connection-editor").spawn();
-            close();
+            let mut expanded = net_expanded.borrow_mut();
+            *expanded = !*expanded;
+            if *expanded {
+                netbtn_c.add_css_class("netBtnExpanded");
+                net_panel_rc.set_visible(true);
+                populate();
+            } else {
+                netbtn_c.remove_css_class("netBtnExpanded");
+                net_panel_rc.set_visible(false);
+            }
         });
     }
 
     {
-        let close = close.clone();
+        let airplaneicon_c = airplaneicon.clone();
         airplane.connect_clicked(move |_| {
             // let _ = std::process::Command::new("nm-connection-editor").spawn();
-            close();
+            airplaneicon_c.add_css_class("flyplane");
+            let airplaneicon_timeout = airplaneicon_c.clone();
+            glib::timeout_add_local(std::time::Duration::from_millis(500), move || {
+                airplaneicon_timeout.remove_css_class("flyplane");
+                glib::ControlFlow::Break 
+            });
         });
     }
 
     {
-        let close = close.clone();
         setting.connect_clicked(move |_| {
             // let _ = std::process::Command::new("nm-connection-editor").spawn();
-            close();
+            // close();
         });
     }
 
     {
-        let close = close.clone();
         soundbtn.connect_clicked(move |_| {
             // let _ = std::process::Command::new("pavucontrol").spawn();
             close();
