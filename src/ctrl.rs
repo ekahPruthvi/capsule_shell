@@ -1,6 +1,7 @@
 use gtk4::{
     Application, ApplicationWindow, Label, Box as GtkBox, Button, Orientation, prelude::*,
     DrawingArea, gdk_pixbuf::Pixbuf, Image, EventControllerScroll, EventControllerScrollFlags,
+    Switch,
 };
 use gtk4::glib;
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
@@ -498,12 +499,12 @@ pub fn spawn_ctrl_capsules(
 
     let net_expanded = Rc::new(RefCell::new(false));
 
-    let wifi_toggle_icon = Image::from_file("/var/lib/cynager/icons/wifi.svg");
-    wifi_toggle_icon.set_icon_size(gtk4::IconSize::Normal);
-    let wifi_toggle_btn = Button::builder()
-        .child(&wifi_toggle_icon)
-        .css_classes(["netPanelBtn"])
+    let wifi_toggle_btn = Switch::builder()
+        .active(!wifi_soft_blocked())
+        .css_classes(["netPanelSwitch"])
         .tooltip_text("Toggle WiFi adapter")
+        .valign(gtk4::Align::Center)
+        .margin_start(10)
         .build();
 
     let dummy_fill = GtkBox::new(Orientation::Horizontal, 0);
@@ -602,18 +603,9 @@ pub fn spawn_ctrl_capsules(
     let net_panel_rc = Rc::new(net_panel);
 
     {
-        let wifi_toggle_icon_c = wifi_toggle_icon.clone();
-        let adapter_on = Rc::new(RefCell::new(!wifi_soft_blocked()));
-        wifi_toggle_btn.connect_clicked(move |_| {
-            let currently_on = *adapter_on.borrow();
-            toggle_wifi_adapter(!currently_on);
-            *adapter_on.borrow_mut() = !currently_on;
-            let icon = if !currently_on {
-                "/var/lib/cynager/icons/wifi.svg"
-            } else {
-                "/var/lib/cynager/icons/wifioff.svg"
-            };
-            wifi_toggle_icon_c.set_from_file(Some(icon));
+        wifi_toggle_btn.connect_state_set(move |_, state| {
+            toggle_wifi_adapter(state);
+            glib::Propagation::Proceed
         });
     }
 
