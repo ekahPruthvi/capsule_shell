@@ -289,7 +289,6 @@ fn toggle_wifi_adapter(enable: bool) {
 }
 
 fn get_wifi_networks() -> Vec<(String, String, bool)> {
-    // Returns Vec<(ssid, signal_strength_bars, is_connected)>
     if let Ok(out) = std::process::Command::new("nmcli")
         .args(["-t", "-f", "ACTIVE,SSID,SIGNAL,SECURITY", "dev", "wifi", "list"])
         .output()
@@ -304,16 +303,15 @@ fn get_wifi_networks() -> Vec<(String, String, bool)> {
                     if ssid.is_empty() { return None; }
                     let signal: u32 = parts[2].trim().parse().unwrap_or(0);
                     let bars = match signal {
-                        0..=20  => "▂___",
-                        21..=40 => "▂▄__",
-                        41..=60 => "▂▄▆_",
-                        _       => "▂▄▆█",
+                        0..=20  => "▌",
+                        21..=40 => "▌ ▌",
+                        41..=60 => "▌ ▌ ▌",
+                        _       => "▌ ▌ ▌ ▌",
                     };
                     Some((ssid, bars.to_string(), active))
                 } else { None }
             })
             .collect();
-        // active first
         nets.sort_by(|a, b| b.2.cmp(&a.2));
         return nets;
     }
@@ -371,23 +369,54 @@ pub fn spawn_ctrl_capsules(
 
 
     let pixbuf = Pixbuf::from_file(&final_path).unwrap();
-    let size = 30;
+    let size = 35;
 
     let usricon = DrawingArea::new();
     usricon.set_content_width(size);
     usricon.set_content_height(size);
 
-    usricon.set_draw_func(move |_, cr, w, h| {
+        usricon.set_draw_func(move |_, cr, w, h| {
         let w = w as f64;
         let h = h as f64;
-
-        cr.arc(w / 2.0, h / 2.0, w / 2.0, 0.0, 2.0 * std::f64::consts::PI);
+        let cx = w / 2.0;
+        let cy = h / 2.0;
+        let r  = w / 2.0;
+ 
+        cr.arc(cx, cy, r, 0.0, 2.0 * std::f64::consts::PI);
         cr.clip();
-
+ 
         let pb = pixbuf.scale_simple(w as i32, h as i32, gtk4::gdk_pixbuf::InterpType::Bilinear).unwrap();
         cr.set_source_pixbuf(&pb, 0.0, 0.0);
         cr.paint().unwrap();
+ 
+        let shine = gtk4::cairo::LinearGradient::new(
+            cx * 0.35, cy * 0.10,
+            cx * 0.80, cy * 0.75,
+        );
+        shine.add_color_stop_rgba(0.00, 1.0, 1.0, 1.0, 0.55);
+        shine.add_color_stop_rgba(0.40, 1.0, 1.0, 1.0, 0.18);
+        shine.add_color_stop_rgba(1.00, 1.0, 1.0, 1.0, 0.00);
+ 
+        cr.set_source(&shine).unwrap();
+ 
+        cr.save().unwrap();
+        cr.translate(cx, cy);
+        cr.scale(r * 0.85, r * 0.55);
+        cr.translate(-r * 0.08, -r * 0.80);
+        cr.arc(0.0, 0.0, 1.0, 0.0, 2.0 * std::f64::consts::PI);
+        cr.restore().unwrap();
+        cr.fill().unwrap();
+ 
+        let rim = gtk4::cairo::LinearGradient::new(cx * 0.4, 0.0, cx * 1.6, r * 0.18);
+        rim.add_color_stop_rgba(0.0, 1.0, 1.0, 1.0, 0.00);
+        rim.add_color_stop_rgba(0.5, 1.0, 1.0, 1.0, 0.45);
+        rim.add_color_stop_rgba(1.0, 1.0, 1.0, 1.0, 0.00);
+        cr.set_source(&rim).unwrap();
+        cr.arc(cx, cy, r - 0.5, std::f64::consts::PI * 1.15, std::f64::consts::PI * 1.85);
+        cr.set_line_width(1.5);
+        cr.stroke().unwrap();
     });
+
     
     let usrname = match std::fs::read_to_string("/usr/share/octobacillus/user.octo") {
         Ok(content) => content,
@@ -411,11 +440,21 @@ pub fn spawn_ctrl_capsules(
 
     usrbox.append(&usricon);
 
-    usrbox.append(&Label::builder()
-        .label(&format!("Hello,{}.", name))
-        .css_classes(["username"])
+    let usr_labels = GtkBox::new(Orientation::Vertical, 2);
+    usr_labels.append(&Label::builder()
+        .label("Hello,")
+        .css_classes(["userHello"])
+        .halign(gtk4::Align::Start)
         .build()
     );
+    usr_labels.append(&Label::builder()
+        .label(name)
+        .css_classes(["userName"])
+        .halign(gtk4::Align::Start)
+        .build()
+    );
+
+    usrbox.append(&usr_labels);
     
     let usr = Button::builder()
         .child(&usrbox)
@@ -457,10 +496,8 @@ pub fn spawn_ctrl_capsules(
     let net_label_rc = Rc::new(net_label);
     let net_body_rc  = Rc::new(net_body);
 
-    // ── Network expansion panel ──────────────────────────────────────
     let net_expanded = Rc::new(RefCell::new(false));
 
-    // Row 1: wifi toggle | refresh | settings
     let wifi_toggle_icon = Image::from_file("/var/lib/cynager/icons/wifi.svg");
     wifi_toggle_icon.set_icon_size(gtk4::IconSize::Large);
     let wifi_toggle_btn = Button::builder()
@@ -491,17 +528,14 @@ pub fn spawn_ctrl_capsules(
     net_panel_actions.append(&refresh_btn);
     net_panel_actions.append(&net_settings_btn);
 
-    // Row 2: scrollable list of networks
     let net_list_box = gtk4::ListBox::new();
     net_list_box.add_css_class("netList");
     net_list_box.set_selection_mode(gtk4::SelectionMode::None);
 
     let net_list_rc = Rc::new(net_list_box);
-
     let populate_networks = {
         let net_list_rc = net_list_rc.clone();
         move || {
-            // Clear existing rows
             while let Some(child) = net_list_rc.first_child() {
                 net_list_rc.remove(&child);
             }
@@ -514,7 +548,6 @@ pub fn spawn_ctrl_capsules(
                 for (ssid, bars, active) in networks {
                     let row_box = GtkBox::new(Orientation::Horizontal, 10);
                     row_box.add_css_class("netListRow");
-                    if active { row_box.add_css_class("netListRowActive"); }
 
                     let ssid_lbl = gtk4::Label::new(Some(&ssid));
                     ssid_lbl.set_hexpand(true);
@@ -532,7 +565,6 @@ pub fn spawn_ctrl_capsules(
                     row_box.append(&ssid_lbl);
                     row_box.append(&signal_lbl);
 
-                    // clicking a row connects to that network
                     let row_btn = Button::builder()
                         .child(&row_box)
                         .css_classes(["netListRowBtn"])
@@ -565,10 +597,8 @@ pub fn spawn_ctrl_capsules(
 
     let net_panel_rc = Rc::new(net_panel);
 
-    // wifi toggle logic
     {
         let wifi_toggle_icon_c = wifi_toggle_icon.clone();
-        // track adapter state based on rfkill at build time
         let adapter_on = Rc::new(RefCell::new(!wifi_soft_blocked()));
         wifi_toggle_btn.connect_clicked(move |_| {
             let currently_on = *adapter_on.borrow();
@@ -583,7 +613,6 @@ pub fn spawn_ctrl_capsules(
         });
     }
 
-    // refresh button
     {
         let pop = populate_networks_rc.clone();
         refresh_btn.connect_clicked(move |btn| {
@@ -600,7 +629,6 @@ pub fn spawn_ctrl_capsules(
         });
     }
 
-    // settings button
     {
         net_settings_btn.connect_clicked(move |_| {
             let _ = std::process::Command::new("nm-connection-editor").spawn();
@@ -730,8 +758,7 @@ pub fn spawn_ctrl_capsules(
     btns.append(&soundbtn);
     btns.add_css_class("startingOSD");
 
-    // Wrap the button row and the expandable net panel together
-    let ctrl_column = GtkBox::new(Orientation::Vertical, 0);
+    let ctrl_column = GtkBox::new(Orientation::Vertical, 20);
     ctrl_column.set_halign(gtk4::Align::Center);
     ctrl_column.set_valign(gtk4::Align::Start);
     ctrl_column.append(&btns);
