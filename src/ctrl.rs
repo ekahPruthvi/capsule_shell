@@ -499,15 +499,18 @@ pub fn spawn_ctrl_capsules(
     let net_expanded = Rc::new(RefCell::new(false));
 
     let wifi_toggle_icon = Image::from_file("/var/lib/cynager/icons/wifi.svg");
-    wifi_toggle_icon.set_icon_size(gtk4::IconSize::Large);
+    wifi_toggle_icon.set_icon_size(gtk4::IconSize::Normal);
     let wifi_toggle_btn = Button::builder()
         .child(&wifi_toggle_icon)
         .css_classes(["netPanelBtn"])
         .tooltip_text("Toggle WiFi adapter")
         .build();
 
-    let refresh_icon = Image::from_file("/var/lib/cynager/icons/refresh.svg");
-    refresh_icon.set_icon_size(gtk4::IconSize::Large);
+    let dummy_fill = GtkBox::new(Orientation::Horizontal, 0);
+    dummy_fill.set_hexpand(true);
+
+    let refresh_icon = Image::from_file("/var/lib/cynager/icons/frsh.svg");
+    refresh_icon.set_icon_size(gtk4::IconSize::Normal);
     let refresh_btn = Button::builder()
         .child(&refresh_icon)
         .css_classes(["netPanelBtn"])
@@ -515,7 +518,7 @@ pub fn spawn_ctrl_capsules(
         .build();
 
     let net_settings_icon = Image::from_file("/var/lib/cynager/icons/cog.svg");
-    net_settings_icon.set_icon_size(gtk4::IconSize::Large);
+    net_settings_icon.set_icon_size(gtk4::IconSize::Normal);
     let net_settings_btn = Button::builder()
         .child(&net_settings_icon)
         .css_classes(["netPanelBtn"])
@@ -525,6 +528,7 @@ pub fn spawn_ctrl_capsules(
     let net_panel_actions = GtkBox::new(Orientation::Horizontal, 8);
     net_panel_actions.add_css_class("netPanelActions");
     net_panel_actions.append(&wifi_toggle_btn);
+    net_panel_actions.append(&dummy_fill);
     net_panel_actions.append(&refresh_btn);
     net_panel_actions.append(&net_settings_btn);
 
@@ -558,7 +562,7 @@ pub fn spawn_ctrl_capsules(
                     signal_lbl.add_css_class("netListSignal");
 
                     if active {
-                        let connected_lbl = gtk4::Label::new(Some("✓"));
+                        let connected_lbl = gtk4::Label::new(Some("•"));
                         connected_lbl.add_css_class("netListConnected");
                         row_box.append(&connected_lbl);
                     }
