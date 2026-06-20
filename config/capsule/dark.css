@@ -3,7 +3,7 @@
 .cosIcon {
     all: unset;
     padding: 5px;
-    border-radius: 50px;
+    border-radius: 20px;
     border: none;
     background-image: 
         radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0), transparent 20%),
@@ -17,54 +17,49 @@
 .cosIcon:hover {
     background-image: 
         radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.8) 0%, transparent 20%),
-        radial-gradient(circle at center, #87cefa 0%, #1e90ff 30%, transparent 70%),
-        radial-gradient(circle at center, #00008b 0%, #000000 100%);
+        radial-gradient(circle at center, #87cefa 0%, #1e90ff 30%, transparent 70%);
+        /* radial-gradient(circle at center, #002fff 0%, #002fff 100%); */
 
-    box-shadow: 
-        0 0 15px 2px rgba(30, 144, 255, 0.6), 
-        inset 0 0 8px rgba(255, 255, 255, 0.3); 
-        
+    /* background-color: #002fff; */
+    /* border: 2px #002fff; */
     animation: orb-pulse 3s infinite ease-in-out;
 }
 
 @keyframes orb-pulse {
     0%, 100% { 
-        box-shadow: 0 0 15px 2px rgba(30, 144, 255, 0.6);
-        transform: scale(1);
+        transform: scale(0.9);
     }
     50% { 
-        box-shadow: 0 0 25px 5px rgba(30, 144, 255, 0.9);
-        transform: scale(1.05);
+        transform: scale(1);
     }
 }
 
 .timeCapsule {
+    --shineline: rgb(135, 135, 135);
+    --bg: rgba(0, 0, 0, 0.559);
     padding: 6px;
-    background-color: rgba(34, 34, 34, 0.559);
-    border: 2px solid transparent;
-    background-image: linear-gradient(rgb(29, 29, 29), rgb(29, 29, 29)),
-                        linear-gradient(0deg, rgb(9, 9, 9), rgba(94, 94, 94, 0.686));
+    background-color: var(--bg);
+    /* border: 2px solid transparent;
+    background-image: linear-gradient(var(--bg), var(--bg)),
+                        linear-gradient(15deg, var(--shineline), transparent, var(--shineline));
     background-origin: border-box;
-    background-clip: padding-box, border-box;
-    border-radius: 50px;
+    background-clip: padding-box, border-box; */
+    border: 1px solid rgba(166, 166, 166, 0.216);
+    border-radius: 22px;
     /* box-shadow:  inset 0px -5px 20px rgba(255, 255, 255, 0.239); */
-    box-shadow: rgba(0, 0, 0, 0.24) 0px 3px 8px;
+    /* box-shadow: rgba(0, 0, 0, 0.24) 0px 3px 8px; */
 }
 
 .osdCapsule {
     padding: 0px;
-    /* background-color: rgba(34, 34, 34, 0.559);
-    border: 2px solid transparent;
-    background-image: linear-gradient(rgb(29, 29, 29), rgb(29, 29, 29)),
-                        linear-gradient(0deg, rgb(9, 9, 9), rgba(94, 94, 94, 0.686));
-    background-origin: border-box;
-    background-clip: padding-box, border-box;
-    border-radius: 20px;
-    box-shadow: rgba(0, 0, 0, 0.24) 0px 3px 8px; */
 }
 
 .starting {
     animation: startup 1s cubic-bezier(0.42, 0, 0, 1);
+}
+
+.startingOSD {
+    animation: startup 500ms cubic-bezier(0.42, 0, 0, 1);
 }
 
 @keyframes startup {
@@ -81,7 +76,7 @@
 .tNa {
     all: unset;
     padding: 0px 20px 0px 20px; 
-    background-color: rgb(43, 43, 43);
+    background-color: rgba(255, 255, 255, 0.056);
     /* border: 2px solid transparent;
     background-image: linear-gradient(rgb(43, 43, 43), rgb(43, 43, 43)), 
                         linear-gradient(0deg, black, rgba(110, 110, 110, 0.33));
@@ -96,11 +91,11 @@
 }
 
 .tNa:hover {
-    background-color: rgb(58, 58, 58);
+    background-color: rgba(255, 255, 255, 0.155);
     background-image: linear-gradient(
         120deg, 
         rgba(255, 255, 255, 0) 30%, 
-        rgba(255, 255, 255, 0.2) 50%, 
+        rgba(0, 0, 0, 0.143) 50%, 
         rgba(255, 255, 255, 0) 70%
     );
     background-size: 200% 100%;
@@ -117,8 +112,48 @@
 }
 
 .tNa:active {
-    background-color: rgb(65, 65, 65);
-    box-shadow: inset 0px 2px 1px black, inset 0px -2px 10px rgba(0, 0, 0, 0.289);
+    background-color: rgba(255, 255, 255, 0.268);
+    box-shadow: inset 0px 2px 1px rgba(0, 0, 0, 0.355), inset 0px -2px 10px rgba(0, 0, 0, 0.245);
+}
+
+.clippy {
+    background-color: rgba(255, 255, 255, 0.048);
+    border-radius: 10px;
+    border: 1px dashed rgba(255, 255, 255, 0.317);
+    min-width: 100px;
+    padding: 0px 7px 0px 7px;
+}
+
+.clippyFileBtn {
+    all: unset;
+    padding: 2px;
+    background-color: transparent;
+    transform: rotate(5deg);
+    transition: all 400ms cubic-bezier(0.4, 0.0, 0.2, 1);
+}
+
+.clippyFileBtn:hover {
+    background-color: transparent;
+    transform: rotate(0deg);
+}
+
+.nooclip {
+    animation: noo 1s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes noo {
+    0% {
+        transform: translateX(0);
+    }
+    25% {
+        transform: translateX(-10px);
+    }
+    50% {
+        transform: translateX(10px);
+    }
+    100% {
+        transform: translateX(0);
+    }
 }
 
 .ampm {
@@ -173,7 +208,7 @@
                         linear-gradient(0deg, rgb(9, 9, 9), rgba(94, 94, 94, 0.686));
     background-origin: border-box;
     background-clip: padding-box, border-box;
-    border-radius: 20px;
+    /* border-radius: 20px; */
     box-shadow: rgba(0, 0, 0, 0.24) 0px 3px 8px;
     border-radius: 13px;
 }
@@ -265,11 +300,12 @@
     border-radius: 20px;
     box-shadow: rgba(0, 0, 0, 0.24) 0px 3px 8px;
     opacity: 0.6;
-    transition: opacity 400ms cubic-bezier(0.4, 0.0, 0.2, 1);
+    transition: opacity, background-color 400ms cubic-bezier(0.4, 0.0, 0.2, 1);
 }
 
 .notificationAll:hover {
     opacity: 1;
+    background-color: rgb(21, 21, 21);
 }
 
 .notiIcon {
@@ -423,6 +459,24 @@ scrollbar {
     background-color: rgba(125, 125, 125, 0.359);
 }
 
+.dragHandlestick {
+    background-color: transparent;
+} 
+
+.dragHandleM {
+    padding: 6px;
+    border-radius: 50px;
+    background-color: rgba(63, 63, 63, 0.104);
+}
+
+.dragHandleM:hover {
+    background-color: rgba(5, 5, 5, 0.359);
+}
+
+
+.sticker_img {
+    min-height: 200px;
+}
 
 calendar.view {
     border: none;
@@ -502,33 +556,72 @@ calendar.view > grid > label:selected {
     color: #ffffff;
 }
 
-.batring {
-    background-color: rgba(45, 45, 45, 0.446);
-    border-radius: 50px;
-    padding: 10px;
-    /* border: 1px solid rgba(112, 112, 112, 0.274); */
-}
+/* .batring {
+    
+    border: 1px solid rgba(112, 112, 112, 0.274);
+} */
 
 .outerBat {
-    background: linear-gradient(0deg ,rgba(0, 0, 0, 0.251) 0%, rgba(0, 0, 0, 0) 100%);
-    padding: 20px;
+    padding: 10px;
+    background-color: rgba(34, 34, 34, 0.559);
+    border: 2px solid transparent;
+    background-image: linear-gradient(rgb(29, 29, 29), rgb(29, 29, 29)),
+                        linear-gradient(0deg, rgb(9, 9, 9), rgba(94, 94, 94, 0.686));
+    background-origin: border-box;
+    background-clip: padding-box, border-box;
     border-radius: 30px;
+    /* box-shadow:  inset 0px -5px 20px rgba(255, 255, 255, 0.239); */
 }
 
 .batLabel {
     color: white;
+    font-size: 50px;
+    font-weight: 100;
+}
+
+.PercentLabel {
+    color: white;
+    font-size: 20px;
+    font-weight: 100;
 }
 
 .outerSys {
-    border-radius: 33px;
-    border: 5px solid rgba(255, 255, 255, 0.296);
+    padding: 10px;
+    background-color: rgba(34, 34, 34, 0.559);
+    border: 2px solid transparent;
+    background-image: linear-gradient(rgb(129, 129, 129), rgb(129, 129, 129)),
+                        linear-gradient(0deg, rgb(94, 94, 94), rgba(226, 226, 226, 0.686));
+    /* rgb(177, 218, 218) inverse color */
+    background-origin: border-box;
+    background-clip: padding-box, border-box;
+    border-radius: 30px;
+    /* box-shadow:  inset 0px -5px 20px rgba(255, 255, 255, 0.239); */
 }
+
 .MusicWidget{
-    background: linear-gradient(0deg ,rgb(0, 0, 0) 0%, rgba(0, 0, 0, 0) 100%);
+    /* background: linear-gradient(0deg ,rgb(0, 0, 0) 0%, rgba(0, 0, 0, 0) 100%); */
     padding: 20px;
     border-radius: 30px;
     /* backdrop-filter: blur(10px); */
 }
+
+/* .notPlaying {
+    --s: 60px;
+  --c1: #180a22;    
+  --c2: #5b42f3;
+  --_g: radial-gradient(
+    25% 25% at 25% 25%,
+    var(--c1) 99%,
+    rgba(0, 0, 0, 0) 101%
+  );
+  background: var(--_g) var(--s) var(--s) / calc(2 * var(--s))
+      calc(2 * var(--s)),
+    var(--_g) 0 0 / calc(2 * var(--s)) calc(2 * var(--s)),
+    radial-gradient(50% 50%, var(--c2) 98%, rgba(0, 0, 0, 0)) 0 0 / var(--s)
+      var(--s),
+    repeating-conic-gradient(var(--c2) 0 50%, var(--c1) 0 100%)
+      calc(0.5 * var(--s)) 0 / calc(2 * var(--s)) var(--s);
+} */
 
 .MuicInfo {
     background-color: #0000005b;
@@ -552,18 +645,257 @@ calendar.view > grid > label:selected {
 
 .mediaBtn {
     all: unset;
-    border-radius: 20px;
-    padding: 10px;
-    min-width: 17px;
-    min-height: 17px;
-    /* background-color: #31313163;
-    border: 1px solid rgba(255, 255, 255, 0.285); */
-    background-color: transparent;
-    border: none;
+    
+    min-width: 64px;
+    min-height: 74px;
+    border-radius: 50%;
+    padding: 1px;
+    
+    background-color: rgba(0, 0, 0, 0.856);
+    opacity: 0;
+    
+    /* box-shadow: 
+        0 4px 6px rgba(0, 0, 0, 0.3),
+        inset 0 1px 1px rgba(255, 255, 255, 0.1); */
+        
+    transition: 
+        transform 100ms ease;
+}
+
+/* .mediaBtn:hover {
+    transform: translateY(-1px);
+}
+
+.mediaBtn:active {
+    box-shadow: 
+        0 1px 2px rgba(0, 0, 0, 0.5),
+        inset 0 3px 5px rgba(0, 0, 0, 0.6);
+    transform: translateY(1px);
+} */
+
+.albumArtspinn {
+    animation: spin 3s linear infinite;
+    transform-origin: center; 
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.ssdBar {
+    background-color: rgba(255, 255, 255, 0.043);
+    border-radius: 13px 2px 2px 2px ;
     transition: background-color 400ms cubic-bezier(0.4, 0.0, 0.2, 1);
 }
 
-.mediaBtn:hover {
-    background-color: #ffffff15;
-    backdrop-filter: blur(10px);
+.ssdBar:hover {
+    background-color: #ffffff41;
+}
+
+.ssdBtn {
+    all: unset;
+    min-width: 20px;
+    min-height: 5px;
+    background-color: transparent;
+}
+
+.ssdBtn:hover {
+    border: 1px solid rgba(255, 255, 255, 0.176);
+}
+
+.ssdBtn:active {
+    transform: scale(0.9);
+} 
+
+.ssdClose, .ssdMin, .ssdFloat {
+    background-color: transparent;
+    transition: background-color 400ms cubic-bezier(0.4, 0.0, 0.2, 1);
+}
+
+.ssdClose {
+    border-radius: 13px 0px 0px 2px;
+}
+
+.ssdClose:hover {
+    background-color: #FE5F55;
+    border-radius: 13px 0px 0px 2px;
+}
+
+.ssdClose:active {
+    background-color: #ba3127;
+}
+
+.ssdMin:hover {
+    background-color: #EEF5DB;
+    /* transform: scale(1.2); */
+    border-radius: 1px;
+}
+
+.ssdMin:active {
+    background-color: #b8bdaa;
+}
+
+.ssdFloat:hover {
+    background-color: #4F6367;
+    border-radius: 0px 2px 2px 0px;
+}
+
+.ssdFloat:active {
+    background-color: #38474a;
+}
+
+.ssdMinActive {
+    background-color: #b8bdaa;
+}
+
+.netBtn {
+    all: unset;
+    padding: 10px;
+    background-color: transparent;
+}
+
+.netBtn:active {
+    animation: jigglhehe 1s 1 linear;
+}
+
+.batBtn {
+    all: unset;
+    padding: 10px;
+    background-color: transparent;
+}
+
+.batBtn:active {
+    animation: jigglhehe 1s 1 linear;    
+}
+
+.ctrlBtnL {
+    all: unset;
+    min-width: 150px;
+    padding: 10px 20px 10px 10px;
+    border-radius: 52px;
+    border: 2px solid transparent;
+    background-image: linear-gradient(rgb(6, 6, 6), rgb(6, 6, 6)),
+                        linear-gradient(0deg, rgb(9, 9, 9), rgba(61, 61, 61, 0.686));
+    background-origin: border-box;
+    background-clip: padding-box, border-box;
+    box-shadow: rgba(0, 0, 0, 0.24) 0px 3px 8px;
+
+    transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.ctrlBtnS {
+    all: unset;
+    min-width: 40px;
+    padding: 10px;
+    border-radius: 20px;border: 2px solid transparent;
+    background-image: linear-gradient(rgb(6, 6, 6), rgb(6, 6, 6)),
+                        linear-gradient(0deg, rgb(9, 9, 9), rgba(61, 61, 61, 0.686));
+    background-origin: border-box;
+    background-clip: padding-box, border-box;
+    box-shadow: rgba(0, 0, 0, 0.24) 0px 3px 8px;
+
+    transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.flyplane {
+    animation: flyOutRight 0.5s forwards ease-in-out;
+}
+
+@keyframes flyOutRight {
+    0% {
+        -gtk-icon-transform: translate(0px, 0px);
+        opacity: 1;
+    }
+    100% {
+        -gtk-icon-transform: translate(100px, 0px);
+        opacity: 0;
+    }
+}
+
+.ctrlBTNSbox {
+    background-color: rgba(28, 28, 28, 0);
+    padding: 5px;
+    border-radius: 52px;
+}
+
+.ctrlBtnL:hover {
+    transform: scale(1.09);
+}
+
+.ctrlBtnS:hover {
+    transform: scale(1.09);
+}
+
+.ctrlBtnL:active {
+  animation: jigglhehe 0.5s 1 linear;
+}
+
+.ctrlBtnS:active {
+  animation: jigglhehe 0.5s 1 linear;
+}
+
+@keyframes jigglhehe {
+  0% {
+    transform: scale(0.7, 1.3);
+  }
+
+  25% {
+    transform: scale(1.3, 0.7);
+  }
+
+  50% {
+    transform: scale(0.7, 1.3);
+  }
+
+  75% {
+    transform: scale(1.3, 0.7);
+  }
+
+  100% {
+    transform: scale(1, 1);
+  }
+}
+
+.dndicon {
+    font-size: 15px;
+    font-weight: 900;
+    color: rgba(255, 255, 255, 0.503);
+}
+
+
+.username {
+    font-size: 18px;
+    font-weight: 900;
+    color: rgba(255, 255, 255, 0.503);
+    font-style: italic;
+}
+
+.netBtnLabel {
+    font-size: 18px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.503);
+}
+
+.netBtnBody {
+    font-size: 10px;
+    font-weight: 300;
+    color: rgba(255, 255, 255, 0.503);
+}
+
+.ctrlBackdrop {
+    all: unset;
+    /* background-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.839), transparent 100%); */
+}
+
+.notiPopup {
+    all: unset;
+    padding: 20px;
+    border-radius: 22px;
+    background-color: rgb(21, 21, 21);
+    margin: 10px;
 }
