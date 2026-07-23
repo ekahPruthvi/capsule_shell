@@ -329,6 +329,8 @@ pub fn spawn_ctrl_capsules(
         .css_classes(["ctrlOverlay"])
         .build();
  
+    *overlay_open.borrow_mut() = true;
+
     win.init_layer_shell();
     win.set_namespace(Some("CtrlOverlay"));
     win.set_layer(Layer::Top);
@@ -603,8 +605,25 @@ pub fn spawn_ctrl_capsules(
     let net_panel_rc = Rc::new(net_panel);
 
     {
+        let pop = populate_networks_rc.clone();
+        let net_list_rc = net_list_rc.clone();
         wifi_toggle_btn.connect_state_set(move |_, state| {
             toggle_wifi_adapter(state);
+
+            if !state {
+                while let Some(child) = net_list_rc.first_child() {
+                    net_list_rc.remove(&child);
+                }
+                let row = gtk4::Label::new(Some("Wi-Fi is off"));
+                row.add_css_class("netListEmpty");
+                net_list_rc.append(&row);
+            }
+            
+            let pop = pop.clone();
+            glib::timeout_add_local_once(Duration::from_millis(700), move || {
+                pop();
+            });
+
             glib::Propagation::Proceed
         });
     }
@@ -638,13 +657,18 @@ pub fn spawn_ctrl_capsules(
         let net_label_rc = net_label_rc.clone();
         let net_body_rc  = net_body_rc.clone();
         let net_rx = net_rx.clone();
+        let overlay_open = overlay_open.clone();
 
         glib::timeout_add_local(Duration::from_millis(500), move || {
+            if !*overlay_open.borrow() {
+                return glib::ControlFlow::Break;
+            }
             let rx = net_rx.borrow();
             let mut latest: Option<NetworkState> = None;
             while let Ok(state) = rx.try_recv() {
                 latest = Some(state);
             }
+            drop(rx);
             if let Some(state) = latest {
                 let (icon_name, label_text, label_body) = network_icon_and_tip(state);
                 net_icon_rc.set_from_file(Some(icon_name));
@@ -695,13 +719,18 @@ pub fn spawn_ctrl_capsules(
         let snd_label_rc = snd_label_rc.clone();
         let snd_body_rc = snd_body_rc.clone();
         let sound_rx = sound_rx.clone();
+        let overlay_open = overlay_open.clone();
 
         glib::timeout_add_local(Duration::from_millis(500), move || {
+            if !*overlay_open.borrow() {
+                return glib::ControlFlow::Break;
+            }
             let rx = sound_rx.borrow();
             let mut latest: Option<SoundState> = None;
             while let Ok(state) = rx.try_recv() {
                 latest = Some(state);
             }
+            drop(rx);
             if let Some(state) = latest {
                 snd_icon_rc.set_from_file(Some(sound_icon(&state)));
                 snd_label_rc.set_label(&format!("{}%", state.volume));
@@ -765,6 +794,14 @@ pub fn spawn_ctrl_capsules(
     layout.add_overlay(&ctrl_column);
  
     win.set_child(Some(&layout));
+
+    {
+        let flag = overlay_open.clone();
+        win.connect_close_request(move |_| {
+            *flag.borrow_mut() = false;
+            glib::Propagation::Proceed
+        });
+    }
  
     let close = {
         let win_c = win.clone();
