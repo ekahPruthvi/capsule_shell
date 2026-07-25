@@ -560,6 +560,7 @@ pub fn spawn_ctrl_capsules(
         let net_list_rc = net_list_rc.clone();
         let netbtn_inner = netbtn.clone();
         let net_panel_inner = net_panel_rc.clone();
+        let net_expanded_inner = net_expanded.clone();
         move || {
             while let Some(child) = net_list_rc.first_child() {
                 net_list_rc.remove(&child);
@@ -597,12 +598,20 @@ pub fn spawn_ctrl_capsules(
                     let ssid_clone = ssid.clone();
                     let netbtn_inner_inner = netbtn_inner.clone();
                     let net_panel_inner_inner = net_panel_inner.clone();
+                    let net_expanded_inner_inner = net_expanded_inner.clone();
+                    
                     row_btn.connect_clicked(move |_| {
                         let _ = std::process::Command::new("nmcli")
                             .args(["dev", "wifi", "connect", &ssid_clone])
                             .spawn();
                         netbtn_inner_inner.remove_css_class("netBtnExpanded");
-                        net_panel_inner_inner.set_visible(false);
+                        net_panel_inner_inner.add_css_class("closeBox");
+                        *net_expanded_inner_inner.borrow_mut() = false;
+                        let net_panel_inner_inner_inner = net_panel_inner_inner.clone();
+                        glib::timeout_add_local_once(Duration::from_millis(200), move || {                                
+                            net_panel_inner_inner_inner.remove_css_class("closeBox");
+                            net_panel_inner_inner_inner.set_visible(false);
+                        });
                     });
                     net_list_rc.append(&row_btn);
                 }
