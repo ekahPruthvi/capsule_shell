@@ -329,7 +329,7 @@ pub fn spawn_ctrl_capsules(
         .css_classes(["ctrlOverlay"])
         .build();
  
-    *overlay_open.borrow_mut() = true;
+    *overlay_open.borrow_mut() = true; 
 
     win.init_layer_shell();
     win.set_namespace(Some("CtrlOverlay"));
@@ -378,7 +378,7 @@ pub fn spawn_ctrl_capsules(
     usricon.set_content_width(size);
     usricon.set_content_height(size);
 
-        usricon.set_draw_func(move |_, cr, w, h| {
+    usricon.set_draw_func(move |_, cr, w, h| {
         let w = w as f64;
         let h = h as f64;
         let cx = w / 2.0;
@@ -425,7 +425,7 @@ pub fn spawn_ctrl_capsules(
         Ok(content) => content,
         Err(err) => {
             eprintln!("Error reading file: {}", err);
-            "name = user4.0".to_string()
+            "name = user4.0".to_string() //chnage this as update progresses  
         }
     };
 
@@ -539,9 +539,27 @@ pub fn spawn_ctrl_capsules(
     net_list_box.add_css_class("netList");
     net_list_box.set_selection_mode(gtk4::SelectionMode::None);
 
+
     let net_list_rc = Rc::new(net_list_box);
+    let scroll_win = gtk4::ScrolledWindow::new();
+    scroll_win.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
+    scroll_win.set_max_content_height(220);
+    scroll_win.set_propagate_natural_height(true);
+    scroll_win.set_child(Some(&*net_list_rc));
+    scroll_win.add_css_class("netListScroll");
+
+    let net_panel = GtkBox::new(Orientation::Vertical, 6);
+    net_panel.add_css_class("netPanel");
+    net_panel.append(&net_panel_actions);
+    net_panel.append(&scroll_win);
+    net_panel.set_visible(false);
+
+    let net_panel_rc = Rc::new(net_panel);
+
     let populate_networks = {
         let net_list_rc = net_list_rc.clone();
+        let netbtn_inner = netbtn.clone();
+        let net_panel_inner = net_panel_rc.clone();
         move || {
             while let Some(child) = net_list_rc.first_child() {
                 net_list_rc.remove(&child);
@@ -577,10 +595,14 @@ pub fn spawn_ctrl_capsules(
                         .css_classes(["netListRowBtn"])
                         .build();
                     let ssid_clone = ssid.clone();
+                    let netbtn_inner_inner = netbtn_inner.clone();
+                    let net_panel_inner_inner = net_panel_inner.clone();
                     row_btn.connect_clicked(move |_| {
                         let _ = std::process::Command::new("nmcli")
                             .args(["dev", "wifi", "connect", &ssid_clone])
                             .spawn();
+                        netbtn_inner_inner.remove_css_class("netBtnExpanded");
+                        net_panel_inner_inner.set_visible(false);
                     });
                     net_list_rc.append(&row_btn);
                 }
@@ -589,24 +611,10 @@ pub fn spawn_ctrl_capsules(
     };
     let populate_networks_rc = Rc::new(populate_networks);
 
-    let scroll_win = gtk4::ScrolledWindow::new();
-    scroll_win.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
-    scroll_win.set_max_content_height(220);
-    scroll_win.set_propagate_natural_height(true);
-    scroll_win.set_child(Some(&*net_list_rc));
-    scroll_win.add_css_class("netListScroll");
-
-    let net_panel = GtkBox::new(Orientation::Vertical, 6);
-    net_panel.add_css_class("netPanel");
-    net_panel.append(&net_panel_actions);
-    net_panel.append(&scroll_win);
-    net_panel.set_visible(false);
-
-    let net_panel_rc = Rc::new(net_panel);
-
     {
         let pop = populate_networks_rc.clone();
         let net_list_rc = net_list_rc.clone();
+        let refresh_btn_clone = refresh_btn.clone();
         wifi_toggle_btn.connect_state_set(move |_, state| {
             toggle_wifi_adapter(state);
 
@@ -617,12 +625,25 @@ pub fn spawn_ctrl_capsules(
                 let row = gtk4::Label::new(Some("Wi-Fi is off"));
                 row.add_css_class("netListEmpty");
                 net_list_rc.append(&row);
+            } else {
+                while let Some(child) = net_list_rc.first_child() {
+                    net_list_rc.remove(&child);
+                }
+                let row = gtk4::Label::new(Some("Searching..."));
+                row.add_css_class("netListEmpty");
+                let pop = pop.clone();
+                net_list_rc.append(&row);
+                refresh_btn_clone.add_css_class("spinning");
+                let refresh_btn_clone_inner = refresh_btn_clone.clone();
+                glib::timeout_add_local_once(Duration::from_millis(3500), move || {
+                    let _ = std::process::Command::new("nmcli")
+                        .args(["dev", "wifi", "rescan"])
+                        .spawn();
+                    pop();
+                    refresh_btn_clone_inner.remove_css_class("spinning");
+                });
             }
-            
-            let pop = pop.clone();
-            glib::timeout_add_local_once(Duration::from_millis(700), move || {
-                pop();
-            });
+
 
             glib::Propagation::Proceed
         });
