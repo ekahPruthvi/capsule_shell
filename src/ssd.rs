@@ -109,6 +109,7 @@ pub fn spawn_shelly_side_decorations(app: &gtk4::Application) {
     let win_weak = win.downgrade();
     let bar_for_poll = bar.clone();
     let mut current_output: Option<String> = None;
+    let mut current_monitor: Option<gdk::Monitor> = None;
 
     gtk4::glib::timeout_add_local(Duration::from_millis(16), move || {
         let Some(win) = win_weak.upgrade() else {
@@ -135,6 +136,7 @@ pub fn spawn_shelly_side_decorations(app: &gtk4::Application) {
                         match find_monitor_by_connector(&geo.output) {
                             Some(monitor) => {
                                 win.set_monitor(Some(&monitor));
+                                current_monitor = Some(monitor);
                                 current_output = Some(geo.output.clone());
                             }
                             None => {
@@ -143,13 +145,27 @@ pub fn spawn_shelly_side_decorations(app: &gtk4::Application) {
                         }
                     }
                     if geo.is_floating {
+                        win.set_anchor(Edge::Right, false);
                         bar_for_poll.set_size_request(-1, -1);
                         win.set_margin(Edge::Top,  geo.y + 7);
                         win.set_margin(Edge::Left, geo.x + 7);
                     } else {
-                        bar_for_poll.set_size_request(geo.xsize, -1);
-                        win.set_margin(Edge::Top,  geo.y - 7);
+                        win.set_anchor(Edge::Right, true);
+                        bar_for_poll.set_size_request(-1, -1);
+                        win.set_margin(Edge::Top,  geo.y);
                         win.set_margin(Edge::Left, geo.x);
+
+                        match &current_monitor {
+                            Some(monitor) => {
+                                let mon_w = monitor.geometry().width();
+                                let margin_right = (mon_w - (geo.x + geo.xsize)).max(0);
+                                win.set_margin(Edge::Right, margin_right);
+                            }
+                            None => {
+                                win.set_anchor(Edge::Right, false);
+                                bar_for_poll.set_size_request(geo.xsize, -1);
+                            }
+                        }
                     }
                     win.set_visible(true);
                 }
@@ -234,26 +250,37 @@ fn query_focused_geo() -> Option<FocusedGeo> {
     };
 
     let mut sock = Socket::connect().ok()?;
-    match sock.send(Request::FocusedWindow) {
-        Ok(Ok(Response::FocusedWindow(Some(w)))) => {
-            let is_floating    = w.is_floating;
-            let (x, y)         = w.layout.tile_pos_in_workspace_view?;
-            let (xsize, ysize) = w.layout.window_size;
-
-            let output = w
-                .workspace_id
-                .and_then(|wid| workspaces.iter().find(|ws| ws.id == wid))
-                .and_then(|ws| ws.output.clone())?;
-
-            Some(FocusedGeo {
-                x: x as i32,
-                y: y as i32,
-                xsize: xsize as i32,
-                ysize: ysize as i32,
-                output,
-                is_floating,
-            })
+    let w = match sock.send(Request::FocusedWindow) {
+        Ok(Ok(Response::FocusedWindow(Some(w)))) => w,
+        Ok(Ok(Response::FocusedWindow(None))) => return None, 
+        other => {
+            eprintln!("[ssd] unexpected FocusedWindow response: {:?}", other);
+            return None;
         }
-        _ => None,
-    }
+    };
+
+    let is_floating = w.is_floating;
+
+    let (x, y) = w.layout.tile_pos_in_workspace_view.unwrap_or_else(|| {
+        (0.0, 0.0)
+    });
+
+    let (xsize, ysize) = w.layout.tile_size;
+
+    let Some(output) = w
+        .workspace_id
+        .and_then(|wid| workspaces.iter().find(|ws| ws.id == wid))
+        .and_then(|ws| ws.output.clone())
+    else {
+        return None;
+    };
+
+    Some(FocusedGeo {
+        x: x.round() as i32,
+        y: y.round() as i32,
+        xsize: xsize.round() as i32,
+        ysize: ysize.round() as i32,
+        output,
+        is_floating,
+    })
 }
