@@ -13,6 +13,7 @@ struct FocusedGeo {
     xsize: i32,
     ysize: i32,
     output: String,
+    is_floating: bool,
 }
 
 #[derive(Debug)]
@@ -106,6 +107,7 @@ pub fn spawn_shelly_side_decorations(app: &gtk4::Application) {
     std::thread::spawn(move || niri_event_loop(tx));
 
     let win_weak = win.downgrade();
+    let bar_for_poll = bar.clone();
     let mut current_output: Option<String> = None;
 
     gtk4::glib::timeout_add_local(Duration::from_millis(16), move || {
@@ -140,8 +142,15 @@ pub fn spawn_shelly_side_decorations(app: &gtk4::Application) {
                             }
                         }
                     }
-                    win.set_margin(Edge::Top,  geo.y + 7);
-                    win.set_margin(Edge::Left, geo.x + 7);
+                    if geo.is_floating {
+                        bar_for_poll.set_size_request(-1, -1);
+                        win.set_margin(Edge::Top,  geo.y + 7);
+                        win.set_margin(Edge::Left, geo.x + 7);
+                    } else {
+                        bar_for_poll.set_size_request(geo.xsize, -1);
+                        win.set_margin(Edge::Top,  geo.y - 7);
+                        win.set_margin(Edge::Left, geo.x);
+                    }
                     win.set_visible(true);
                 }
                 SsdEvent::NoFocus => {
@@ -227,6 +236,7 @@ fn query_focused_geo() -> Option<FocusedGeo> {
     let mut sock = Socket::connect().ok()?;
     match sock.send(Request::FocusedWindow) {
         Ok(Ok(Response::FocusedWindow(Some(w)))) => {
+            let is_floating    = w.is_floating;
             let (x, y)         = w.layout.tile_pos_in_workspace_view?;
             let (xsize, ysize) = w.layout.window_size;
 
@@ -241,6 +251,7 @@ fn query_focused_geo() -> Option<FocusedGeo> {
                 xsize: xsize as i32,
                 ysize: ysize as i32,
                 output,
+                is_floating,
             })
         }
         _ => None,
