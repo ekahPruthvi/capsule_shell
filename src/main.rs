@@ -527,24 +527,24 @@ fn coping_with(app: &Application) {
     }
 
     let overlay_open: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
- 
+    let ctrl_win = spawn_ctrl_capsules(app, overlay_open.clone());
     {
         let flag  = overlay_open.clone();
-        let app_c = app.clone();
+        let ctrl_win_clone = ctrl_win.clone();
         network.connect_clicked(move |_| {
             if *flag.borrow() { return; }
             *flag.borrow_mut() = true;
-            spawn_ctrl_capsules(&app_c, flag.clone());
+            ctrl_win_clone.set_visible(true);
         }); 
     }
  
     if has_battery {
         let flag  = overlay_open.clone();
-        let app_c = app.clone();
+        let ctrl_win_clone = ctrl_win.clone();
         battery.connect_clicked(move |_| {
             if *flag.borrow() { return; }
             *flag.borrow_mut() = true;
-            spawn_ctrl_capsules(&app_c, flag.clone());
+            ctrl_win_clone.set_visible(true);
         });
     }
 

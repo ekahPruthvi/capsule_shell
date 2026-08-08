@@ -322,7 +322,7 @@ fn get_wifi_networks() -> Vec<(String, String, bool)> {
 pub fn spawn_ctrl_capsules(
     app:          &Application,
     overlay_open: Rc<RefCell<bool>>,
-) {
+) -> ApplicationWindow {
     let win = ApplicationWindow::builder()
         .application(app)
         .title("capsuleCTRL")
@@ -825,20 +825,20 @@ pub fn spawn_ctrl_capsules(
  
     win.set_child(Some(&layout));
 
-    {
-        let flag = overlay_open.clone();
-        win.connect_close_request(move |_| {
-            *flag.borrow_mut() = false;
-            glib::Propagation::Proceed
-        });
-    }
+    // {
+    //     let flag = overlay_open.clone();
+    //     win.connect_close_request(move |_| {
+    //         *flag.borrow_mut() = false;
+    //         glib::Propagation::Proceed
+    //     });
+    // }
  
     let close = {
         let win_c = win.clone();
         let flag = overlay_open.clone();
         Rc::new(move || {
             *flag.borrow_mut() = false;
-            win_c.close();
+            win_c.set_visible(false);
         })
     };
 
@@ -933,4 +933,5 @@ pub fn spawn_ctrl_capsules(
     }
  
     win.present();
+    win
 }
