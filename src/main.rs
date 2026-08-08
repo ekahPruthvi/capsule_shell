@@ -775,7 +775,6 @@ fn coping_with(app: &Application) {
             let bytes = glib::Bytes::from(text_for_drag.as_bytes());
             let provider_utf8  = gtk4::gdk::ContentProvider::for_bytes("text/plain;charset=utf-8", &bytes);
             let provider_plain = gtk4::gdk::ContentProvider::for_bytes("text/plain", &bytes);
-            // Offer both variants — some webapps (Discord) only accept bare text/plain
             Some(gtk4::gdk::ContentProvider::new_union(&[provider_utf8, provider_plain]))
         });
 

@@ -329,7 +329,7 @@ pub fn spawn_ctrl_capsules(
         .css_classes(["ctrlOverlay"])
         .build();
  
-    *overlay_open.borrow_mut() = true; 
+    // *overlay_open.borrow_mut() = true; 
 
     win.init_layer_shell();
     win.set_namespace(Some("CtrlOverlay"));
@@ -341,7 +341,14 @@ pub fn spawn_ctrl_capsules(
     win.set_anchor(Edge::Right,true);
     // win.set_exclusive_zone(200);
     // win.auto_exclusive_zone_enable();
- 
+    
+    let top_backdrop = Button::builder()
+        .css_classes(["ctrlBackdrop"])
+        .hexpand(true)
+        .vexpand(false)
+        .height_request(50)
+        .build();
+
     let backdrop = Button::builder()
         .css_classes(["ctrlBackdrop"])
         .hexpand(true)
@@ -803,7 +810,7 @@ pub fn spawn_ctrl_capsules(
     btns.set_css_classes(&["ctrlBTNSbox"]);
     btns.set_halign(gtk4::Align::Center);
     btns.set_valign(gtk4::Align::Start);
-    btns.set_margin_top(80);
+    // btns.set_margin_top(80);
     btns.set_can_target(true);
     btns.append(&usr);
     btns.append(&netbtn);
@@ -816,6 +823,7 @@ pub fn spawn_ctrl_capsules(
     let ctrl_column = GtkBox::new(Orientation::Vertical, 20);
     ctrl_column.set_halign(gtk4::Align::Center);
     ctrl_column.set_valign(gtk4::Align::Start);
+    ctrl_column.append(&top_backdrop);
     ctrl_column.append(&btns);
     ctrl_column.append(&*net_panel_rc);
 
@@ -843,8 +851,10 @@ pub fn spawn_ctrl_capsules(
     };
 
     {
+        let close_a = close.clone();
+        backdrop.connect_clicked(move |_| close_a());
         let close = close.clone();
-        backdrop.connect_clicked(move |_| close());
+        top_backdrop.connect_clicked(move |_| close());
     }
  
     {
@@ -909,7 +919,7 @@ pub fn spawn_ctrl_capsules(
         );
 
         scroll.connect_scroll(move |_, _dx, dy| {
-            let step = if dy < 0.0 { "5%+" } else { "5%-" };
+            let step = if dy < 0.0 { "5%-" } else { "5%+" };
             let _ = std::process::Command::new("wpctl")
                 .args(["set-volume", "-l", "1.0", "@DEFAULT_AUDIO_SINK@", step])
                 .spawn();
@@ -933,5 +943,6 @@ pub fn spawn_ctrl_capsules(
     }
  
     win.present();
+    win.set_visible(false);
     win
 }
