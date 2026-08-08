@@ -818,6 +818,7 @@ pub fn spawn_ctrl_capsules(
     btns.append(&dnd);
     btns.append(&setting);
     btns.append(&soundbtn);
+    
     btns.add_css_class("startingOSD");
 
     let ctrl_column = GtkBox::new(Orientation::Vertical, 20);
@@ -833,13 +834,15 @@ pub fn spawn_ctrl_capsules(
  
     win.set_child(Some(&layout));
 
-    // {
-    //     let flag = overlay_open.clone();
-    //     win.connect_close_request(move |_| {
-    //         *flag.borrow_mut() = false;
-    //         glib::Propagation::Proceed
-    //     });
-    // }
+    {
+        win.connect_visible_notify(move |win| {
+            if win.is_visible() {
+                btns.add_css_class("startingOSD");
+            } else {
+                btns.remove_css_class("startingOSD");
+            }
+        });
+    }
  
     let close = {
         let win_c = win.clone();
