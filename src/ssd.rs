@@ -1,10 +1,11 @@
-use gtk4::{gdk, prelude::*, ApplicationWindow, Box as GtkBox, Button, Orientation};
+use gtk4::{gdk, prelude::*, ApplicationWindow, Box as GtkBox, Button, Label, glib, Orientation};
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use niri_ipc::{socket::Socket, Action, Request, Response};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::mpsc;
 use std::time::Duration;
+use chrono::Local;
 
 #[derive(Debug, Clone, PartialEq)]
 struct FocusedGeo {
@@ -101,8 +102,26 @@ pub fn spawn_shelly_side_decorations(app: &gtk4::Application) {
         niri_action(Action::FullscreenWindow { id: None });
     });
 
+    let timendate = GtkBox::new(Orientation::Horizontal, 5);
+    timendate.set_hexpand(true);
+    timendate.set_halign(gtk4::Align::Center);
+    let time      = Label::new(Some(""));
+    time.set_justify(gtk4::Justification::Center);
+    time.set_css_classes(&["ampm"]);
+    let ampm = Label::new(Some("cynageOS"));
+    ampm.set_css_classes(&["ampm"]);
+
+    timendate.append(&time);
+    timendate.append(&ampm);
+
+    glib::timeout_add_local(Duration::from_millis(1200), move || {
+        let now = Local::now();
+        time.set_text(&now.format("%I:%M").to_string());
+        ampm.set_text(&now.format(" %p \t %a, %b %e").to_string());
+        glib::ControlFlow::Continue
+    });
+
     win.set_visible(false);
-    win.present();
 
     std::thread::spawn(move || niri_event_loop(tx));
 
@@ -149,17 +168,22 @@ pub fn spawn_shelly_side_decorations(app: &gtk4::Application) {
                         bar_for_poll.set_size_request(-1, -1);
                         win.set_margin(Edge::Top,  geo.y + 7);
                         win.set_margin(Edge::Left, geo.x + 7);
+                        if timendate.parent().as_ref() == Some(bar.upcast_ref()) {
+                            bar.remove(&timendate);
+                        }
                     } else {
+                        win.set_visible(false);
+                        if timendate.parent().as_ref() != Some(bar.upcast_ref()) {
+                            bar.append(&timendate);
+                        }
                         win.set_anchor(Edge::Right, true);
                         bar_for_poll.set_size_request(-1, -1);
                         win.set_margin(Edge::Top,  geo.y);
                         win.set_margin(Edge::Left, geo.x);
 
                         match &current_monitor {
-                            Some(monitor) => {
-                                let mon_w = monitor.geometry().width();
-                                let margin_right = (mon_w - (geo.x + geo.xsize)).max(0);
-                                win.set_margin(Edge::Right, margin_right);
+                            Some(_) => {
+                                win.set_margin(Edge::Right, 0);
                             }
                             None => {
                                 win.set_anchor(Edge::Right, false);
