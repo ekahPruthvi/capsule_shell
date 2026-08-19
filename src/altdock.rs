@@ -1,5 +1,5 @@
 use gtk4::{
-    Application, ApplicationWindow, Box as GtkBox, Button, Image, Orientation, prelude::*,
+    Application, ApplicationWindow, Box as GtkBox, Button, EventControllerMotion, Image, prelude::*,
 };
 use gtk4::glib;
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
@@ -84,6 +84,47 @@ fn focus_window(id: u64) {
     let _ = Command::new("niri")
         .args(["msg", "action", "focus-window", "--id", &id.to_string()])
         .spawn();
+}
+
+fn get_focused_window_id() -> Option<u64> {
+    let out = Command::new("niri")
+        .args(["msg", "-j", "focused-window"])
+        .output()
+        .ok()?;
+
+    if !out.status.success() {
+        return None;
+    }
+
+    let text = String::from_utf8_lossy(&out.stdout);
+    let parsed: Value = serde_json::from_str(&text).ok()?;
+
+    if parsed.is_null() {
+        return None;
+    }
+
+    parsed.get("id")?.as_u64()
+}
+
+fn preview_window(id: u64, hover_ctrl: EventControllerMotion, prev_handler: Rc<RefCell<Option<glib::SignalHandlerId>>>) {
+    let Some(orig_id) = get_focused_window_id() else {
+        return;
+    };
+
+    if orig_id == id {
+        return;
+    }
+
+    focus_window(id);
+    
+    let handler_slot = prev_handler.clone();
+    let handler_id = hover_ctrl.connect_leave(move |_| {
+        focus_window(orig_id);
+        *handler_slot.borrow_mut() = None;
+        eprintln!("left");
+    });
+
+    *prev_handler.borrow_mut() = Some(handler_id);
 }
 
 pub fn spawn_niri_watcher() -> std::sync::mpsc::Receiver<Vec<NiriWindow>> {
@@ -200,6 +241,31 @@ fn make_dock_button(win: &NiriWindow) -> Button {
         focus_window(id);
     });
 
+    let hover_ctrl = gtk4::EventControllerMotion::new();
+    let pending: Rc<Cell<bool>> = Rc::new(Cell::new(false));
+    let prev_preview_handler: Rc<RefCell<Option<glib::SignalHandlerId>>> = Rc::new(RefCell::new(None));
+
+    let pending_enter = Rc::clone(&pending);
+    hover_ctrl.connect_enter(move |hvr_ctrl, _, _| {
+        pending_enter.set(true);
+        let pending_timeout = Rc::clone(&pending_enter);
+        let hvr = hvr_ctrl.clone();
+        let prev_handler = prev_preview_handler.clone();
+        glib::timeout_add_local(Duration::from_millis(500), move || {
+            if pending_timeout.get() {
+                preview_window(id, hvr.clone(), prev_handler.clone());
+            }
+            glib::ControlFlow::Break
+        });
+    });
+
+    let pending_leave = Rc::clone(&pending);
+    hover_ctrl.connect_leave(move |_| {
+        pending_leave.set(false);
+    });
+
+    btn.add_controller(hover_ctrl);
+
     btn
 }
 
@@ -283,7 +349,7 @@ pub fn spawn_altdock(app: &Application, dockbox: GtkBox) -> ApplicationWindow {
             if pending_hide.get() {
                 dockbox_clone_anim.remove_css_class("dockcum");
                 dockbox_clone_anim.add_css_class("dockleave");
-                
+
                 let pop2 = pop.clone();
                 let pending_hide2 = Rc::clone(&pending_hide);
                 glib::timeout_add_local(Duration::from_millis(400), move || {
