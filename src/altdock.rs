@@ -3,7 +3,7 @@ use gtk4::{
 };
 use gtk4::glib;
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
-use std::cell::RefCell;
+use std::cell::{RefCell,Cell};
 use std::collections::HashMap;
 use std::io::BufRead;
 use std::process::{Command, Stdio};
@@ -246,6 +246,9 @@ pub fn spawn_altdock(app: &Application) -> ApplicationWindow {
         .build();
     dockbox.add_css_class("dockBox");
 
+
+    let dockbox_ctrl = dockbox.clone();
+
     let dockbox_rc = Rc::new(dockbox);
 
     let initial = windows_sorted(&get_niri_windows_map());
@@ -274,6 +277,31 @@ pub fn spawn_altdock(app: &Application) -> ApplicationWindow {
             glib::ControlFlow::Continue
         });
     }
+
+    let hover_ctrl = gtk4::EventControllerMotion::new();
+    let pending: Rc<Cell<bool>> = Rc::new(Cell::new(false));
+
+    let pending_enter = Rc::clone(&pending);
+    let popover_enter = win.clone();
+    hover_ctrl.connect_leave(move |_| {
+        pending_enter.set(true);
+        let pop = popover_enter.clone();
+        let pending_timeout = Rc::clone(&pending_enter);
+        glib::timeout_add_local(Duration::from_millis(500), move || {
+            if pending_timeout.get() {
+                pop.set_visible(false);
+                pop.add_css_class("popupanim");
+            }
+            glib::ControlFlow::Break
+        });
+    });
+
+    let pending_leave = Rc::clone(&pending);
+    hover_ctrl.connect_enter(move |_,_,_| {
+        pending_leave.set(false);
+    });
+
+    dockbox_ctrl.add_controller(hover_ctrl);
 
     win.present();
     win.set_visible(false);
