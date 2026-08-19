@@ -11,15 +11,18 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use libc;
 use niri_ipc::{socket::Socket, Action, PositionChange, Request, Response, WorkspaceReferenceArg};
+use std::cell::Cell;
 
 mod notifications;
 mod osd;
 mod ssd;
 mod widgets;
 mod ctrl;
+mod altdock;
 
 use widgets::{system::spawn_sys_widget, calendar::spawn_calendar_widget, battery::spawn_bat_widget, stick::spawn_stick_widget, kill};
 use ctrl::{spawn_network_watcher, NetworkState, spawn_ctrl_capsules};
+use altdock::spawn_altdock;
 
 #[derive(Debug, Clone, PartialEq)]
 struct WidgetConfig {
@@ -1013,6 +1016,7 @@ fn coping_with(app: &Application) {
     }
 
     let c_tna = GtkBox::new(Orientation::Horizontal, 5);
+    let dock = spawn_altdock(app);
 
     c_tna.append(&clippy);
     c_tna.append(&time_and_actions);
@@ -1024,6 +1028,31 @@ fn coping_with(app: &Application) {
     if has_battery {
         time_capsule.append(&battery);
     }
+
+    let hover_ctrl = gtk4::EventControllerMotion::new();
+    let pending: Rc<Cell<bool>> = Rc::new(Cell::new(false));
+
+    let pending_enter = Rc::clone(&pending);
+    let popover_enter = dock.clone();
+    hover_ctrl.connect_enter(move |_, _, _| {
+        pending_enter.set(true);
+        let pop = popover_enter.clone();
+        let pending_timeout = Rc::clone(&pending_enter);
+        glib::timeout_add_local(Duration::from_millis(500), move || {
+            if pending_timeout.get() {
+                pop.set_visible(true);
+                pop.add_css_class("popupanim");
+            }
+            glib::ControlFlow::Break
+        });
+    });
+
+    let pending_leave = Rc::clone(&pending);
+    hover_ctrl.connect_leave(move |_| {
+        pending_leave.set(false);
+    });
+
+    c_tna.add_controller(hover_ctrl);
 
     time_window.set_child(Some(&time_capsule));
 

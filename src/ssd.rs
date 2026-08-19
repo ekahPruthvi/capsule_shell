@@ -171,6 +171,7 @@ pub fn spawn_shelly_side_decorations(app: &gtk4::Application) {
                         if timendate.parent().as_ref() == Some(bar.upcast_ref()) {
                             bar.remove(&timendate);
                         }
+                        win.set_visible(true);
                     } else {
                         win.set_visible(false);
                         if timendate.parent().as_ref() != Some(bar.upcast_ref()) {
@@ -191,7 +192,6 @@ pub fn spawn_shelly_side_decorations(app: &gtk4::Application) {
                             }
                         }
                     }
-                    win.set_visible(true);
                 }
                 SsdEvent::NoFocus => {
                     win.set_visible(false);
