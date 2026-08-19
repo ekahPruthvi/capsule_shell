@@ -221,7 +221,7 @@ fn rebuild_dockbox(dockbox: &GtkBox, windows: &[NiriWindow]) {
     }
 }
 
-pub fn spawn_altdock(app: &Application) -> ApplicationWindow {
+pub fn spawn_altdock(app: &Application, dockbox: GtkBox) -> ApplicationWindow {
     let win = ApplicationWindow::builder()
         .application(app)
         .title("AltDock")
@@ -237,17 +237,8 @@ pub fn spawn_altdock(app: &Application) -> ApplicationWindow {
     win.set_anchor(Edge::Right, false);
     win.set_anchor(Edge::Bottom, false);
 
-    let dockbox = GtkBox::builder()
-        .orientation(Orientation::Horizontal)
-        .spacing(10)
-        .halign(gtk4::Align::Center)
-        .valign(gtk4::Align::Start)
-        .margin_top(10)
-        .build();
-    dockbox.add_css_class("dockBox");
-
-
     let dockbox_ctrl = dockbox.clone();
+    let dockbox_clone_anim = dockbox.clone();
 
     let dockbox_rc = Rc::new(dockbox);
 
@@ -281,24 +272,37 @@ pub fn spawn_altdock(app: &Application) -> ApplicationWindow {
     let hover_ctrl = gtk4::EventControllerMotion::new();
     let pending: Rc<Cell<bool>> = Rc::new(Cell::new(false));
 
-    let pending_enter = Rc::clone(&pending);
-    let popover_enter = win.clone();
+    let pending_leavein = Rc::clone(&pending);
+    let pop_leave = win.clone();
     hover_ctrl.connect_leave(move |_| {
-        pending_enter.set(true);
-        let pop = popover_enter.clone();
-        let pending_timeout = Rc::clone(&pending_enter);
+        pending_leavein.set(true);
+        let pop = pop_leave.clone();
+        let pending_hide = Rc::clone(&pending_leavein);
+        let dockbox_clone_anim = dockbox_clone_anim.clone();
         glib::timeout_add_local(Duration::from_millis(500), move || {
-            if pending_timeout.get() {
-                pop.set_visible(false);
-                pop.add_css_class("popupanim");
+            if pending_hide.get() {
+                dockbox_clone_anim.remove_css_class("dockcum");
+                dockbox_clone_anim.add_css_class("dockleave");
+                
+                let pop2 = pop.clone();
+                let pending_hide2 = Rc::clone(&pending_hide);
+                glib::timeout_add_local(Duration::from_millis(400), move || {
+                    if pending_hide2.get() {
+                        pop2.set_visible(false);
+                    }
+                    glib::ControlFlow::Break
+                });
             }
             glib::ControlFlow::Break
         });
     });
 
-    let pending_leave = Rc::clone(&pending);
+    let pendingg = Rc::clone(&pending);
+    let pop_enter = win.clone();
     hover_ctrl.connect_enter(move |_,_,_| {
-        pending_leave.set(false);
+        pendingg.set(false);
+        pop_enter.remove_css_class("dockleave");
+        pop_enter.add_css_class("dockcum");
     });
 
     dockbox_ctrl.add_controller(hover_ctrl);

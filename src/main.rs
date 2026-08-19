@@ -1016,8 +1016,19 @@ fn coping_with(app: &Application) {
     }
 
     let c_tna = GtkBox::new(Orientation::Horizontal, 5);
-    let dock = spawn_altdock(app);
+    
+    let dockbox = GtkBox::builder()
+        .orientation(Orientation::Horizontal)
+        .spacing(10)
+        .halign(gtk4::Align::Center)
+        .valign(gtk4::Align::Start)
+        .margin_top(10)
+        .build();
+    dockbox.add_css_class("dockBox");
 
+    let dockbox_anim = dockbox.clone();
+
+    let dock = spawn_altdock(app, dockbox);
     c_tna.append(&clippy);
     c_tna.append(&time_and_actions);
 
@@ -1037,11 +1048,13 @@ fn coping_with(app: &Application) {
     hover_ctrl.connect_enter(move |_, _, _| {
         pending_enter.set(true);
         let pop = popover_enter.clone();
+        let dockbox_anim = dockbox_anim.clone();
         let pending_timeout = Rc::clone(&pending_enter);
         glib::timeout_add_local(Duration::from_millis(500), move || {
             if pending_timeout.get() {
+                dockbox_anim.remove_css_class("dockleave");
                 pop.set_visible(true);
-                pop.add_css_class("popupanim");
+                dockbox_anim.add_css_class("dockcum");
             }
             glib::ControlFlow::Break
         });
