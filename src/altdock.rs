@@ -106,7 +106,12 @@ fn get_focused_window_id() -> Option<u64> {
     parsed.get("id")?.as_u64()
 }
 
-fn preview_window(id: u64, hover_ctrl: EventControllerMotion, prev_handler: Rc<RefCell<Option<glib::SignalHandlerId>>>) {
+fn preview_window(
+    id: u64,
+    hover_ctrl: EventControllerMotion,
+    prev_handler: Rc<RefCell<Option<glib::SignalHandlerId>>>,
+    committed: Rc<Cell<bool>>,
+) {
     let Some(orig_id) = get_focused_window_id() else {
         return;
     };
@@ -115,13 +120,21 @@ fn preview_window(id: u64, hover_ctrl: EventControllerMotion, prev_handler: Rc<R
         return;
     }
 
+    committed.set(false);
+
     focus_window(id);
-    
+
     let handler_slot = prev_handler.clone();
+    let committed_leave = committed.clone();
+
     let handler_id = hover_ctrl.connect_leave(move |_| {
+        if committed_leave.get() {
+            *handler_slot.borrow_mut() = None;
+            return;
+        }
+
         focus_window(orig_id);
         *handler_slot.borrow_mut() = None;
-        eprintln!("left");
     });
 
     *prev_handler.borrow_mut() = Some(handler_id);
@@ -232,28 +245,54 @@ fn make_dock_button(win: &NiriWindow) -> Button {
         .tooltip_text(&label_text)
         .build();
 
+
     if win.is_focused {
         btn.add_css_class("dockBtnActive");
     }
 
     let id = win.id;
-    btn.connect_clicked(move |_| {
-        focus_window(id);
-    });
-
     let hover_ctrl = gtk4::EventControllerMotion::new();
     let pending: Rc<Cell<bool>> = Rc::new(Cell::new(false));
     let prev_preview_handler: Rc<RefCell<Option<glib::SignalHandlerId>>> = Rc::new(RefCell::new(None));
+    let committed = Rc::new(Cell::new(false));
+
+    let click_gesture = gtk4::GestureClick::new();
+    let click_committed = committed.clone();
+
+    click_gesture.connect_pressed(move |_, _, _, _| {
+        click_committed.set(true);
+    });
+
+    btn.add_controller(click_gesture);
+
+    let click_prev_handler = prev_preview_handler.clone();
+    let click_hover_ctrl = hover_ctrl.clone();
+    let click_pending = pending.clone();
+    btn.connect_clicked(move |_| {
+        click_pending.set(false);
+        if let Some(handler_id) = click_prev_handler.borrow_mut().take() {
+            click_hover_ctrl.disconnect(handler_id);
+        }
+
+        focus_window(id);
+    });
 
     let pending_enter = Rc::clone(&pending);
+    let committed_enter = committed.clone();
     hover_ctrl.connect_enter(move |hvr_ctrl, _, _| {
         pending_enter.set(true);
         let pending_timeout = Rc::clone(&pending_enter);
         let hvr = hvr_ctrl.clone();
         let prev_handler = prev_preview_handler.clone();
-        glib::timeout_add_local(Duration::from_millis(500), move || {
+        let committed = committed_enter.clone(); 
+        glib::timeout_add_local(Duration::from_millis(1000), move || {
             if pending_timeout.get() {
-                preview_window(id, hvr.clone(), prev_handler.clone());
+                preview_window(
+                    id,
+                    hvr.clone(),
+                    prev_handler.clone(),
+                    committed.clone(),
+                );
             }
             glib::ControlFlow::Break
         });
@@ -269,22 +308,54 @@ fn make_dock_button(win: &NiriWindow) -> Button {
     btn
 }
 
-fn rebuild_dockbox(dockbox: &GtkBox, windows: &[NiriWindow]) {
+#[derive(Default)]
+struct DockState {
+    buttons: HashMap<u64, Button>,
+    order: Vec<u64>,
+}
+
+fn update_dockbox(dockbox: &GtkBox, state: &Rc<RefCell<DockState>>, windows: &[NiriWindow]) {
+    let mut state = state.borrow_mut();
+    let new_order: Vec<u64> = windows.iter().map(|w| w.id).collect();
+
+    if !windows.is_empty() && new_order == state.order {
+        for win in windows {
+            if let Some(btn) = state.buttons.get(&win.id) {
+                if win.is_focused {
+                    btn.add_css_class("dockBtnActive");
+                } else {
+                    btn.remove_css_class("dockBtnActive");
+                }
+                let label_text = if win.title.is_empty() {
+                    win.app_id.clone()
+                } else {
+                    win.title.clone()
+                };
+                btn.set_tooltip_text(Some(&label_text));
+            }
+        }
+        return;
+    }
+
     while let Some(child) = dockbox.first_child() {
         dockbox.remove(&child);
     }
+    state.buttons.clear();
 
     if windows.is_empty() {
         let empty = gtk4::Label::new(Some("No open apps"));
         empty.add_css_class("dockEmpty");
         dockbox.append(&empty);
+        state.order.clear();
         return;
     }
 
     for win in windows {
         let btn = make_dock_button(win);
         dockbox.append(&btn);
+        state.buttons.insert(win.id, btn);
     }
+    state.order = new_order;
 }
 
 pub fn spawn_altdock(app: &Application, dockbox: GtkBox) -> ApplicationWindow {
@@ -307,9 +378,10 @@ pub fn spawn_altdock(app: &Application, dockbox: GtkBox) -> ApplicationWindow {
     let dockbox_clone_anim = dockbox.clone();
 
     let dockbox_rc = Rc::new(dockbox);
+    let dock_state: Rc<RefCell<DockState>> = Rc::new(RefCell::new(DockState::default()));
 
     let initial = windows_sorted(&get_niri_windows_map());
-    rebuild_dockbox(&dockbox_rc, &initial);
+    update_dockbox(&dockbox_rc, &dock_state, &initial);
 
     win.set_child(Some(&*dockbox_rc));
 
@@ -318,6 +390,7 @@ pub fn spawn_altdock(app: &Application, dockbox: GtkBox) -> ApplicationWindow {
     {
         let dockbox_rc = dockbox_rc.clone();
         let niri_rx = niri_rx.clone();
+        let dock_state = dock_state.clone();
 
         glib::timeout_add_local(Duration::from_millis(150), move || {
             let rx = niri_rx.borrow();
@@ -328,7 +401,7 @@ pub fn spawn_altdock(app: &Application, dockbox: GtkBox) -> ApplicationWindow {
             drop(rx);
 
             if let Some(windows) = latest {
-                rebuild_dockbox(&dockbox_rc, &windows);
+                update_dockbox(&dockbox_rc, &dock_state, &windows);
             }
 
             glib::ControlFlow::Continue

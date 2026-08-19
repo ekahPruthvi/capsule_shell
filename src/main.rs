@@ -1050,7 +1050,7 @@ fn coping_with(app: &Application) {
         let pop = popover_enter.clone();
         let dockbox_anim = dockbox_anim.clone();
         let pending_timeout = Rc::clone(&pending_enter);
-        glib::timeout_add_local(Duration::from_millis(500), move || {
+        glib::timeout_add_local(Duration::from_millis(200), move || {
             if pending_timeout.get() {
                 dockbox_anim.remove_css_class("dockleave");
                 pop.set_visible(true);
@@ -1065,7 +1065,7 @@ fn coping_with(app: &Application) {
         pending_leave.set(false);
     });
 
-    c_tna.add_controller(hover_ctrl);
+    time_and_actions.add_controller(hover_ctrl);
 
     time_window.set_child(Some(&time_capsule));
 
