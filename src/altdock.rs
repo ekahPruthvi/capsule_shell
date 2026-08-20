@@ -11,6 +11,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use serde_json::Value;
+use niri_ipc::{socket::Socket, Action, PositionChange, Request, Response};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct NiriWindow {
@@ -104,6 +105,96 @@ fn get_focused_window_id() -> Option<u64> {
     }
 
     parsed.get("id")?.as_u64()
+}
+
+fn get_window_position(id: u64) -> Option<(f64, f64, bool)> {
+    let mut sock = Socket::connect().ok()?;
+    match sock.send(Request::Windows) {
+        Ok(Ok(Response::Windows(windows))) => windows
+            .into_iter()
+            .find(|w| w.id == id)
+            .and_then(|w| {
+                w.layout
+                    .tile_pos_in_workspace_view
+                    .map(|(x, y)| (x, y, w.is_floating))
+            }),
+        _ => None,
+    }
+}
+
+fn send_action(action: Action) {
+    if let Ok(mut sock) = Socket::connect() {
+        let _ = sock.send(Request::Action(action));
+    }
+}
+
+fn nudge_window(id: u64, offset_y: f64, on_done: impl Fn() + 'static) {
+    let Some((x, y, is_floating)) = get_window_position(id) else {
+        on_done();
+        return;
+    };
+
+    if !is_floating {
+        on_done();
+        return;
+    }
+
+    const OUT_STEPS: u32 = 5;
+    const BACK_STEPS: u32 = 5;
+    const TICK_MS: u64 = 16; // ~60fps
+    let target_y = y + offset_y;
+    let step = Rc::new(Cell::new(0u32));
+
+    glib::timeout_add_local(Duration::from_millis(TICK_MS), move || {
+        let s = step.get();
+        let total = OUT_STEPS + BACK_STEPS;
+
+        if s >= total {
+            send_action(Action::MoveFloatingWindow {
+                id: Some(id),
+                x: PositionChange::SetFixed(x),
+                y: PositionChange::SetFixed(y),
+            });
+            on_done();
+            return glib::ControlFlow::Break;
+        }
+
+        let cur_y = if s < OUT_STEPS {
+            let progress = s as f64 / OUT_STEPS as f64;
+            let t = 1.0 - (1.0 - progress).powi(3);
+            y + (target_y - y) * t
+        } else {
+            let progress = (s - OUT_STEPS) as f64 / BACK_STEPS as f64;
+            let t = 1.0 - (1.0 - progress).powi(3);
+            target_y + (y - target_y) * t
+        };
+
+        send_action(Action::MoveFloatingWindow {
+            id: Some(id),
+            x: PositionChange::SetFixed(x),
+            y: PositionChange::SetFixed(cur_y),
+        });
+
+        step.set(s + 1);
+        glib::ControlFlow::Continue
+    });
+}
+
+fn focus_window_animated(id: u64) {
+    let Some(orig_id) = get_focused_window_id() else {
+        focus_window(id);
+        return;
+    };
+
+    if orig_id == id {
+        focus_window(id);
+        return;
+    }
+
+    nudge_window(orig_id, 300.0, || {});
+    nudge_window(id, -300.0, move || {
+        focus_window(id);
+    });
 }
 
 fn preview_window(
@@ -274,7 +365,7 @@ fn make_dock_button(win: &NiriWindow) -> Button {
             click_hover_ctrl.disconnect(handler_id);
         }
 
-        focus_window(id);
+        focus_window_animated(id);
     });
 
     let pending_enter = Rc::clone(&pending);
@@ -284,7 +375,7 @@ fn make_dock_button(win: &NiriWindow) -> Button {
         let pending_timeout = Rc::clone(&pending_enter);
         let hvr = hvr_ctrl.clone();
         let prev_handler = prev_preview_handler.clone();
-        let committed = committed_enter.clone(); 
+        let committed = committed_enter.clone();
         glib::timeout_add_local(Duration::from_millis(1000), move || {
             if pending_timeout.get() {
                 preview_window(
