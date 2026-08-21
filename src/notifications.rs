@@ -24,6 +24,12 @@ pub struct Notification {
     pub _actions: Vec<String>
 }
 
+struct LastNotiGroup {
+    summary: String,
+    popover_vbox: GtkBox,
+    body_label: Label,
+}
+
 struct NotificationServer {
     sender: mpsc::UnboundedSender<Notification>,
     next_id: std::sync::atomic::AtomicU32,
@@ -174,6 +180,7 @@ pub fn connect_notifications_to_dock(
     let pending_count: Rc<Cell<u32>>  = Rc::new(Cell::new(0));
     let is_expanded:   Rc<Cell<bool>> = Rc::new(Cell::new(false));
     let current_width: Rc<Cell<f64>>  = Rc::new(Cell::new(300.0));
+    let last_group: Rc<RefCell<Option<LastNotiGroup>>> = Rc::new(RefCell::new(None));
     let ctx = gtk4::glib::MainContext::default();
     ctx.spawn_local(clone!(
         #[strong] noti_window,
@@ -215,6 +222,27 @@ pub fn connect_notifications_to_dock(
 
                 play_notification_sound();
 
+                let is_duplicate = last_group
+                    .borrow()
+                    .as_ref()
+                    .map(|g| g.summary == notif.summary)
+                    .unwrap_or(false);
+
+                if is_duplicate {
+                    if let Some(group) = last_group.borrow().as_ref() {
+                        group.body_label.set_text(&notif.body);
+
+                        let grouped_label = Label::new(Some(&notif.body));
+                        grouped_label.set_css_classes(&["notificationAllLabelBody"]);
+                        grouped_label.set_wrap(true);
+                        grouped_label.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
+                        grouped_label.set_max_width_chars(45);
+                        grouped_label.set_halign(gtk4::Align::Start);
+
+                        group.popover_vbox.append(&grouped_label);
+                    }
+                } else {
+
                 let noti_label_sum = Label::new(Some(&notif.summary));
                 noti_label_sum.set_css_classes(&["notificationAllLabelSummary"]);
                 noti_label_sum.set_halign(gtk4::Align::Start);
@@ -250,9 +278,13 @@ pub fn connect_notifications_to_dock(
                 pop_label.set_max_width_chars(45);
                 pop_label.set_halign(gtk4::Align::Start);
 
+                let popover_vbox = GtkBox::new(gtk4::Orientation::Vertical, 6);
+                popover_vbox.set_css_classes(&["notiPopupBox"]);
+                popover_vbox.append(&pop_label);
+
                 let popover = gtk4::Popover::new();
                 popover.popdown();
-                popover.set_child(Some(&pop_label));
+                popover.set_child(Some(&popover_vbox));
                 popover.set_parent(&noti_all_box);
                 popover.set_css_classes(&["notiPopup"]);
                 popover.set_has_arrow(false);
@@ -357,8 +389,21 @@ pub fn connect_notifications_to_dock(
                 noti_all.prepend(&noti_all_box);
 
                 let noti_all_clone = noti_all.clone();
+                let last_group_del = Rc::clone(&last_group);
+                let popover_vbox_del = popover_vbox.clone();
                 delete_btn.connect_clicked( move |_| {
                     noti_all_clone.remove(&noti_all_box);
+
+                    {
+                        let mut lg = last_group_del.borrow_mut();
+                        let is_current_group = lg
+                            .as_ref()
+                            .map(|g| g.popover_vbox == popover_vbox_del)
+                            .unwrap_or(false);
+                        if is_current_group {
+                            *lg = None;
+                        }
+                    }
 
                     let first = noti_all_clone.first_child();
                     let last  = noti_all_clone.last_child();
@@ -383,7 +428,13 @@ pub fn connect_notifications_to_dock(
                     }
                 });
 
+                *last_group.borrow_mut() = Some(LastNotiGroup {
+                    summary: notif.summary.clone(),
+                    popover_vbox,
+                    body_label: noti_label_bod,
+                });
 
+                }
 
                 pending_count.set(pending_count.get() + 1);
 
