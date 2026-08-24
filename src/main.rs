@@ -20,7 +20,14 @@ mod widgets;
 mod ctrl;
 mod altdock;
 
-use widgets::{system::spawn_sys_widget, calendar::spawn_calendar_widget, battery::spawn_bat_widget, stick::spawn_stick_widget, kill};
+use widgets::{
+    system::spawn_sys_widget, 
+    calendar::spawn_calendar_widget,
+    battery::spawn_bat_widget, 
+    stick::spawn_stick_widget, 
+    apps::spawn_appd_widget,
+    kill
+};
 use ctrl::{spawn_network_watcher, NetworkState, spawn_ctrl_capsules};
 use altdock::spawn_altdock;
 
@@ -31,11 +38,12 @@ struct WidgetConfig {
     shellout: String,
     bat:      bool,
     stick:    bool,
+    appd: bool,
 }
 
 impl Default for WidgetConfig {
     fn default() -> Self {
-        Self { cal: false, sys: false, shellout: String::new(), bat: false, stick: false }
+        Self { cal: false, sys: false, shellout: String::new(), bat: false, stick: false, appd: false }
     }
 }
 
@@ -79,6 +87,7 @@ fn parse_widget_config(path: &str) -> Option<WidgetConfig> {
             "sys"   => cfg.sys   = val == "true",
             "bat"   => cfg.bat   = val == "true",
             "stick" => cfg.stick = val == "true",
+            "appd" => cfg.appd = val == "true",
             _       => {}
         }
     }
@@ -1148,6 +1157,7 @@ fn coping_with(app: &Application) {
     let active_sys: Rc<RefCell<bool>> = Rc::new(RefCell::new(initial_cfg.sys));
     let active_bat: Rc<RefCell<bool>> = Rc::new(RefCell::new(initial_cfg.bat));
     let active_stick: Rc<RefCell<bool>> = Rc::new(RefCell::new(initial_cfg.stick));
+    let active_appd: Rc<RefCell<bool>> = Rc::new(RefCell::new(initial_cfg.appd));
 
     let cal_win: Rc<RefCell<Option<gtk4::Window>>> = Rc::new(RefCell::new(None));
     if initial_cfg.cal {
@@ -1165,6 +1175,10 @@ fn coping_with(app: &Application) {
     if initial_cfg.bat {
         *bat_win.borrow_mut() = Some(spawn_bat_widget(shellout_monitor.as_ref()));
     }
+    let appd_win: Rc<RefCell<Option<gtk4::Window>>> = Rc::new(RefCell::new(None));
+    if initial_cfg.appd {
+        *appd_win.borrow_mut() = Some(spawn_appd_widget(shellout_monitor.as_ref()));
+    }
 
     let probe_rx     = spawn_probe_watcher(probe_path.to_string(), Duration::from_secs(5));
     let probe_rx     = Rc::new(RefCell::new(probe_rx));
@@ -1172,6 +1186,7 @@ fn coping_with(app: &Application) {
     let active_sys_c = active_sys.clone();
     let active_bat_c = active_bat.clone();
     let active_stick_c = active_stick.clone();
+    let active_appd_c = active_appd.clone();
     let pp_monitor = shellout_monitor.clone();
 
     glib::timeout_add_local(Duration::from_millis(500), move || {
@@ -1214,6 +1229,16 @@ fn coping_with(app: &Application) {
                 let maybe = stick_win.borrow_mut().take();
                 if let Some(w) = maybe { kill(&w); }
                 *active_stick_c.borrow_mut() = false;
+            }
+
+            let appd_active = *active_appd_c.borrow();
+            if cfg.appd && !appd_active {
+                *appd_win.borrow_mut() = Some(spawn_appd_widget(pp_monitor.as_ref()));
+                *active_appd_c.borrow_mut() = true;
+            } else if !cfg.appd && appd_active {
+                let maybe = appd_win.borrow_mut().take();
+                if let Some(w) = maybe { kill(&w); }
+                *active_appd_c.borrow_mut() = false;
             }
         }
         glib::ControlFlow::Continue

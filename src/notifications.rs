@@ -74,7 +74,7 @@ impl NotificationServer {
 
         let _ = self.sender.send(notif);
         id
-    }
+}
 
     async fn get_capabilities(&self) -> Vec<String> {
         vec!["body".into(), "persistence".into()]

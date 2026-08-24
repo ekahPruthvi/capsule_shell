@@ -1,17 +1,17 @@
+use gtk4::glib;
 use gtk4::{
     Application, ApplicationWindow, Box as GtkBox, Button, EventControllerMotion, Image, prelude::*,
 };
-use gtk4::glib;
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
-use std::cell::{RefCell,Cell};
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::io::BufRead;
 use std::process::{Command, Stdio};
 use std::rc::Rc;
 use std::time::Duration;
 
+use niri_ipc::{Action, PositionChange, Request, Response, socket::Socket};
 use serde_json::Value;
-use niri_ipc::{socket::Socket, Action, PositionChange, Request, Response};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct NiriWindow {
@@ -64,14 +64,20 @@ fn get_niri_windows_map() -> HashMap<u64, NiriWindow> {
     let mut map = HashMap::new();
 
     let out = Command::new("niri").args(["msg", "-j", "windows"]).output();
-    let Ok(out) = out else { return map; };
+    let Ok(out) = out else {
+        return map;
+    };
     if !out.status.success() {
         return map;
     }
 
     let text = String::from_utf8_lossy(&out.stdout);
-    let Ok(parsed) = serde_json::from_str::<Value>(&text) else { return map; };
-    let Some(arr) = parsed.as_array() else { return map; };
+    let Ok(parsed) = serde_json::from_str::<Value>(&text) else {
+        return map;
+    };
+    let Some(arr) = parsed.as_array() else {
+        return map;
+    };
 
     for w in arr {
         if let Some(win) = parse_window(w) {
@@ -110,14 +116,13 @@ fn get_focused_window_id() -> Option<u64> {
 fn get_window_position(id: u64) -> Option<(f64, f64, bool)> {
     let mut sock = Socket::connect().ok()?;
     match sock.send(Request::Windows) {
-        Ok(Ok(Response::Windows(windows))) => windows
-            .into_iter()
-            .find(|w| w.id == id)
-            .and_then(|w| {
+        Ok(Ok(Response::Windows(windows))) => {
+            windows.into_iter().find(|w| w.id == id).and_then(|w| {
                 w.layout
                     .tile_pos_in_workspace_view
                     .map(|(x, y)| (x, y, w.is_floating))
-            }),
+            })
+        }
         _ => None,
     }
 }
@@ -336,7 +341,6 @@ fn make_dock_button(win: &NiriWindow) -> Button {
         .tooltip_text(&label_text)
         .build();
 
-
     if win.is_focused {
         btn.add_css_class("dockBtnActive");
     }
@@ -344,7 +348,8 @@ fn make_dock_button(win: &NiriWindow) -> Button {
     let id = win.id;
     let hover_ctrl = gtk4::EventControllerMotion::new();
     let pending: Rc<Cell<bool>> = Rc::new(Cell::new(false));
-    let prev_preview_handler: Rc<RefCell<Option<glib::SignalHandlerId>>> = Rc::new(RefCell::new(None));
+    let prev_preview_handler: Rc<RefCell<Option<glib::SignalHandlerId>>> =
+        Rc::new(RefCell::new(None));
     let committed = Rc::new(Cell::new(false));
 
     let click_gesture = gtk4::GestureClick::new();
@@ -378,12 +383,7 @@ fn make_dock_button(win: &NiriWindow) -> Button {
         let committed = committed_enter.clone();
         glib::timeout_add_local(Duration::from_millis(1000), move || {
             if pending_timeout.get() {
-                preview_window(
-                    id,
-                    hvr.clone(),
-                    prev_handler.clone(),
-                    committed.clone(),
-                );
+                preview_window(id, hvr.clone(), prev_handler.clone(), committed.clone());
             }
             glib::ControlFlow::Break
         });
@@ -529,7 +529,7 @@ pub fn spawn_altdock(app: &Application, dockbox: GtkBox) -> ApplicationWindow {
 
     let pendingg = Rc::clone(&pending);
     let pop_enter = win.clone();
-    hover_ctrl.connect_enter(move |_,_,_| {
+    hover_ctrl.connect_enter(move |_, _, _| {
         pendingg.set(false);
         pop_enter.remove_css_class("dockleave");
         pop_enter.add_css_class("dockcum");
@@ -541,3 +541,4 @@ pub fn spawn_altdock(app: &Application, dockbox: GtkBox) -> ApplicationWindow {
     win.set_visible(false);
     win
 }
+
