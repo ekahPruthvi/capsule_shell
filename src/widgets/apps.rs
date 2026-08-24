@@ -2,47 +2,136 @@ use gtk4::{Box as GtkBox, Grid, Image, Orientation, Window, prelude::*};
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use std::cell::Cell;
 use std::rc::Rc;
+use std::fs as stdfs;
+use std::path::Path as stdpath;
 use crate::widgets::position::{load_positions, save_position};
+use std::io::BufRead;
 
 const NAME: &str = "appd";
 
 #[derive(Debug, Clone)]
-struct applications {
+struct Applications {
     name: String,
     icon: Option<String>,
     exec: String,
 }
 
-// fn reload_image(img: &Image) {
-//     let probe_text = match std::fs::read_to_string(PROBE_PATH) {
-//         Ok(t) => t,
-//         Err(_) => return,
-//     };
-//     if let Some(path) = parse_stick_image_path(&probe_text) {
-//         match gtk4::gdk_pixbuf::Pixbuf::from_file_at_scale(&path, -1, 200, true) {
-//             Ok(pb) => {
-//                 let w = pb.width();
-//                 let texture = gtk4::gdk::Texture::for_pixbuf(&pb);
-//                 img.set_paintable(Some(&texture));
-//                 img.set_size_request(w, 200);
-//             }
-//             Err(e) => {
-//                 eprintln!("[stick] failed to load image {path}: {e}");
-//                 img.set_paintable(None::<&gtk4::gdk::Paintable>);
-//             }
-//         }
-//     } else {
-//         img.set_paintable(None::<&gtk4::gdk::Paintable>);
-//     }
-// }
-
-fn populate_repopulate(path: String) -> applications {
-    applications { name: "bob".to_string(), icon: Some("cos".to_string()), exec: "cynagectl".to_string() }
+fn sanitize_exec(exec_str: &str) -> String {
+    exec_str
+        .split_whitespace()
+        .filter(|arg| !arg.starts_with('%'))
+        .collect::<Vec<&str>>()
+        .join(" ")
 }
 
-fn build_app_grid(grid: &Grid, apps: Vec<applications>) {
+fn populate_repopulate() -> Vec<Applications> {
+    let mut apps: Vec<Applications> = vec![];
+    
+    if let Some(desktop) = dirs::desktop_dir() {
+        match stdfs::read_dir(desktop) {
+            Ok(files) => {
+                for file in files.flatten() {
+                    let path = file.path();
+                    if path.is_file() {
+                        if path.extension().and_then(|ext| ext.to_str()) != Some("desktop") {
+                            continue;
+                        }
+                        if let Ok(filehandle) = stdfs::File::open(&path) {
+                            let reader = std::io::BufReader::new(filehandle);
+                            let mut name = None;
+                            let mut icon = None;
+                            let mut exec = None;
+                            let mut is_desktop_entry = false;
+                            let mut nodisplay = false;
 
-}   
+                            for line in reader.lines().flatten() {
+                                let line = line.trim();
+
+                                if line.starts_with('[') && line.ends_with(']') {
+                                    is_desktop_entry = line == "[Desktop Entry]";
+                                    continue;
+                                }
+
+                                if !is_desktop_entry || line.starts_with('#') || !line.contains('=') {
+                                    continue;
+                                }
+
+                                let mut parts = line.splitn(2, '=');
+                                if let (Some(key), Some(value)) = (parts.next(), parts.next()) {
+                                    match key.trim() {
+                                        "Name" if name.is_none() => name = Some(value.trim().to_string()),
+                                        "Exec" => exec = Some(sanitize_exec(value.trim())),
+                                        "Icon" => icon = Some(value.trim().to_string()),
+                                        "NoDisplay" if value.trim() == "true" => nodisplay = true,
+                                        _ => {}
+                                    }
+                                }
+                            }
+
+                            if !nodisplay {
+                                if let (Some(name), Some(exec)) = (name, exec) {
+                                    apps.push(Applications { name, icon, exec });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Err(e) => eprintln!("[appd] cannot read desktop directory: {}", e),
+        }
+    }
+
+    apps
+}
+
+fn build_app_grid(grid: &Grid, apps: Vec<Applications>) {
+    const ROWS: i32 = 2;
+
+    for (idx, app) in apps.into_iter().enumerate() {
+        let idx = idx as i32;
+        let col = idx / ROWS;
+        let row = idx % ROWS;
+
+        let item = GtkBox::new(Orientation::Vertical, 4);
+        item.set_halign(gtk4::Align::Center);
+        item.add_css_class("appItem");
+
+        let icon = Image::new();
+        icon.set_pixel_size(48);
+        match &app.icon {
+            Some(icon_name) if stdpath::new(icon_name).is_absolute() => {
+                icon.set_from_file(Some(icon_name));
+            }
+            Some(icon_name) => {
+                icon.set_icon_name(Some(icon_name));
+            }
+            None => {
+                icon.set_icon_name(Some("application-x-executable"));
+            }
+        }
+
+        let label = gtk4::Label::new(Some(&app.name));
+        label.set_max_width_chars(10);
+        label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+        label.add_css_class("appLabel");
+
+        item.append(&icon);
+        item.append(&label);
+
+        // Launch the app on click.
+        let exec = app.exec.clone();
+        let click = gtk4::GestureClick::new();
+        click.connect_released(move |_, _, _, _| {
+            let mut parts = exec.split_whitespace();
+            if let Some(cmd) = parts.next() {
+                let _ = std::process::Command::new(cmd).args(parts).spawn();
+            }
+        });
+        item.add_controller(click);
+
+        grid.attach(&item, col, row, 1, 1);
+    }
+}
 
 pub fn spawn_appd_widget(monitor: Option<&gtk4::gdk::Monitor>) -> Window {
     let positions = load_positions();
@@ -81,33 +170,8 @@ pub fn spawn_appd_widget(monitor: Option<&gtk4::gdk::Monitor>) -> Window {
 
     handle.append(&app_grid);
 
-    // reload_image(&sticker_img);
-
-    // {
-    //     let img_ref = sticker_img.clone();
-    //     let probe_file = gtk4::gio::File::for_path(PROBE_PATH);
-    //     if let Ok(monitor) = probe_file.monitor_file(
-    //         gtk4::gio::FileMonitorFlags::NONE,
-    //         gtk4::gio::Cancellable::NONE,
-    //     ) {
-    //         monitor.connect_changed(move |_mon, _file, _other, event| {
-    //             use gtk4::gio::FileMonitorEvent;
-    //             match event {
-    //                 FileMonitorEvent::Changed
-    //                 | FileMonitorEvent::ChangesDoneHint
-    //                 | FileMonitorEvent::MovedIn
-    //                 | FileMonitorEvent::Renamed => {
-    //                     reload_image(&img_ref);
-    //                 }
-    //                 _ => {}
-    //             }
-    //         });
-    //         unsafe {
-    //             outer.set_data("_probe_monitor", monitor);
-    //         }
-    //     }
-    // }
-
+    build_app_grid(&app_grid, populate_repopulate());
+    
     outer.append(&handle);
 
     win.set_child(Some(&outer));
