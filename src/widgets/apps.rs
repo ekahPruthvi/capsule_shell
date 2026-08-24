@@ -1,4 +1,4 @@
-use gtk4::{Box as GtkBox, Grid, Image, Orientation, Window, prelude::*};
+use gtk4::{Box as GtkBox, Button, Grid, Image, Orientation, Window, prelude::*, subclass::window};
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use std::cell::Cell;
 use std::rc::Rc;
@@ -6,8 +6,13 @@ use std::fs as stdfs;
 use std::path::Path as stdpath;
 use crate::widgets::position::{load_positions, save_position};
 use std::io::BufRead;
+use notify::{RecommendedWatcher, RecursiveMode, Watcher, EventKind};
+use std::time::{Duration, Instant};
+use async_channel::Sender;
 
 const NAME: &str = "appd";
+
+// still have to add drag and drop to create new .desktop and also right click menu to delete
 
 #[derive(Debug, Clone)]
 struct Applications {
@@ -92,7 +97,7 @@ fn build_app_grid(grid: &Grid, apps: Vec<Applications>) {
         let col = idx / ROWS;
         let row = idx % ROWS;
 
-        let item = GtkBox::new(Orientation::Vertical, 4);
+        let item = Button::new();
         item.set_halign(gtk4::Align::Center);
         item.add_css_class("appItem");
 
@@ -110,27 +115,69 @@ fn build_app_grid(grid: &Grid, apps: Vec<Applications>) {
             }
         }
 
-        let label = gtk4::Label::new(Some(&app.name));
-        label.set_max_width_chars(10);
-        label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-        label.add_css_class("appLabel");
+        item.set_has_tooltip(true);
+        item.set_tooltip_text(Some(&app.name));
 
-        item.append(&icon);
-        item.append(&label);
+        item.set_child(Some(&icon));
 
-        // Launch the app on click.
         let exec = app.exec.clone();
-        let click = gtk4::GestureClick::new();
-        click.connect_released(move |_, _, _, _| {
+        item.connect_clicked(move |_| {
             let mut parts = exec.split_whitespace();
             if let Some(cmd) = parts.next() {
                 let _ = std::process::Command::new(cmd).args(parts).spawn();
             }
         });
-        item.add_controller(click);
 
         grid.attach(&item, col, row, 1, 1);
     }
+}
+
+fn clear_grid(grid: &Grid) {
+    while let Some(child) = grid.first_child() {
+        grid.remove(&child);
+    }
+}
+
+fn refresh_app_grid(grid: &Grid, win: &Window) {
+    clear_grid(grid);
+    build_app_grid(grid, populate_repopulate());
+    win.set_visible(true);
+}
+
+fn watch_desktop_dir(desktop: std::path::PathBuf, tx: Sender<()>) {
+    std::thread::spawn(move || {
+        let (watch_tx, watch_rx) = std::sync::mpsc::channel();
+        let mut watcher: RecommendedWatcher = match notify::recommended_watcher(watch_tx) {
+            Ok(w) => w,
+            Err(e) => {
+                eprintln!("[appd] failed to create watcher: {}", e);
+                return;
+            }
+        };
+
+        if let Err(e) = watcher.watch(&desktop, RecursiveMode::NonRecursive) {
+            eprintln!("[appd] failed to watch desktop dir: {}", e);
+            return;
+        }
+
+        for res in watch_rx {
+            match res {
+                Ok(event) => {
+                    if matches!(
+                        event.kind,
+                        EventKind::Create(_) | EventKind::Remove(_) | EventKind::Modify(_)
+                    ) {
+                        if tx.send_blocking(()).is_err() {
+                            break;
+                        }
+                    }
+                }
+                Err(e) => eprintln!("[appd] watch error: {}", e),
+            }
+        }
+
+        drop(watcher);
+    });
 }
 
 pub fn spawn_appd_widget(monitor: Option<&gtk4::gdk::Monitor>) -> Window {
@@ -146,18 +193,17 @@ pub fn spawn_appd_widget(monitor: Option<&gtk4::gdk::Monitor>) -> Window {
     win.set_exclusive_zone(0);
     win.set_margin(Edge::Top, start_y);
     win.set_margin(Edge::Left, start_x);
-    win.set_height_request(240);
+    // win.set_height_request(40);
     if let Some(m) = monitor {
         win.set_monitor(Some(m));
     }
     win.remove_css_class("background");
-    win.add_css_class("batpage");
 
-    let outer = GtkBox::new(Orientation::Vertical, 0);
-    outer.set_css_classes(&["starting"]);
+    let outer = GtkBox::new(Orientation::Horizontal, 10);
+    outer.set_css_classes(&["starting", "outerAppd"]);
 
     let handle = GtkBox::new(Orientation::Horizontal, 0);
-    handle.add_css_class("dragHandlestick");
+    handle.add_css_class("dragHandle");
     handle.set_cursor_from_name(Some("grab"));
     handle.set_hexpand(true);
     handle.set_vexpand(true);
@@ -168,11 +214,34 @@ pub fn spawn_appd_widget(monitor: Option<&gtk4::gdk::Monitor>) -> Window {
         .row_spacing(5)
         .build();
 
-    handle.append(&app_grid);
-
     build_app_grid(&app_grid, populate_repopulate());
-    
+
+    if let Some(desktop) = dirs::desktop_dir() {
+        let (tx, rx) = async_channel::unbounded::<()>();
+        watch_desktop_dir(desktop, tx);
+
+        let grid_c = app_grid.clone();
+        let win = win.clone();
+        gtk4::glib::spawn_future_local(async move {
+            let last_refresh: Cell<Option<Instant>> = Cell::new(None);
+            let win = win.clone();
+            while rx.recv().await.is_ok() {
+                let now = Instant::now();
+                let should_refresh = match last_refresh.get() {
+                    Some(t) if now.duration_since(t) < Duration::from_millis(300) => false,
+                    _ => true,
+                };
+                last_refresh.set(Some(now));
+                if should_refresh {
+                    win.set_visible(false);
+                    refresh_app_grid(&grid_c, &win);
+                }
+            }
+        });
+    }
+
     outer.append(&handle);
+    outer.append(&app_grid);
 
     win.set_child(Some(&outer));
     win.present();
