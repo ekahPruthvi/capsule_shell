@@ -15,7 +15,7 @@ use gtk4_layer_shell::LayerShell;
 
 #[derive(Debug, Clone)]
 pub struct Notification {
-    pub id: u32,
+    pub _id: u32,
     pub app_name: String,
     pub summary: String,
     pub body: String,
@@ -48,7 +48,7 @@ impl NotificationServer {
         hints: std::collections::HashMap<String, zbus::zvariant::OwnedValue>,
         _expire_timeout: i32,
     ) -> u32 {
-        let id = self
+        let _id = self
             .next_id
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
@@ -63,7 +63,7 @@ impl NotificationServer {
         };
 
         let notif = Notification {
-            id,
+            _id,
             app_name: app_name.to_string(),
             summary: summary.to_string(),
             body: body.to_string(),
@@ -73,11 +73,11 @@ impl NotificationServer {
         };
 
         let _ = self.sender.send(notif);
-        id
-}
+        _id
+    }
 
     async fn get_capabilities(&self) -> Vec<String> {
-        vec!["body".into(), "persistence".into()]
+        return vec!["body".into(), "persistence".into()]
     }
 
     async fn get_server_information(&self) -> (&str, &str, &str, &str) {
@@ -85,6 +85,35 @@ impl NotificationServer {
     }
 
     async fn close_notification(&self, _id: u32) {}
+}
+
+fn is_it_dnd() -> String {
+    let file = match File::open("/var/lib/cynager/info.probe") {
+        Ok(f) => f,
+        Err(_) => return "false".to_string(),
+    };
+    let reader = io::BufReader::new(file);
+    let mut in_set_block = false;
+    let mut dnd = String::new();
+    for line in reader.lines().map_while(Result::ok) {
+        let trimmed = line.trim().to_string();
+        if trimmed == ":set" {
+            in_set_block = true;
+            continue;
+        }
+        if trimmed == ":end" {
+            in_set_block = false;
+            continue;
+        }
+        if in_set_block && trimmed.starts_with("dnd") {
+            let parts: Vec<&str> = trimmed.split(':').collect();
+            if parts.len() >= 2 {
+                dnd = parts[1].trim().to_string();
+            }
+        }
+    }
+
+    dnd
 }
 
 pub fn spawn_messaging_daemon() -> UnboundedReceiver<Notification> {
@@ -117,33 +146,7 @@ pub fn spawn_messaging_daemon() -> UnboundedReceiver<Notification> {
 }
 
 fn play_notification_sound() {
-    let file = match File::open("/var/lib/cynager/info.probe") {
-        Ok(f) => f,
-        Err(_) => return,
-    };
-    let reader = io::BufReader::new(file);
-    let mut in_set_block = false;
-    let mut dnd = String::new();
-
-    for line in reader.lines().map_while(Result::ok) {
-        let trimmed = line.trim().to_string();
-        if trimmed == ":set" {
-            in_set_block = true;
-            continue;
-        }
-        if trimmed == ":end" {
-            in_set_block = false;
-            continue;
-        }
-        if in_set_block && trimmed.starts_with("dnd") {
-            let parts: Vec<&str> = trimmed.split(':').collect();
-            if parts.len() >= 2 {
-                dnd = parts[1].trim().to_string();
-            }
-        }
-    }
-
-    if dnd == "false" {
+    if is_it_dnd() == "false" {
         thread::spawn(|| {
             let (_stream, stream_handle) = match OutputStream::try_default() {
                 Ok(v) => v,
@@ -203,7 +206,7 @@ pub fn connect_notifications_to_dock(
                 notification_icon.set_css_classes(&["notiIcon"]);
                 notification_icon.set_height_request(28);
 
-                let display = gtk4::gdk::Display::default().expect("Failed to get default GDK display");
+                let display = gtk4::gdk::Display::default().expect("[notifications] Failed to get default GDK display");
                 let icon_theme = gtk4::IconTheme::for_display(&display);
 
                 if icon_theme.has_icon(&notif.icon) {
@@ -455,7 +458,9 @@ pub fn connect_notifications_to_dock(
                         // main_window.set_width_request(target_width + 50);
                         noti_window.set_width_request(start_width);
                         noti_window.set_css_classes(&["timeCapsule"]);
-                        main_window.set_layer(gtk4_layer_shell::Layer::Overlay);
+                        if is_it_dnd() == "false" {
+                            main_window.set_layer(gtk4_layer_shell::Layer::Overlay);
+                        }
 
                         let noti_window_anim   = noti_window.clone();
                         let current_width_anim = Rc::clone(&current_width);

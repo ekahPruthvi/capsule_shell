@@ -7,11 +7,10 @@ use gtk4::gdk::Display;
 use std::{env, time::Duration, process::Command};
 use chrono::Local;
 use gtk4::gio::File;
-use std::cell::RefCell;
 use std::rc::Rc;
 use libc;
 use niri_ipc::{socket::Socket, Action, PositionChange, Request, Response, WorkspaceReferenceArg};
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 
 mod notifications;
 mod osd;
@@ -322,7 +321,7 @@ fn battery_icon(state: &BatteryState) -> &'static str {
 
 fn battery_tip(state: &BatteryState) -> String {
     let status = if state.charging { "Charging" } else { "Discharging" };
-    format!("{} · {}%", status, state.percent)
+    return format!("{} · {}%", status, state.percent)
 }
 
 fn spawn_battery_watcher(interval: Duration) -> std::sync::mpsc::Receiver<Option<BatteryState>> {
