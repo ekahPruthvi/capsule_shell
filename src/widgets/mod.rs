@@ -6,7 +6,7 @@ pub mod calendar;
 pub mod position;
 pub mod battery;
 pub mod stick;
-pub mod apps;
+pub mod appd;
 
 pub fn kill(win: &Window) {
     win.close();

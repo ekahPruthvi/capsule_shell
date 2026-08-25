@@ -24,7 +24,7 @@ use widgets::{
     calendar::spawn_calendar_widget,
     battery::spawn_bat_widget, 
     stick::spawn_stick_widget, 
-    apps::spawn_appd_widget,
+    appd::spawn_appd_widget,
     kill
 };
 use ctrl::{spawn_network_watcher, NetworkState, spawn_ctrl_capsules};

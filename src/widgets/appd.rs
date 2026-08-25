@@ -133,7 +133,7 @@ fn build_app_grid(grid: &Grid, apps: Vec<Applications>) {
                     eprintln!("[appd] Failed to launch show-desktop: {}", e);
                 }
                 let _ = std::process::Command::new("setsid")
-                    .arg("-f") // Fork into background
+                    .arg("-f") 
                     .arg(cmd)
                     .args(&args)
                     .stdin(std::process::Stdio::null())

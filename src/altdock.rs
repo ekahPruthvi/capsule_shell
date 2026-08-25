@@ -446,6 +446,12 @@ fn make_dock_btn(win: &NiriWindow) -> Button {
             if let Some(paintable) = drag_icon.paintable() {
                 src.set_icon(Some(&paintable), 0, 0);
             }
+            if let Err(e) = std::process::Command::new("pkill")
+                .args(["-USR1", "capsule"])
+                .spawn()
+            {
+                eprintln!("[appd] Failed to launch show-desktop: {}", e);
+            }
         });
 
         btn.add_controller(drag_source);
