@@ -1,6 +1,8 @@
+use gtk4::gdk;
 use gtk4::glib;
 use gtk4::{
-    Application, ApplicationWindow, Box as GtkBox, Button, EventControllerMotion, Image, prelude::*,
+    Application, ApplicationWindow, Box as GtkBox, Button, DragSource, EventControllerMotion,
+    Image, prelude::*,
 };
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use std::cell::{Cell, RefCell};
@@ -322,7 +324,35 @@ pub fn spawn_niri_watcher() -> std::sync::mpsc::Receiver<Vec<NiriWindow>> {
     rx
 }
 
-fn make_dock_button(win: &NiriWindow) -> Button {
+fn desktop_for_app_id(app_id: &str) -> Option<std::path::PathBuf> {
+    if app_id.is_empty() {
+        return None;
+    }
+
+    let mut search_dirs: Vec<std::path::PathBuf> = Vec::new();
+
+    if let Some(home) = std::env::var_os("HOME") {
+        search_dirs.push(std::path::Path::new(&home).join(".local/share/applications"));
+    }
+    if let Some(xdg_data_dirs) = std::env::var_os("XDG_DATA_DIRS") {
+        for dir in std::env::split_paths(&xdg_data_dirs) {
+            search_dirs.push(dir.join("applications"));
+        }
+    }
+    search_dirs.push(std::path::PathBuf::from("/usr/share/applications"));
+    search_dirs.push(std::path::PathBuf::from("/usr/local/share/applications"));
+
+    for dir in search_dirs {
+        let candidate = dir.join(format!("{app_id}.desktop"));
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+
+    None
+}
+
+fn make_dock_btn(win: &NiriWindow) -> Button {
     let icon_name = if win.app_id.is_empty() {
         "application-x-executable".to_string()
     } else {
@@ -399,6 +429,28 @@ fn make_dock_button(win: &NiriWindow) -> Button {
 
     btn.add_controller(hover_ctrl);
 
+    if let Some(desktop_path) = desktop_for_app_id(&win.app_id) {
+        let drag_source = DragSource::new();
+        drag_source.set_actions(gdk::DragAction::COPY);
+
+        let prepare_path = desktop_path.clone();
+        drag_source.connect_prepare(move |_src, _x, _y| {
+            let uri = glib::filename_to_uri(&prepare_path, None).ok()?;
+            let payload = format!("{uri}\r\n");
+            let bytes = glib::Bytes::from_owned(payload.into_bytes());
+            Some(gdk::ContentProvider::for_bytes("text/uri-list", &bytes))
+        });
+
+        let drag_icon = icon.clone();
+        drag_source.connect_drag_begin(move |src, _drag| {
+            if let Some(paintable) = drag_icon.paintable() {
+                src.set_icon(Some(&paintable), 0, 0);
+            }
+        });
+
+        btn.add_controller(drag_source);
+    }
+
     btn
 }
 
@@ -445,7 +497,7 @@ fn update_dockbox(dockbox: &GtkBox, state: &Rc<RefCell<DockState>>, windows: &[N
     }
 
     for win in windows {
-        let btn = make_dock_button(win);
+        let btn = make_dock_btn(win);
         dockbox.append(&btn);
         state.buttons.insert(win.id, btn);
     }
@@ -544,4 +596,3 @@ pub fn spawn_altdock(app: &Application, dockbox: GtkBox) -> ApplicationWindow {
     win.set_visible(false);
     win
 }
-
