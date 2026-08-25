@@ -1261,106 +1261,109 @@ fn coping_with(app: &Application) {
     glib::unix_signal_add_local(libc::SIGUSR1, move || {
         let mut hiding = is_hidden_clone.borrow_mut();
 
-        if !*hiding {
-            let wins = get_windows();
-            *focused_clone.borrow_mut() = get_focused_window_id();
-            *records_clone.borrow_mut() = wins.clone();
-            *hiding = true;
-            // timendate_clone.append(&show);
+        if let Some(f_id) = get_focused_window_id() {
 
-            let screen = get_focused_output_size().unwrap_or((1920.0, 1080.0));
+            if !*hiding {
+                let wins = get_windows();
+                *focused_clone.borrow_mut() = Some(f_id);
+                *records_clone.borrow_mut() = wins.clone();
+                *hiding = true;
+                // timendate_clone.append(&show);
 
-            let mut pending = wins.len();
-            let records_c2 = records_clone.clone();
+                let screen = get_focused_output_size().unwrap_or((1920.0, 1080.0));
 
-            for w in wins {
-                if w.is_floating {
-                    let orig_x = w.float_x.unwrap_or(0.0);
-                    let orig_y = w.float_y.unwrap_or(0.0);
-                    let (tx, ty) = corner_hide_target(
-                        orig_x, orig_y, w.float_w, w.float_h, screen.0, screen.1,
-                    );
-                    let wid = w.id;
-                    let wspace = w.workspace_id;
-                    let rc = records_c2.clone();
-                    animate_float_window(wid, orig_x, orig_y, tx, ty, move || {
-                        let mut recs = rc.borrow_mut();
-                        if let Some(rec) = recs.iter_mut().find(|r| r.id == wid) {
-                            rec.corner_x = Some(tx);
-                            rec.corner_y = Some(ty);
-                        }
-                        let _ = (wid, wspace);
+                let mut pending = wins.len();
+                let records_c2 = records_clone.clone();
+
+                for w in wins {
+                    if w.is_floating {
+                        let orig_x = w.float_x.unwrap_or(0.0);
+                        let orig_y = w.float_y.unwrap_or(0.0);
+                        let (tx, ty) = corner_hide_target(
+                            orig_x, orig_y, w.float_w, w.float_h, screen.0, screen.1,
+                        );
+                        let wid = w.id;
+                        let wspace = w.workspace_id;
+                        let rc = records_c2.clone();
+                        animate_float_window(wid, orig_x, orig_y, tx, ty, move || {
+                            let mut recs = rc.borrow_mut();
+                            if let Some(rec) = recs.iter_mut().find(|r| r.id == wid) {
+                                rec.corner_x = Some(tx);
+                                rec.corner_y = Some(ty);
+                            }
+                            let _ = (wid, wspace);
+                        });
+                    }
+                    let _ = pending;
+                    pending = pending.saturating_sub(1);
+                }
+
+            } else {
+                let wins = records_clone.borrow().clone();
+                let screen = get_focused_output_size().unwrap_or((1920.0, 1080.0));
+
+                for w in &wins {
+                    let target = match w.workspace_id {
+                        Some(id) => WorkspaceReferenceArg::Id(id),
+                        None     => WorkspaceReferenceArg::Index(1),
+                    };
+                    send_action(Action::MoveWindowToWorkspace {
+                        window_id: Some(w.id),
+                        reference: target,
+                        focus:     false,
                     });
                 }
-                let _ = pending;
-                pending = pending.saturating_sub(1);
-            }
 
-        } else {
-            let wins = records_clone.borrow().clone();
-            let screen = get_focused_output_size().unwrap_or((1920.0, 1080.0));
+                let mut tiled: Vec<&WindowRecord> = wins
+                    .iter()
+                    .filter(|w| w.column_index.is_some() && !w.is_floating)
+                    .collect();
+                tiled.sort_by_key(|w| (w.column_index.unwrap(), w.row_index.unwrap_or(1)));
 
-            for w in &wins {
-                let target = match w.workspace_id {
-                    Some(id) => WorkspaceReferenceArg::Id(id),
-                    None     => WorkspaceReferenceArg::Index(1),
-                };
-                send_action(Action::MoveWindowToWorkspace {
-                    window_id: Some(w.id),
-                    reference: target,
-                    focus:     false,
-                });
-            }
-
-            let mut tiled: Vec<&WindowRecord> = wins
-                .iter()
-                .filter(|w| w.column_index.is_some() && !w.is_floating)
-                .collect();
-            tiled.sort_by_key(|w| (w.column_index.unwrap(), w.row_index.unwrap_or(1)));
-
-            let mut current_col: Option<usize> = None;
-            for w in &tiled {
-                let col = w.column_index.unwrap();
-                if current_col != Some(col) {
-                    current_col = Some(col);
-                    send_action(Action::FocusWindow { id: w.id });
-                    send_action(Action::MoveColumnToIndex { index: col });
-                } else {
-                    let row = w.row_index.unwrap_or(1);
-                    send_action(Action::FocusWindow { id: w.id });
-                    send_action(Action::ConsumeWindowIntoColumn {});
-                    for _ in 1..row {
-                        send_action(Action::MoveWindowUp {});
+                let mut current_col: Option<usize> = None;
+                for w in &tiled {
+                    let col = w.column_index.unwrap();
+                    if current_col != Some(col) {
+                        current_col = Some(col);
+                        send_action(Action::FocusWindow { id: w.id });
+                        send_action(Action::MoveColumnToIndex { index: col });
+                    } else {
+                        let row = w.row_index.unwrap_or(1);
+                        send_action(Action::FocusWindow { id: w.id });
+                        send_action(Action::ConsumeWindowIntoColumn {});
+                        for _ in 1..row {
+                            send_action(Action::MoveWindowUp {});
+                        }
                     }
                 }
-            }
 
-            for w in wins.iter().filter(|w| w.is_floating) {
-                let orig_x   = w.float_x.unwrap_or(screen.0 * 0.25);
-                let orig_y   = w.float_y.unwrap_or(screen.1 * 0.25);
-                let corner_x = w.corner_x.unwrap_or(orig_x);
-                let corner_y = w.corner_y.unwrap_or(orig_y);
+                for w in wins.iter().filter(|w| w.is_floating) {
+                    let orig_x   = w.float_x.unwrap_or(screen.0 * 0.25);
+                    let orig_y   = w.float_y.unwrap_or(screen.1 * 0.25);
+                    let corner_x = w.corner_x.unwrap_or(orig_x);
+                    let corner_y = w.corner_y.unwrap_or(orig_y);
 
-                let wid = w.id;
-                send_action(Action::MoveFloatingWindow {
-                    id: Some(wid),
-                    x:  PositionChange::SetFixed(corner_x),
-                    y:  PositionChange::SetFixed(corner_y),
+                    let wid = w.id;
+                    send_action(Action::MoveFloatingWindow {
+                        id: Some(wid),
+                        x:  PositionChange::SetFixed(corner_x),
+                        y:  PositionChange::SetFixed(corner_y),
+                    });
+                    animate_float_window(wid, corner_x, corner_y, orig_x, orig_y, || {});
+                }
+
+                send_action(Action::FocusWorkspace {
+                    reference: WorkspaceReferenceArg::Index(1),
                 });
-                animate_float_window(wid, corner_x, corner_y, orig_x, orig_y, || {});
-            }
+                if let Some(fid) = *focused_clone.borrow() {
+                    send_action(Action::FocusWindow { id: fid });
+                }
 
-            send_action(Action::FocusWorkspace {
-                reference: WorkspaceReferenceArg::Index(1),
-            });
-            if let Some(fid) = *focused_clone.borrow() {
-                send_action(Action::FocusWindow { id: fid });
+                records_clone.borrow_mut().clear();
+                *focused_clone.borrow_mut() = None;
+                *hiding = false;
+                // timendate_clone.remove(&show);
             }
-
-            records_clone.borrow_mut().clear();
-            *focused_clone.borrow_mut() = None;
-            *hiding = false;
-            // timendate_clone.remove(&show);
         }
 
         glib::ControlFlow::Continue

@@ -126,6 +126,12 @@ fn build_app_grid(grid: &Grid, apps: Vec<Applications>) {
             let mut parts = exec.split_whitespace();
             if let Some(cmd) = parts.next() {
                 let args: Vec<&str> = parts.collect();
+                if let Err(e) = std::process::Command::new("pkill")
+                    .args(["-USR1", "capsule"])
+                    .spawn()
+                {
+                    eprintln!("[appd] Failed to launch show-desktop: {}", e);
+                }
                 let _ = std::process::Command::new("setsid")
                     .arg("-f") // Fork into background
                     .arg(cmd)
