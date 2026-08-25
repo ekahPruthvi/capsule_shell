@@ -13,6 +13,9 @@ use std::time::Duration;
 use niri_ipc::{Action, PositionChange, Request, Response, socket::Socket};
 use serde_json::Value;
 
+// have to add tray integration 
+// rigth click menu, - add to ddesktop, - kill app, - open in settings, - open in files(.desktop) 
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct NiriWindow {
     pub id: u64,

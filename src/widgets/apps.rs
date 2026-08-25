@@ -1,6 +1,6 @@
-use gtk4::{Box as GtkBox, Button, Grid, Image, Orientation, Window, prelude::*, subclass::window};
+use gtk4::{Box as GtkBox, Button, Grid, Image, Orientation, Window, gdk::DragAction, prelude::*,};
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
-use std::cell::Cell;
+use std::{cell::Cell, eprintln};
 use std::rc::Rc;
 use std::fs as stdfs;
 use std::path::Path as stdpath;
@@ -13,6 +13,7 @@ use async_channel::Sender;
 const NAME: &str = "appd";
 
 // still have to add drag and drop to create new .desktop and also right click menu to delete
+// have to add drag from dock and also right click on dock to close app, add to desktop or open in settings/files
 
 #[derive(Debug, Clone)]
 struct Applications {
@@ -99,7 +100,7 @@ fn build_app_grid(grid: &Grid, apps: Vec<Applications>) {
 
         let item = Button::new();
         item.set_halign(gtk4::Align::Center);
-        item.add_css_class("appItem");
+        item.add_css_class("dockBtn");
 
         let icon = Image::new();
         icon.set_pixel_size(48);
@@ -124,7 +125,15 @@ fn build_app_grid(grid: &Grid, apps: Vec<Applications>) {
         item.connect_clicked(move |_| {
             let mut parts = exec.split_whitespace();
             if let Some(cmd) = parts.next() {
-                let _ = std::process::Command::new(cmd).args(parts).spawn();
+                let args: Vec<&str> = parts.collect();
+                let _ = std::process::Command::new("setsid")
+                    .arg("-f") // Fork into background
+                    .arg(cmd)
+                    .args(&args)
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .spawn();
             }
         });
 
@@ -199,14 +208,54 @@ pub fn spawn_appd_widget(monitor: Option<&gtk4::gdk::Monitor>) -> Window {
     }
     win.remove_css_class("background");
 
-    let outer = GtkBox::new(Orientation::Horizontal, 10);
-    outer.set_css_classes(&["starting", "outerAppd"]);
+    let outer = GtkBox::new(Orientation::Horizontal, 0);
+    outer.set_css_classes(&["outerAppd"]);
+
+    let drop_to_desktop = gtk4::DropTarget::new(gtk4::gio::File::static_type(), DragAction::COPY);
+    {
+        let outer_clone = outer.clone();
+        drop_to_desktop.connect_drop(move |_, obj, _x, _y| {
+            if let Ok(file) = obj.get::<gtk4::gio::File>() {
+                if let Some(path) = file.path() {
+                    if path.extension().map_or(false, |ext| ext == "desktop") {
+                        if let Some(filename) = path.file_name() {
+                            if let Some(mut dpath) = dirs::desktop_dir() {
+                                dpath.push(filename);
+
+                                outer_clone.add_css_class("okWidget");
+                                let outer_timer = outer_clone.clone();
+                                gtk4::glib::timeout_add_local_once(std::time::Duration::from_millis(200), move || {
+                                    outer_timer.remove_css_class("okWidget");
+                                });
+                                stdfs::copy(path, dpath).unwrap_or_else(|e| {
+                                    eprintln!("[appd] Could not create a desktop file: {}", e);
+                                    0
+                                });
+                            } 
+                        }
+                    } else {
+                        outer_clone.add_css_class("errWidget");
+                        let outer_timer = outer_clone.clone();
+                        gtk4::glib::timeout_add_local_once(std::time::Duration::from_secs(1), move || {
+                            outer_timer.remove_css_class("errWidget");
+                        });
+                    }
+                }
+            }
+            false
+        });
+    }
+
+    outer.add_controller(drop_to_desktop);
 
     let handle = GtkBox::new(Orientation::Horizontal, 0);
     handle.add_css_class("dragHandle");
     handle.set_cursor_from_name(Some("grab"));
-    handle.set_hexpand(true);
+    handle.set_hexpand(false);
     handle.set_vexpand(true);
+    handle.set_margin_top(15);
+    handle.set_margin_bottom(15);
+    handle.set_valign(gtk4::Align::Fill);
     handle.set_halign(gtk4::Align::Center);
 
     let app_grid = Grid::builder()
@@ -240,8 +289,8 @@ pub fn spawn_appd_widget(monitor: Option<&gtk4::gdk::Monitor>) -> Window {
         });
     }
 
-    outer.append(&handle);
     outer.append(&app_grid);
+    outer.append(&handle);
 
     win.set_child(Some(&outer));
     win.present();
@@ -249,7 +298,7 @@ pub fn spawn_appd_widget(monitor: Option<&gtk4::gdk::Monitor>) -> Window {
     let cur_x = Rc::new(Cell::new(start_x));
     let cur_y = Rc::new(Cell::new(start_y));
     let gesture = gtk4::GestureDrag::new();
-    let outer_c = outer.clone();
+    let outer_c = app_grid.clone();
 
     {
         let handle_c = handle.clone();
@@ -272,7 +321,7 @@ pub fn spawn_appd_widget(monitor: Option<&gtk4::gdk::Monitor>) -> Window {
     {
         let cx2 = cur_x.clone();
         let cy2 = cur_y.clone();
-        let outer_c = outer.clone();
+        let outer_c = app_grid.clone();
         let handle_c = handle.clone();
         let win_c = win.clone();
         gesture.connect_drag_end(move |_, dx, dy| {
