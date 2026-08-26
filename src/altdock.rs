@@ -469,7 +469,7 @@ fn tray_icon_image(item: &StatusNotifierItem) -> Image {
         .filter(|n| !n.is_empty())
         .unwrap_or_else(|| "image-missing".to_string());
     let icon = Image::from_icon_name(&icon_name);
-    icon.set_pixel_size(20);
+    icon.set_pixel_size(22);
     icon
 }
 
@@ -482,12 +482,40 @@ fn tray_item_tooltip(item: &StatusNotifierItem) -> String {
         .unwrap_or_else(|| item.id.clone())
 }
 
+struct TrayMenuLayer {
+    container: GtkBox,
+    open_address: RefCell<Option<String>>,
+}
+
+impl TrayMenuLayer {
+    fn new() -> Rc<Self> {
+        let container = GtkBox::new(gtk4::Orientation::Vertical, 0);
+        container.add_css_class("trayMenuLayer");
+        Rc::new(Self {
+            container,
+            open_address: RefCell::new(None),
+        })
+    }
+
+    /// Close whatever tray menu is currently open (if any).
+    fn close(&self) {
+        while let Some(child) = self.container.first_child() {
+            self.container.remove(&child);
+        }
+        *self.open_address.borrow_mut() = None;
+    }
+
+    fn is_open_for(&self, address: &str) -> bool {
+        self.open_address.borrow().as_deref() == Some(address)
+    }
+}
+
 fn build_menu_box(
     items: &[TrayMenuItem],
     address: &str,
     menu_path: &str,
     cmd_tx: &TrayCmdSender,
-    root_popover: &Popover,
+    layer: &Rc<TrayMenuLayer>,
 ) -> GtkBox {
     let menu_box = GtkBox::new(gtk4::Orientation::Vertical, 0);
     menu_box.add_css_class("trayMenuBox");
@@ -518,7 +546,7 @@ fn build_menu_box(
             }
         }
         if item.toggle_state == TrayToggleState::On {
-            label_text = format!("✓ {label_text}");
+            label_text = format!("{label_text}");
         }
 
         let label = gtk4::Label::builder().label(&label_text).xalign(0.0).build();
@@ -531,7 +559,7 @@ fn build_menu_box(
             let address = address.to_string();
             let menu_path = menu_path.to_string();
             let cmd_tx = cmd_tx.clone();
-            let root_popover = root_popover.clone();
+            let layer = layer.clone();
             let item_id = item.id;
 
             row.connect_clicked(move |btn| {
@@ -546,7 +574,7 @@ fn build_menu_box(
                     &address,
                     &menu_path,
                     &cmd_tx,
-                    &root_popover,
+                    &layer,
                 );
 
                 let child_popover = Popover::builder()
@@ -561,7 +589,7 @@ fn build_menu_box(
             let address = address.to_string();
             let menu_path = menu_path.to_string();
             let cmd_tx = cmd_tx.clone();
-            let root_popover = root_popover.clone();
+            let layer = layer.clone();
             let item_id = item.id;
 
             row.connect_clicked(move |_| {
@@ -570,7 +598,7 @@ fn build_menu_box(
                     menu_path: menu_path.clone(),
                     submenu_id: item_id,
                 }));
-                root_popover.popdown();
+                layer.close();
             });
         }
 
@@ -581,31 +609,44 @@ fn build_menu_box(
 }
 
 fn show_tray_menu(
-    anchor: &Button,
+    _anchor: &Button,
+    layer: &Rc<TrayMenuLayer>,
     address: &str,
     menu: &TrayMenu,
     menu_path: &str,
     cmd_tx: &TrayCmdSender,
 ) {
+    if layer.is_open_for(address) {
+        layer.close();
+        return;
+    }
+
+    layer.close();
+
     let _ = cmd_tx.send(TrayCommand::AboutToShow {
         address: address.to_string(),
         menu_path: menu_path.to_string(),
         id: 0,
     });
 
-    let popover = Popover::builder()
-        .position(gtk4::PositionType::Top)
-        .has_arrow(true)
+    let popover = GtkBox::builder()
         .css_classes(["trayMenuPopover"])
         .build();
 
-    let menu_box = build_menu_box(&menu.submenus, address, menu_path, cmd_tx, &popover);
-    popover.set_child(Some(&menu_box));
-    popover.set_parent(anchor);
-    popover.popup();
+    let menu_box = build_menu_box(&menu.submenus, address, menu_path, cmd_tx, layer);
+    popover.append(&menu_box);
+    layer.container.append(&popover);
+    popover.set_visible(true);
+
+    *layer.open_address.borrow_mut() = Some(address.to_string());
 }
 
-fn make_tray_button(address: String, data: &TrayItemData, cmd_tx: TrayCmdSender) -> Button {
+fn make_tray_button(
+    address: String,
+    layer: &Rc<TrayMenuLayer>,
+    data: &TrayItemData,
+    cmd_tx: TrayCmdSender,
+) -> Button {
     let icon = tray_icon_image(&data.item);
     let tooltip = tray_item_tooltip(&data.item);
 
@@ -613,6 +654,8 @@ fn make_tray_button(address: String, data: &TrayItemData, cmd_tx: TrayCmdSender)
         .child(&icon)
         .css_classes(["trayBtn"])
         .tooltip_text(&tooltip)
+        .vexpand(true)
+        .valign(gtk4::Align::Fill)
         .build();
 
     let item_is_menu = data.item.item_is_menu;
@@ -624,6 +667,7 @@ fn make_tray_button(address: String, data: &TrayItemData, cmd_tx: TrayCmdSender)
 
     let addr = address.clone();
     let btn_weak = btn.downgrade();
+    let layer = layer.clone();
 
     click_gesture.connect_released(move |gesture, _n_press, x, y| {
         let Some(btn) = btn_weak.upgrade() else {
@@ -634,7 +678,7 @@ fn make_tray_button(address: String, data: &TrayItemData, cmd_tx: TrayCmdSender)
         match button {
             gdk::BUTTON_SECONDARY => {
                 if let Some(menu) = &menu {
-                    show_tray_menu(&btn, &addr, menu, &menu_path, &cmd_tx);
+                    show_tray_menu(&btn, &layer, &addr, menu, &menu_path, &cmd_tx);
                 }
             }
             gdk::BUTTON_MIDDLE => {
@@ -647,7 +691,7 @@ fn make_tray_button(address: String, data: &TrayItemData, cmd_tx: TrayCmdSender)
             _ => {
                 if item_is_menu {
                     if let Some(menu) = &menu {
-                        show_tray_menu(&btn, &addr, menu, &menu_path, &cmd_tx);
+                        show_tray_menu(&btn, &layer, &addr, menu, &menu_path, &cmd_tx);
                         return;
                     }
                 }
@@ -675,6 +719,7 @@ fn update_traybox(
     state: &Rc<RefCell<TrayState>>,
     items: &HashMap<String, TrayItemData>,
     cmd_tx: &TrayCmdSender,
+    layer: &Rc<TrayMenuLayer>,
 ) {
     let mut state = state.borrow_mut();
 
@@ -691,6 +736,8 @@ fn update_traybox(
         return;
     }
 
+    layer.close();
+
     while let Some(child) = tray_box.first_child() {
         tray_box.remove(&child);
     }
@@ -698,7 +745,7 @@ fn update_traybox(
 
     for address in &incoming {
         let data = &items[address];
-        let btn = make_tray_button(address.clone(), data, cmd_tx.clone());
+        let btn = make_tray_button(address.clone(), layer, data, cmd_tx.clone());
         tray_box.append(&btn);
         state.buttons.insert(address.clone(), btn);
     }
@@ -725,6 +772,8 @@ fn make_dock_btn(win: &NiriWindow) -> Button {
         .child(&icon)
         .css_classes(["dockBtn"])
         .tooltip_text(&label_text)
+        .vexpand(false)
+        .valign(gtk4::Align::Start)
         .build();
 
     if win.is_focused {
@@ -828,6 +877,7 @@ struct DockState {
 fn update_dockbox(
     dockbox: &GtkBox,
     tray_box: &GtkBox,
+    tray_menu_layer: &GtkBox,
     state: &Rc<RefCell<DockState>>,
     windows: &[NiriWindow],
 ) {
@@ -864,6 +914,7 @@ fn update_dockbox(
         dockbox.append(&empty);
         state.order.clear();
         dockbox.append(tray_box);
+        dockbox.append(tray_menu_layer);
         return;
     }
 
@@ -874,7 +925,16 @@ fn update_dockbox(
     }
     state.order = new_order;
 
-    dockbox.append(tray_box);
+    let tray_main = GtkBox::builder()
+        .spacing(5)
+        .orientation(gtk4::Orientation::Vertical)
+        .build();
+
+    tray_main.append(tray_box);
+    tray_main.append(tray_menu_layer);
+
+    // dockbox.append(tray_box);
+    dockbox.append(&tray_main);
 }
 
 pub fn spawn_altdock(app: &Application, dockbox: GtkBox) -> ApplicationWindow {
@@ -901,10 +961,20 @@ pub fn spawn_altdock(app: &Application, dockbox: GtkBox) -> ApplicationWindow {
 
     let tray_box = GtkBox::new(gtk4::Orientation::Horizontal, 4);
     tray_box.add_css_class("tray");
+    tray_box.set_hexpand(true);
+    tray_box.set_halign(gtk4::Align::End);
+
     let tray_state: Rc<RefCell<TrayState>> = Rc::new(RefCell::new(TrayState::default()));
+    let tray_menu_layer = TrayMenuLayer::new();
 
     let initial = windows_sorted(&get_niri_windows_map());
-    update_dockbox(&dockbox_rc, &tray_box, &dock_state, &initial);
+    update_dockbox(
+        &dockbox_rc,
+        &tray_box,
+        &tray_menu_layer.container,
+        &dock_state,
+        &initial,
+    );
 
     win.set_child(Some(&*dockbox_rc));
 
@@ -913,6 +983,7 @@ pub fn spawn_altdock(app: &Application, dockbox: GtkBox) -> ApplicationWindow {
     {
         let dockbox_rc = dockbox_rc.clone();
         let tray_box = tray_box.clone();
+        let tray_menu_layer = tray_menu_layer.clone();
         let niri_rx = niri_rx.clone();
         let dock_state = dock_state.clone();
 
@@ -925,7 +996,13 @@ pub fn spawn_altdock(app: &Application, dockbox: GtkBox) -> ApplicationWindow {
             drop(rx);
 
             if let Some(windows) = latest {
-                update_dockbox(&dockbox_rc, &tray_box, &dock_state, &windows);
+                update_dockbox(
+                    &dockbox_rc,
+                    &tray_box,
+                    &tray_menu_layer.container,
+                    &dock_state,
+                    &windows,
+                );
             }
 
             glib::ControlFlow::Continue
@@ -940,6 +1017,7 @@ pub fn spawn_altdock(app: &Application, dockbox: GtkBox) -> ApplicationWindow {
         let tray_state = tray_state.clone();
         let tray_rx = tray_rx.clone();
         let tray_cmd_tx = tray_cmd_tx.clone();
+        let tray_menu_layer = tray_menu_layer.clone();
 
         glib::timeout_add_local(Duration::from_millis(200), move || {
             let rx = tray_rx.borrow();
@@ -950,7 +1028,7 @@ pub fn spawn_altdock(app: &Application, dockbox: GtkBox) -> ApplicationWindow {
             drop(rx);
 
             if let Some(items) = latest {
-                update_traybox(&tray_box, &tray_state, &items, &tray_cmd_tx);
+                update_traybox(&tray_box, &tray_state, &items, &tray_cmd_tx, &tray_menu_layer);
             }
 
             glib::ControlFlow::Continue
@@ -962,11 +1040,13 @@ pub fn spawn_altdock(app: &Application, dockbox: GtkBox) -> ApplicationWindow {
 
     let pending_leavein = Rc::clone(&pending);
     let pop_leave = win.clone();
+    let leave_tray_menu_layer = tray_menu_layer.clone();
     hover_ctrl.connect_leave(move |_| {
         pending_leavein.set(true);
         let pop = pop_leave.clone();
         let pending_hide = Rc::clone(&pending_leavein);
         let dockbox_clone_anim = dockbox_clone_anim.clone();
+        let tray_menu_layer = leave_tray_menu_layer.clone();
         glib::timeout_add_local(Duration::from_millis(500), move || {
             if pending_hide.get() {
                 dockbox_clone_anim.remove_css_class("dockcum");
@@ -974,9 +1054,11 @@ pub fn spawn_altdock(app: &Application, dockbox: GtkBox) -> ApplicationWindow {
 
                 let pop2 = pop.clone();
                 let pending_hide2 = Rc::clone(&pending_hide);
+                let tray_menu_layer = tray_menu_layer.clone();
                 glib::timeout_add_local(Duration::from_millis(400), move || {
                     if pending_hide2.get() {
                         pop2.set_visible(false);
+                        tray_menu_layer.close();
                     }
                     glib::ControlFlow::Break
                 });
