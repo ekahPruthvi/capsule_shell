@@ -93,6 +93,7 @@ fn get_niri_windows_map() -> HashMap<u64, NiriWindow> {
 }
 
 fn focus_window(id: u64) {
+    
     let _ = Command::new("niri")
         .args(["msg", "action", "focus-window", "--id", &id.to_string()])
         .spawn();
@@ -441,7 +442,13 @@ fn make_dock_btn(win: &NiriWindow) -> Button {
             Some(gdk::ContentProvider::for_bytes("text/uri-list", &bytes))
         });
 
+        
         let drag_icon = icon.clone();
+
+        if let Some(settings) = gtk4::Settings::default() {
+            settings.set_gtk_dnd_drag_threshold(24);
+        }
+
         drag_source.connect_drag_begin(move |src, _drag| {
             if let Some(paintable) = drag_icon.paintable() {
                 src.set_icon(Some(&paintable), 0, 0);
@@ -454,7 +461,7 @@ fn make_dock_btn(win: &NiriWindow) -> Button {
             }
         });
 
-        btn.add_controller(drag_source);
+        icon.add_controller(drag_source);
     }
 
     btn

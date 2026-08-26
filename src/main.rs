@@ -1035,6 +1035,7 @@ fn coping_with(app: &Application) {
     dockbox.add_css_class("dockBox");
 
     let dockbox_anim = dockbox.clone();
+    let dockbox_anim_sign = dockbox.clone();
 
     let dock = spawn_altdock(app, dockbox);
     c_tna.append(&clippy);
@@ -1067,7 +1068,7 @@ fn coping_with(app: &Application) {
             glib::ControlFlow::Break
         });
     });
-
+    
     let pending_leave = Rc::clone(&pending);
     hover_ctrl.connect_leave(move |_| {
         pending_leave.set(false);
