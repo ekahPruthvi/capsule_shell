@@ -1,6 +1,6 @@
 [package]
 name = "capsule"
-version = "1.4.54"
+version = "1.4.6"
 edition = "2024"
 authors = ["ekahPruthvi <ekahpdp@gmail.com>"]
 description = "cynageos shell"
@@ -29,6 +29,7 @@ libc = "0.2.186"
 serde_json = "1.0.151"
 dirs = "6.0.0"
 notify = "8.2.0"
+system-tray = "0.8.7"
 
 
 [profile.release]

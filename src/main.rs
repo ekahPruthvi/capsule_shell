@@ -418,7 +418,6 @@ fn coping_with(app: &Application) {
     cos.set_child(Some(&cos_logo));
     cos.set_css_classes(&["cosIcon"]);
     cos.set_margin_end(15);
-    cos_logo.set_cursor_from_name(Some("crosshair"));
 
     let badge_container = GtkBox::new(Orientation::Vertical, 1);
     badge_container.set_hexpand(true);
@@ -1035,7 +1034,6 @@ fn coping_with(app: &Application) {
     dockbox.add_css_class("dockBox");
 
     let dockbox_anim = dockbox.clone();
-    let dockbox_anim_sign = dockbox.clone();
 
     let dock = spawn_altdock(app, dockbox);
     c_tna.append(&clippy);

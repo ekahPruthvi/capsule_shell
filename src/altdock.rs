@@ -2,7 +2,7 @@ use gtk4::gdk;
 use gtk4::glib;
 use gtk4::{
     Application, ApplicationWindow, Box as GtkBox, Button, DragSource, EventControllerMotion,
-    Image, prelude::*,
+    GestureClick, Image, Popover, Separator, prelude::*,
 };
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use std::cell::{Cell, RefCell};
@@ -15,8 +15,11 @@ use std::time::Duration;
 use niri_ipc::{Action, PositionChange, Request, Response, socket::Socket};
 use serde_json::Value;
 
-// have to add tray integration 
-// rigth click menu, - add to ddesktop, - kill app, - open in settings, - open in files(.desktop) 
+use system_tray::client::{ActivateRequest, Client as TrayClient};
+use system_tray::item::StatusNotifierItem;
+use system_tray::menu::{
+    MenuItem as TrayMenuItem, MenuType as TrayMenuType, ToggleState as TrayToggleState, TrayMenu,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct NiriWindow {
@@ -353,6 +356,355 @@ fn desktop_for_app_id(app_id: &str) -> Option<std::path::PathBuf> {
     None
 }
 
+#[derive(Clone)]
+struct TrayItemData {
+    item: StatusNotifierItem,
+    menu: Option<TrayMenu>,
+}
+
+enum TrayCommand {
+    Activate(ActivateRequest),
+    AboutToShow {
+        address: String,
+        menu_path: String,
+        id: i32,
+    },
+}
+
+type TrayCmdSender = tokio::sync::mpsc::UnboundedSender<TrayCommand>;
+
+fn send_tray_snapshot(
+    tx: &std::sync::mpsc::Sender<HashMap<String, TrayItemData>>,
+    client: &TrayClient,
+) {
+    let items = client.items();
+    let snapshot: HashMap<String, TrayItemData> = {
+        let guard = match items.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        guard
+            .iter()
+            .map(|(address, (item, menu))| {
+                (
+                    address.clone(),
+                    TrayItemData {
+                        item: item.clone(),
+                        menu: menu.clone(),
+                    },
+                )
+            })
+            .collect()
+    };
+    let _ = tx.send(snapshot);
+}
+
+pub fn spawn_tray_watcher() -> (
+    std::sync::mpsc::Receiver<HashMap<String, TrayItemData>>,
+    TrayCmdSender,
+) {
+    let (tx, rx) = std::sync::mpsc::channel::<HashMap<String, TrayItemData>>();
+    let (cmd_tx, mut cmd_rx) = tokio::sync::mpsc::unbounded_channel::<TrayCommand>();
+
+    std::thread::spawn(move || {
+        let rt = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("[altdock] failed to start tray runtime: {e}");
+                return;
+            }
+        };
+
+        rt.block_on(async move {
+            let client = match TrayClient::new().await {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("[altdock] failed to start tray client: {e}");
+                    return;
+                }
+            };
+
+            let mut events = client.subscribe();
+            send_tray_snapshot(&tx, &client);
+
+            loop {
+                tokio::select! {
+                    ev = events.recv() => {
+                        match ev {
+                            Ok(_event) => send_tray_snapshot(&tx, &client),
+                            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                                send_tray_snapshot(&tx, &client);
+                            }
+                            Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                        }
+                    }
+                    cmd = cmd_rx.recv() => {
+                        match cmd {
+                            Some(TrayCommand::Activate(req)) => {
+                                if let Err(e) = client.activate(req).await {
+                                    eprintln!("[altdock] tray activate failed: {e}");
+                                }
+                            }
+                            Some(TrayCommand::AboutToShow { address, menu_path, id }) => {
+                                let _ = client.about_to_show_menuitem(address, menu_path, id).await;
+                            }
+                            None => break,
+                        }
+                    }
+                }
+            }
+        });
+    });
+
+    (rx, cmd_tx)
+}
+
+fn tray_icon_image(item: &StatusNotifierItem) -> Image {
+    let icon_name = item
+        .icon_name
+        .clone()
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| "image-missing".to_string());
+    let icon = Image::from_icon_name(&icon_name);
+    icon.set_pixel_size(20);
+    icon
+}
+
+fn tray_item_tooltip(item: &StatusNotifierItem) -> String {
+    item.title
+        .clone()
+        .filter(|t| !t.is_empty())
+        .or_else(|| item.tool_tip.as_ref().map(|t| t.title.clone()))
+        .filter(|t| !t.is_empty())
+        .unwrap_or_else(|| item.id.clone())
+}
+
+fn build_menu_box(
+    items: &[TrayMenuItem],
+    address: &str,
+    menu_path: &str,
+    cmd_tx: &TrayCmdSender,
+    root_popover: &Popover,
+) -> GtkBox {
+    let menu_box = GtkBox::new(gtk4::Orientation::Vertical, 0);
+    menu_box.add_css_class("trayMenuBox");
+
+    for item in items {
+        if !item.visible {
+            continue;
+        }
+
+        if matches!(item.menu_type, TrayMenuType::Separator) {
+            let sep = Separator::new(gtk4::Orientation::Horizontal);
+            sep.add_css_class("trayMenuSeparator");
+            menu_box.append(&sep);
+            continue;
+        }
+
+        let raw_label = item.label.clone().unwrap_or_default();
+        let mut label_text = String::with_capacity(raw_label.len());
+        let mut chars = raw_label.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c == '_' {
+                if chars.peek() == Some(&'_') {
+                    chars.next();
+                    label_text.push('_');
+                }
+            } else {
+                label_text.push(c);
+            }
+        }
+        if item.toggle_state == TrayToggleState::On {
+            label_text = format!("✓ {label_text}");
+        }
+
+        let label = gtk4::Label::builder().label(&label_text).xalign(0.0).build();
+        let row = Button::builder().css_classes(["trayMenuItem"]).build();
+        row.set_child(Some(&label));
+        row.set_sensitive(item.enabled);
+
+        if !item.submenu.is_empty() {
+            let submenu_items = item.submenu.clone();
+            let address = address.to_string();
+            let menu_path = menu_path.to_string();
+            let cmd_tx = cmd_tx.clone();
+            let root_popover = root_popover.clone();
+            let item_id = item.id;
+
+            row.connect_clicked(move |btn| {
+                let _ = cmd_tx.send(TrayCommand::AboutToShow {
+                    address: address.clone(),
+                    menu_path: menu_path.clone(),
+                    id: item_id,
+                });
+
+                let submenu_box = build_menu_box(
+                    &submenu_items,
+                    &address,
+                    &menu_path,
+                    &cmd_tx,
+                    &root_popover,
+                );
+
+                let child_popover = Popover::builder()
+                    .child(&submenu_box)
+                    .position(gtk4::PositionType::Right)
+                    .has_arrow(true)
+                    .build();
+                child_popover.set_parent(btn);
+                child_popover.popup();
+            });
+        } else {
+            let address = address.to_string();
+            let menu_path = menu_path.to_string();
+            let cmd_tx = cmd_tx.clone();
+            let root_popover = root_popover.clone();
+            let item_id = item.id;
+
+            row.connect_clicked(move |_| {
+                let _ = cmd_tx.send(TrayCommand::Activate(ActivateRequest::MenuItem {
+                    address: address.clone(),
+                    menu_path: menu_path.clone(),
+                    submenu_id: item_id,
+                }));
+                root_popover.popdown();
+            });
+        }
+
+        menu_box.append(&row);
+    }
+
+    menu_box
+}
+
+fn show_tray_menu(
+    anchor: &Button,
+    address: &str,
+    menu: &TrayMenu,
+    menu_path: &str,
+    cmd_tx: &TrayCmdSender,
+) {
+    let _ = cmd_tx.send(TrayCommand::AboutToShow {
+        address: address.to_string(),
+        menu_path: menu_path.to_string(),
+        id: 0,
+    });
+
+    let popover = Popover::builder()
+        .position(gtk4::PositionType::Top)
+        .has_arrow(true)
+        .css_classes(["trayMenuPopover"])
+        .build();
+
+    let menu_box = build_menu_box(&menu.submenus, address, menu_path, cmd_tx, &popover);
+    popover.set_child(Some(&menu_box));
+    popover.set_parent(anchor);
+    popover.popup();
+}
+
+fn make_tray_button(address: String, data: &TrayItemData, cmd_tx: TrayCmdSender) -> Button {
+    let icon = tray_icon_image(&data.item);
+    let tooltip = tray_item_tooltip(&data.item);
+
+    let btn = Button::builder()
+        .child(&icon)
+        .css_classes(["trayBtn"])
+        .tooltip_text(&tooltip)
+        .build();
+
+    let item_is_menu = data.item.item_is_menu;
+    let menu_path = data.item.menu.clone().unwrap_or_default();
+    let menu = data.menu.clone();
+
+    let click_gesture = GestureClick::new();
+    click_gesture.set_button(0);
+
+    let addr = address.clone();
+    let btn_weak = btn.downgrade();
+
+    click_gesture.connect_released(move |gesture, _n_press, x, y| {
+        let Some(btn) = btn_weak.upgrade() else {
+            return;
+        };
+        let button = gesture.current_button();
+
+        match button {
+            gdk::BUTTON_SECONDARY => {
+                if let Some(menu) = &menu {
+                    show_tray_menu(&btn, &addr, menu, &menu_path, &cmd_tx);
+                }
+            }
+            gdk::BUTTON_MIDDLE => {
+                let _ = cmd_tx.send(TrayCommand::Activate(ActivateRequest::Secondary {
+                    address: addr.clone(),
+                    x: x as i32,
+                    y: y as i32,
+                }));
+            }
+            _ => {
+                if item_is_menu {
+                    if let Some(menu) = &menu {
+                        show_tray_menu(&btn, &addr, menu, &menu_path, &cmd_tx);
+                        return;
+                    }
+                }
+                let _ = cmd_tx.send(TrayCommand::Activate(ActivateRequest::Default {
+                    address: addr.clone(),
+                    x: x as i32,
+                    y: y as i32,
+                }));
+            }
+        }
+    });
+
+    btn.add_controller(click_gesture);
+    btn
+}
+
+#[derive(Default)]
+struct TrayState {
+    addresses: Vec<String>,
+    buttons: HashMap<String, Button>,
+}
+
+fn update_traybox(
+    tray_box: &GtkBox,
+    state: &Rc<RefCell<TrayState>>,
+    items: &HashMap<String, TrayItemData>,
+    cmd_tx: &TrayCmdSender,
+) {
+    let mut state = state.borrow_mut();
+
+    let mut incoming: Vec<String> = items.keys().cloned().collect();
+    incoming.sort();
+
+    if incoming == state.addresses {
+        for (address, data) in items {
+            if let Some(btn) = state.buttons.get(address) {
+                btn.set_child(Some(&tray_icon_image(&data.item)));
+                btn.set_tooltip_text(Some(&tray_item_tooltip(&data.item)));
+            }
+        }
+        return;
+    }
+
+    while let Some(child) = tray_box.first_child() {
+        tray_box.remove(&child);
+    }
+    state.buttons.clear();
+
+    for address in &incoming {
+        let data = &items[address];
+        let btn = make_tray_button(address.clone(), data, cmd_tx.clone());
+        tray_box.append(&btn);
+        state.buttons.insert(address.clone(), btn);
+    }
+    state.addresses = incoming;
+}
+
 fn make_dock_btn(win: &NiriWindow) -> Button {
     let icon_name = if win.app_id.is_empty() {
         "application-x-executable".to_string()
@@ -473,7 +825,12 @@ struct DockState {
     order: Vec<u64>,
 }
 
-fn update_dockbox(dockbox: &GtkBox, state: &Rc<RefCell<DockState>>, windows: &[NiriWindow]) {
+fn update_dockbox(
+    dockbox: &GtkBox,
+    tray_box: &GtkBox,
+    state: &Rc<RefCell<DockState>>,
+    windows: &[NiriWindow],
+) {
     let mut state = state.borrow_mut();
     let new_order: Vec<u64> = windows.iter().map(|w| w.id).collect();
 
@@ -506,6 +863,7 @@ fn update_dockbox(dockbox: &GtkBox, state: &Rc<RefCell<DockState>>, windows: &[N
         empty.add_css_class("dockEmpty");
         dockbox.append(&empty);
         state.order.clear();
+        dockbox.append(tray_box);
         return;
     }
 
@@ -515,6 +873,8 @@ fn update_dockbox(dockbox: &GtkBox, state: &Rc<RefCell<DockState>>, windows: &[N
         state.buttons.insert(win.id, btn);
     }
     state.order = new_order;
+
+    dockbox.append(tray_box);
 }
 
 pub fn spawn_altdock(app: &Application, dockbox: GtkBox) -> ApplicationWindow {
@@ -539,8 +899,12 @@ pub fn spawn_altdock(app: &Application, dockbox: GtkBox) -> ApplicationWindow {
     let dockbox_rc = Rc::new(dockbox);
     let dock_state: Rc<RefCell<DockState>> = Rc::new(RefCell::new(DockState::default()));
 
+    let tray_box = GtkBox::new(gtk4::Orientation::Horizontal, 4);
+    tray_box.add_css_class("tray");
+    let tray_state: Rc<RefCell<TrayState>> = Rc::new(RefCell::new(TrayState::default()));
+
     let initial = windows_sorted(&get_niri_windows_map());
-    update_dockbox(&dockbox_rc, &dock_state, &initial);
+    update_dockbox(&dockbox_rc, &tray_box, &dock_state, &initial);
 
     win.set_child(Some(&*dockbox_rc));
 
@@ -548,6 +912,7 @@ pub fn spawn_altdock(app: &Application, dockbox: GtkBox) -> ApplicationWindow {
 
     {
         let dockbox_rc = dockbox_rc.clone();
+        let tray_box = tray_box.clone();
         let niri_rx = niri_rx.clone();
         let dock_state = dock_state.clone();
 
@@ -560,7 +925,32 @@ pub fn spawn_altdock(app: &Application, dockbox: GtkBox) -> ApplicationWindow {
             drop(rx);
 
             if let Some(windows) = latest {
-                update_dockbox(&dockbox_rc, &dock_state, &windows);
+                update_dockbox(&dockbox_rc, &tray_box, &dock_state, &windows);
+            }
+
+            glib::ControlFlow::Continue
+        });
+    }
+
+    let (tray_rx, tray_cmd_tx) = spawn_tray_watcher();
+    let tray_rx = Rc::new(RefCell::new(tray_rx));
+
+    {
+        let tray_box = tray_box.clone();
+        let tray_state = tray_state.clone();
+        let tray_rx = tray_rx.clone();
+        let tray_cmd_tx = tray_cmd_tx.clone();
+
+        glib::timeout_add_local(Duration::from_millis(200), move || {
+            let rx = tray_rx.borrow();
+            let mut latest: Option<HashMap<String, TrayItemData>> = None;
+            while let Ok(items) = rx.try_recv() {
+                latest = Some(items);
+            }
+            drop(rx);
+
+            if let Some(items) = latest {
+                update_traybox(&tray_box, &tray_state, &items, &tray_cmd_tx);
             }
 
             glib::ControlFlow::Continue
