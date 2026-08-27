@@ -12,14 +12,13 @@ use async_channel::Sender;
 
 const NAME: &str = "appd";
 
-// still have to add drag and drop to create new .desktop and also right click menu to delete
-// have to add drag from dock and also right click on dock to close app, add to desktop or open in settings/files
 
 #[derive(Debug, Clone)]
 struct Applications {
     name: String,
     icon: Option<String>,
     exec: String,
+    path: std::path::PathBuf,
 }
 
 fn sanitize_exec(exec_str: &str) -> String {
@@ -76,7 +75,7 @@ fn populate_repopulate() -> Vec<Applications> {
 
                             if !nodisplay {
                                 if let (Some(name), Some(exec)) = (name, exec) {
-                                    apps.push(Applications { name, icon, exec });
+                                    apps.push(Applications { name, icon, exec, path: path.clone() });
                                 }
                             }
                         }
@@ -120,6 +119,44 @@ fn build_app_grid(grid: &Grid, apps: Vec<Applications>) {
         item.set_tooltip_text(Some(&app.name));
 
         item.set_child(Some(&icon));
+
+        let popover = gtk4::Popover::new();
+        popover.set_css_classes(&["appdMenu", "errWidget"]);
+        popover.set_position(gtk4::PositionType::Right);
+        popover.set_parent(&item);
+        
+        popover.set_has_arrow(false);
+        popover.set_autohide(true);
+
+        let popover_box = GtkBox::new(Orientation::Vertical, 0);
+        let remove_btn = Button::with_label("Remove from Desktop");
+        remove_btn.set_css_classes(&["appdBtn"]);
+        popover_box.append(&remove_btn);
+        popover.set_child(Some(&popover_box));
+
+        {
+            let app_path = app.path.clone();
+            let popover_c = popover.clone();
+            remove_btn.connect_clicked(move |_| {
+                if let Err(e) = stdfs::remove_file(&app_path) {
+                    eprintln!("[appd] failed to remove desktop file {}: {}", app_path.display(), e);
+                }
+                popover_c.popdown();
+            });
+        }
+
+        let right_click = gtk4::GestureClick::new();
+        right_click.set_button(3);
+        {
+            let popover_c = popover.clone();
+            right_click.connect_pressed(move |_, _n_press, x, y| {
+                popover_c.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(
+                    x as i32, y as i32, 1, 1,
+                )));
+                popover_c.popup();
+            });
+        }
+        item.add_controller(right_click);
 
         let exec = app.exec.clone();
         item.connect_clicked(move |_| {
