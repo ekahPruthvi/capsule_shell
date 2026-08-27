@@ -497,7 +497,6 @@ impl TrayMenuLayer {
         })
     }
 
-    /// Close whatever tray menu is currently open (if any).
     fn close(&self) {
         while let Some(child) = self.container.first_child() {
             self.container.remove(&child);
@@ -518,6 +517,8 @@ fn build_menu_box(
     layer: &Rc<TrayMenuLayer>,
 ) -> GtkBox {
     let menu_box = GtkBox::new(gtk4::Orientation::Vertical, 0);
+    menu_box.set_halign(gtk4::Align::End);
+    menu_box.set_hexpand(true);
     menu_box.add_css_class("trayMenuBox");
 
     for item in items {
@@ -528,6 +529,8 @@ fn build_menu_box(
         if matches!(item.menu_type, TrayMenuType::Separator) {
             let sep = Separator::new(gtk4::Orientation::Horizontal);
             sep.add_css_class("trayMenuSeparator");
+            sep.set_margin_start(10);
+            sep.set_margin_end(10);
             menu_box.append(&sep);
             continue;
         }
@@ -644,11 +647,13 @@ fn show_tray_menu(
 fn make_tray_button(
     address: String,
     layer: &Rc<TrayMenuLayer>,
-    data: &TrayItemData,
+    data_cell: Rc<RefCell<TrayItemData>>,
     cmd_tx: TrayCmdSender,
 ) -> Button {
-    let icon = tray_icon_image(&data.item);
-    let tooltip = tray_item_tooltip(&data.item);
+    let (icon, tooltip) = {
+        let data = data_cell.borrow();
+        (tray_icon_image(&data.item), tray_item_tooltip(&data.item))
+    };
 
     let btn = Button::builder()
         .child(&icon)
@@ -657,10 +662,6 @@ fn make_tray_button(
         .vexpand(true)
         .valign(gtk4::Align::Fill)
         .build();
-
-    let item_is_menu = data.item.item_is_menu;
-    let menu_path = data.item.menu.clone().unwrap_or_default();
-    let menu = data.menu.clone();
 
     let click_gesture = GestureClick::new();
     click_gesture.set_button(0);
@@ -674,6 +675,15 @@ fn make_tray_button(
             return;
         };
         let button = gesture.current_button();
+
+        let (item_is_menu, menu_path, menu) = {
+            let data = data_cell.borrow();
+            (
+                data.item.item_is_menu,
+                data.item.menu.clone().unwrap_or_default(),
+                data.menu.clone(),
+            )
+        };
 
         match button {
             gdk::BUTTON_SECONDARY => {
@@ -712,6 +722,7 @@ fn make_tray_button(
 struct TrayState {
     addresses: Vec<String>,
     buttons: HashMap<String, Button>,
+    data: HashMap<String, Rc<RefCell<TrayItemData>>>,
 }
 
 fn update_traybox(
@@ -732,6 +743,9 @@ fn update_traybox(
                 btn.set_child(Some(&tray_icon_image(&data.item)));
                 btn.set_tooltip_text(Some(&tray_item_tooltip(&data.item)));
             }
+            if let Some(cell) = state.data.get(address) {
+                *cell.borrow_mut() = data.clone();
+            }
         }
         return;
     }
@@ -742,12 +756,15 @@ fn update_traybox(
         tray_box.remove(&child);
     }
     state.buttons.clear();
+    state.data.clear();
 
     for address in &incoming {
-        let data = &items[address];
-        let btn = make_tray_button(address.clone(), layer, data, cmd_tx.clone());
+        let data = items[address].clone();
+        let data_cell = Rc::new(RefCell::new(data));
+        let btn = make_tray_button(address.clone(), layer, data_cell.clone(), cmd_tx.clone());
         tray_box.append(&btn);
         state.buttons.insert(address.clone(), btn);
+        state.data.insert(address.clone(), data_cell);
     }
     state.addresses = incoming;
 }
