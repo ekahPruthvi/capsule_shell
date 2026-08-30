@@ -121,7 +121,7 @@ fn build_app_grid(grid: &Grid, apps: Vec<Applications>) {
         item.set_child(Some(&icon));
 
         let popover = gtk4::Popover::new();
-        popover.set_css_classes(&["appdMenu", "errWidget"]);
+        popover.set_css_classes(&["appdMenu"]);
         popover.set_position(gtk4::PositionType::Right);
         popover.set_parent(&item);
         

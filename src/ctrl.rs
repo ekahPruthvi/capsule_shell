@@ -8,6 +8,8 @@ use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use std::time::Duration;
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
+use std::sync::mpsc::TryRecvError;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum NetworkState {
@@ -236,18 +238,54 @@ fn get_network_state() -> NetworkState {
     NetworkState::EthernetConnected(eth_up.unwrap())
 }
 
-pub fn spawn_network_watcher(interval: Duration) -> std::sync::mpsc::Receiver<NetworkState> {
-    let (tx, rx) = std::sync::mpsc::channel::<NetworkState>();
-    std::thread::spawn(move || {
-        let mut last: Option<NetworkState> = None;
-        loop {
-            let state = get_network_state();
-            if Some(&state) != last.as_ref() {
-                if tx.send(state.clone()).is_err() { break; }
-                last = Some(state);
-            }
-            std::thread::sleep(interval);
+/// Single shared source of truth for network state.
+///
+/// Only one background thread ever does the actual probing (reading
+/// /sys/class/net, shelling out to nmcli/iw/iwgetid, opening a TCP socket to
+/// check for internet). Every UI surface that wants to show network status
+/// just clones this handle and reads the cached value, so the time-capsule
+/// button and the control-panel capsule can never drift out of sync, and
+/// neither one pays the cost of its own poll cycle.
+#[derive(Clone)]
+pub struct NetworkHub {
+    state: Arc<Mutex<NetworkState>>,
+}
+
+impl NetworkHub {
+    pub fn new(interval: Duration) -> Self {
+        let state = Arc::new(Mutex::new(get_network_state()));
+        {
+            let state = state.clone();
+            std::thread::spawn(move || loop {
+                let fresh = get_network_state();
+                if let Ok(mut guard) = state.lock() {
+                    if *guard != fresh {
+                        *guard = fresh;
+                    }
+                }
+                std::thread::sleep(interval);
+            });
         }
+        NetworkHub { state }
+    }
+
+    /// Cheap: a mutex lock + clone of a small enum, no syscalls or process
+    /// spawns. Safe to call every tick from a glib timeout.
+    pub fn get(&self) -> NetworkState {
+        self.state
+            .lock()
+            .map(|g| g.clone())
+            .unwrap_or(NetworkState::Disconnected)
+    }
+}
+
+/// Scans for nearby wifi networks on a background thread so callers never
+/// block the GTK main loop waiting on `nmcli`.
+pub fn spawn_wifi_scan() -> std::sync::mpsc::Receiver<Vec<(String, String, bool)>> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let nets = get_wifi_networks();
+        let _ = tx.send(nets);
     });
     rx
 }
@@ -319,9 +357,75 @@ fn get_wifi_networks() -> Vec<(String, String, bool)> {
     vec![]
 }
 
+fn render_network_rows(
+    net_list_rc:  &Rc<gtk4::ListBox>,
+    networks:     Vec<(String, String, bool)>,
+    netbtn:       &Button,
+    net_panel:    &Rc<GtkBox>,
+    net_expanded: &Rc<RefCell<bool>>,
+) {
+    while let Some(child) = net_list_rc.first_child() {
+        net_list_rc.remove(&child);
+    }
+
+    if networks.is_empty() {
+        let row = gtk4::Label::new(Some("No networks found"));
+        row.add_css_class("netListEmpty");
+        net_list_rc.append(&row);
+        return;
+    }
+
+    for (ssid, bars, active) in networks {
+        let row_box = GtkBox::new(Orientation::Horizontal, 10);
+        row_box.add_css_class("netListRow");
+
+        let ssid_lbl = gtk4::Label::new(Some(&ssid));
+        ssid_lbl.set_hexpand(true);
+        ssid_lbl.set_halign(gtk4::Align::Start);
+        ssid_lbl.add_css_class("netListSSID");
+
+        let signal_lbl = gtk4::Label::new(Some(&bars));
+        signal_lbl.add_css_class("netListSignal");
+
+        if active {
+            let connected_lbl = gtk4::Label::new(Some("•"));
+            connected_lbl.add_css_class("netListConnected");
+            row_box.append(&connected_lbl);
+        }
+        row_box.append(&ssid_lbl);
+        row_box.append(&signal_lbl);
+
+        let row_btn = Button::builder()
+            .child(&row_box)
+            .css_classes(["netListRowBtn"])
+            .build();
+
+        let ssid_clone         = ssid.clone();
+        let netbtn_click       = netbtn.clone();
+        let net_panel_click    = net_panel.clone();
+        let net_expanded_click = net_expanded.clone();
+
+        row_btn.connect_clicked(move |_| {
+            let _ = std::process::Command::new("nmcli")
+                .args(["dev", "wifi", "connect", &ssid_clone])
+                .spawn();
+            netbtn_click.remove_css_class("netBtnExpanded");
+            net_panel_click.add_css_class("closeBox");
+            *net_expanded_click.borrow_mut() = false;
+            let net_panel_close = net_panel_click.clone();
+            glib::timeout_add_local_once(Duration::from_millis(200), move || {
+                net_panel_close.remove_css_class("closeBox");
+                net_panel_close.set_visible(false);
+            });
+        });
+        net_list_rc.append(&row_btn);
+    }
+}
+
 pub fn spawn_ctrl_capsules(
     app:          &Application,
     overlay_open: Rc<RefCell<bool>>,
+    net_hub:      NetworkHub,
 ) -> ApplicationWindow {
     let win = ApplicationWindow::builder()
         .application(app)
@@ -472,9 +576,8 @@ pub fn spawn_ctrl_capsules(
         .build();
 
 
-    let net_rx = spawn_network_watcher(Duration::from_secs(5));
-    let initial_state = get_network_state();
-    let (init_icon, init_label, init_body) = network_icon_and_tip(initial_state);
+    let initial_state = net_hub.get();
+    let (init_icon, init_label, init_body) = network_icon_and_tip(initial_state.clone());
 
     let net_icon  = Image::from_file(init_icon);
     net_icon.set_icon_size(gtk4::IconSize::Large);
@@ -563,72 +666,55 @@ pub fn spawn_ctrl_capsules(
 
     let net_panel_rc = Rc::new(net_panel);
 
-    let populate_networks = {
+    let scan_and_render = {
         let net_list_rc = net_list_rc.clone();
         let netbtn_inner = netbtn.clone();
         let net_panel_inner = net_panel_rc.clone();
         let net_expanded_inner = net_expanded.clone();
-        move || {
+        move |on_done: Option<Rc<dyn Fn()>>| {
             while let Some(child) = net_list_rc.first_child() {
                 net_list_rc.remove(&child);
             }
-            let networks = get_wifi_networks();
-            if networks.is_empty() {
-                let row = gtk4::Label::new(Some("No networks found"));
-                row.add_css_class("netListEmpty");
-                net_list_rc.append(&row);
-            } else {
-                for (ssid, bars, active) in networks {
-                    let row_box = GtkBox::new(Orientation::Horizontal, 10);
-                    row_box.add_css_class("netListRow");
+            let row = gtk4::Label::new(Some("Searching..."));
+            row.add_css_class("netListEmpty");
+            net_list_rc.append(&row);
 
-                    let ssid_lbl = gtk4::Label::new(Some(&ssid));
-                    ssid_lbl.set_hexpand(true);
-                    ssid_lbl.set_halign(gtk4::Align::Start);
-                    ssid_lbl.add_css_class("netListSSID");
+            let rx = spawn_wifi_scan();
+            let net_list_rc = net_list_rc.clone();
+            let netbtn_inner = netbtn_inner.clone();
+            let net_panel_inner = net_panel_inner.clone();
+            let net_expanded_inner = net_expanded_inner.clone();
 
-                    let signal_lbl = gtk4::Label::new(Some(&bars));
-                    signal_lbl.add_css_class("netListSignal");
-
-                    if active {
-                        let connected_lbl = gtk4::Label::new(Some("•"));
-                        connected_lbl.add_css_class("netListConnected");
-                        row_box.append(&connected_lbl);
+            glib::timeout_add_local(Duration::from_millis(80), move || {
+                match rx.try_recv() {
+                    Ok(networks) => {
+                        render_network_rows(
+                            &net_list_rc,
+                            networks,
+                            &netbtn_inner,
+                            &net_panel_inner,
+                            &net_expanded_inner,
+                        );
+                        if let Some(cb) = &on_done { cb(); }
+                        glib::ControlFlow::Break
                     }
-                    row_box.append(&ssid_lbl);
-                    row_box.append(&signal_lbl);
-
-                    let row_btn = Button::builder()
-                        .child(&row_box)
-                        .css_classes(["netListRowBtn"])
-                        .build();
-                    let ssid_clone = ssid.clone();
-                    let netbtn_inner_inner = netbtn_inner.clone();
-                    let net_panel_inner_inner = net_panel_inner.clone();
-                    let net_expanded_inner_inner = net_expanded_inner.clone();
-                    
-                    row_btn.connect_clicked(move |_| {
-                        let _ = std::process::Command::new("nmcli")
-                            .args(["dev", "wifi", "connect", &ssid_clone])
-                            .spawn();
-                        netbtn_inner_inner.remove_css_class("netBtnExpanded");
-                        net_panel_inner_inner.add_css_class("closeBox");
-                        *net_expanded_inner_inner.borrow_mut() = false;
-                        let net_panel_inner_inner_inner = net_panel_inner_inner.clone();
-                        glib::timeout_add_local_once(Duration::from_millis(200), move || {                                
-                            net_panel_inner_inner_inner.remove_css_class("closeBox");
-                            net_panel_inner_inner_inner.set_visible(false);
-                        });
-                    });
-                    net_list_rc.append(&row_btn);
+                    Err(TryRecvError::Empty) => glib::ControlFlow::Continue,
+                    Err(TryRecvError::Disconnected) => {
+                        if let Some(cb) = &on_done { cb(); }
+                        glib::ControlFlow::Break
+                    }
                 }
-            }
+            });
         }
     };
-    let populate_networks_rc = Rc::new(populate_networks);
+    let scan_and_render_rc = Rc::new(scan_and_render);
+    let populate_networks_rc = {
+        let scan_and_render_rc = scan_and_render_rc.clone();
+        Rc::new(move || scan_and_render_rc(None))
+    };
 
     {
-        let pop = populate_networks_rc.clone();
+        let scan_and_render_rc = scan_and_render_rc.clone();
         let net_list_rc = net_list_rc.clone();
         let refresh_btn_clone = refresh_btn.clone();
         wifi_toggle_btn.connect_state_set(move |_, state| {
@@ -642,41 +728,37 @@ pub fn spawn_ctrl_capsules(
                 row.add_css_class("netListEmpty");
                 net_list_rc.append(&row);
             } else {
-                while let Some(child) = net_list_rc.first_child() {
-                    net_list_rc.remove(&child);
-                }
-                let row = gtk4::Label::new(Some("Searching..."));
-                row.add_css_class("netListEmpty");
-                let pop = pop.clone();
-                net_list_rc.append(&row);
                 refresh_btn_clone.add_css_class("spinning");
                 let refresh_btn_clone_inner = refresh_btn_clone.clone();
-                glib::timeout_add_local_once(Duration::from_millis(3500), move || {
+                let scan_and_render_rc = scan_and_render_rc.clone();
+                glib::timeout_add_local_once(Duration::from_millis(1500), move || {
                     let _ = std::process::Command::new("nmcli")
                         .args(["dev", "wifi", "rescan"])
                         .spawn();
-                    pop();
-                    refresh_btn_clone_inner.remove_css_class("spinning");
+                    let refresh_btn_done = refresh_btn_clone_inner.clone();
+                    scan_and_render_rc(Some(Rc::new(move || {
+                        refresh_btn_done.remove_css_class("spinning");
+                    })));
                 });
             }
-
 
             glib::Propagation::Proceed
         });
     }
 
     {
-        let pop = populate_networks_rc.clone();
+        let scan_and_render_rc = scan_and_render_rc.clone();
         refresh_btn.connect_clicked(move |btn| {
             btn.add_css_class("spinning");
             let _ = std::process::Command::new("nmcli")
                 .args(["dev", "wifi", "rescan"])
                 .spawn();
-            let pop = pop.clone();
-            let btn_c = btn.clone();
-            glib::timeout_add_local_once(Duration::from_millis(1500), move || {
-                pop();
-                btn_c.remove_css_class("spinning");
+            let btn_done = btn.clone();
+            let scan_and_render_rc = scan_and_render_rc.clone();
+            glib::timeout_add_local_once(Duration::from_millis(600), move || {
+                scan_and_render_rc(Some(Rc::new(move || {
+                    btn_done.remove_css_class("spinning");
+                })));
             });
         });
     }
@@ -687,30 +769,24 @@ pub fn spawn_ctrl_capsules(
         });
     }
 
-    let net_rx = Rc::new(RefCell::new(net_rx));
+    let net_last_shown = Rc::new(RefCell::new(initial_state));
 
     {
         let net_icon_rc  = net_icon_rc.clone();
         let net_label_rc = net_label_rc.clone();
         let net_body_rc  = net_body_rc.clone();
-        let net_rx = net_rx.clone();
-        let overlay_open = overlay_open.clone();
+        let net_hub      = net_hub.clone();
+        let net_last_shown = net_last_shown.clone();
 
         glib::timeout_add_local(Duration::from_millis(500), move || {
-            if !*overlay_open.borrow() {
-                return glib::ControlFlow::Break;
-            }
-            let rx = net_rx.borrow();
-            let mut latest: Option<NetworkState> = None;
-            while let Ok(state) = rx.try_recv() {
-                latest = Some(state);
-            }
-            drop(rx);
-            if let Some(state) = latest {
-                let (icon_name, label_text, label_body) = network_icon_and_tip(state);
+            let state = net_hub.get();
+            let mut last = net_last_shown.borrow_mut();
+            if *last != state {
+                let (icon_name, label_text, label_body) = network_icon_and_tip(state.clone());
                 net_icon_rc.set_from_file(Some(icon_name));
                 net_label_rc.set_label(&label_text);
                 net_body_rc.set_label(&label_body);
+                *last = state;
             }
             glib::ControlFlow::Continue
         });

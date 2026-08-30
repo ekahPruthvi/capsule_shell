@@ -27,7 +27,7 @@ use widgets::{
     appd::spawn_appd_widget,
     kill
 };
-use ctrl::{spawn_network_watcher, NetworkState, spawn_ctrl_capsules};
+use ctrl::{NetworkHub, NetworkState, spawn_ctrl_capsules};
 use altdock::spawn_altdock;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -481,17 +481,26 @@ fn coping_with(app: &Application) {
     network.set_tooltip_text(Some("Connecting..."));
     
 
+    // Single shared network watcher: one background thread probes
+    // nmcli/iw/sysfs and caches the result; every UI surface (this
+    // time_capsule button and the ctrl overlay panel) just reads the cache,
+    // so they always agree and never each pay for their own poll cycle.
+    let net_hub = NetworkHub::new(Duration::from_secs(5));
+
     {
-        let net_rx  = spawn_network_watcher(Duration::from_secs(5));
-        let net_rx  = Rc::new(RefCell::new(net_rx));
+        let net_hub = net_hub.clone();
         let img_c   = net_image.clone();
         let btn_c   = network.clone();
+        let last    = Rc::new(RefCell::new(net_hub.get()));
 
         glib::timeout_add_local(Duration::from_millis(500), move || {
-            while let Ok(state) = net_rx.borrow().try_recv() {
+            let state = net_hub.get();
+            let mut last_ref = last.borrow_mut();
+            if *last_ref != state {
                 let (icon, tip) = network_icon_and_tip(&state);
                 img_c.set_from_file(Some(icon));
                 btn_c.set_tooltip_text(Some(&tip));
+                *last_ref = state;
             }
             glib::ControlFlow::Continue
         });
@@ -537,7 +546,7 @@ fn coping_with(app: &Application) {
     }
 
     let overlay_open: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
-    let ctrl_win = spawn_ctrl_capsules(app, overlay_open.clone());
+    let ctrl_win = spawn_ctrl_capsules(app, overlay_open.clone(), net_hub.clone());
     {
         let flag  = overlay_open.clone();
         let ctrl_win_clone = ctrl_win.clone();
