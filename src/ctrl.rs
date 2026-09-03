@@ -230,22 +230,15 @@ fn get_network_state() -> NetworkState {
         return NetworkState::NoInternet;
     }
 
-    if let Some(ref iface) = wifi_up {
-        let ssid = wifi_ssid(iface).unwrap_or_else(|| iface.clone());
-        return NetworkState::WifiConnected(ssid);
+    if let Some(iface) = eth_up {
+        return NetworkState::EthernetConnected(iface);
     }
 
-    NetworkState::EthernetConnected(eth_up.unwrap())
+    let iface = wifi_up.unwrap();
+    let ssid = wifi_ssid(&iface).unwrap_or_else(|| iface.clone());
+    NetworkState::WifiConnected(ssid)
 }
 
-/// Single shared source of truth for network state.
-///
-/// Only one background thread ever does the actual probing (reading
-/// /sys/class/net, shelling out to nmcli/iw/iwgetid, opening a TCP socket to
-/// check for internet). Every UI surface that wants to show network status
-/// just clones this handle and reads the cached value, so the time-capsule
-/// button and the control-panel capsule can never drift out of sync, and
-/// neither one pays the cost of its own poll cycle.
 #[derive(Clone)]
 pub struct NetworkHub {
     state: Arc<Mutex<NetworkState>>,
@@ -269,8 +262,6 @@ impl NetworkHub {
         NetworkHub { state }
     }
 
-    /// Cheap: a mutex lock + clone of a small enum, no syscalls or process
-    /// spawns. Safe to call every tick from a glib timeout.
     pub fn get(&self) -> NetworkState {
         self.state
             .lock()
@@ -279,8 +270,6 @@ impl NetworkHub {
     }
 }
 
-/// Scans for nearby wifi networks on a background thread so callers never
-/// block the GTK main loop waiting on `nmcli`.
 pub fn spawn_wifi_scan() -> std::sync::mpsc::Receiver<Vec<(String, String, bool)>> {
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
@@ -354,7 +343,7 @@ fn get_wifi_networks() -> Vec<(String, String, bool)> {
         nets.sort_by(|a, b| b.2.cmp(&a.2));
         return nets;
     }
-    vec![]
+    return vec![]
 }
 
 fn render_network_rows(

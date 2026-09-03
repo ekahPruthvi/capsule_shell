@@ -480,18 +480,20 @@ fn coping_with(app: &Application) {
     network.set_has_tooltip(true);
     network.set_tooltip_text(Some("Connecting..."));
     
-
-    // Single shared network watcher: one background thread probes
-    // nmcli/iw/sysfs and caches the result; every UI surface (this
-    // time_capsule button and the ctrl overlay panel) just reads the cache,
-    // so they always agree and never each pay for their own poll cycle.
     let net_hub = NetworkHub::new(Duration::from_secs(5));
+    let initial_net_state = net_hub.get();
+
+    {
+        let (icon, tip) = network_icon_and_tip(&initial_net_state);
+        net_image.set_from_file(Some(icon));
+        network.set_tooltip_text(Some(&tip));
+    }
 
     {
         let net_hub = net_hub.clone();
         let img_c   = net_image.clone();
         let btn_c   = network.clone();
-        let last    = Rc::new(RefCell::new(net_hub.get()));
+        let last    = Rc::new(RefCell::new(initial_net_state));
 
         glib::timeout_add_local(Duration::from_millis(500), move || {
             let state = net_hub.get();
@@ -570,10 +572,26 @@ fn coping_with(app: &Application) {
     let dummy_fill = GtkBox::new(Orientation::Horizontal, 0);
     dummy_fill.set_hexpand(true);
 
+    #[derive(Clone)]
+    enum ClippyPayload {
+        File { uri: String, mime: Option<&'static str> },
+        Link { url: String },
+        Text { text: String },
+    }
+
+    #[derive(Clone)]
+    struct ClippyItem {
+        btn:     Button,
+        payload: ClippyPayload,
+    }
+
     let clippy = GtkBox::new(Orientation::Horizontal, 4);
     clippy.set_width_request(5);
     clippy.set_hexpand(false);
     clippy.set_halign(gtk4::Align::End);
+
+    let clippy_items:  Rc<RefCell<Vec<ClippyItem>>>  = Rc::new(RefCell::new(vec![]));
+    let clippy_master: Rc<RefCell<Option<Button>>>   = Rc::new(RefCell::new(None));
 
     let clip_hover = EventControllerMotion::new();
     let clippy_enter_clone = clippy.clone();
@@ -614,6 +632,7 @@ fn coping_with(app: &Application) {
             "txt" | "md" | "rst" => "text-x-generic".to_string(),
             "rs"   => "text-x-rust".to_string(),
             "py"   => "text-x-python".to_string(),
+            "jar"  => "text-x-java".to_string(),
             "js" | "ts" => "text-x-javascript".to_string(),
             "html" | "htm" => "text-html".to_string(),
             "css"  => "text-css".to_string(),
@@ -629,7 +648,7 @@ fn coping_with(app: &Application) {
                 if path.is_dir() {
                     "folder".to_string()
                 } else {
-                    "text-x-generic".to_string()
+                    "application-x-generic".to_string()
                 }
             }
         }
@@ -658,7 +677,228 @@ fn coping_with(app: &Application) {
         }
     }
 
-    fn add_link_to_clippy(clippy: &GtkBox, url: &str) {
+    fn percent_decode(s: &str) -> String {
+        let mut out = String::with_capacity(s.len());
+        let mut bytes = s.bytes().peekable();
+        while let Some(b) = bytes.next() {
+            if b == b'%' {
+                let h1 = bytes.next().unwrap_or(b'?');
+                let h2 = bytes.next().unwrap_or(b'?');
+                if let Ok(n) = u8::from_str_radix(
+                    &format!("{}{}", h1 as char, h2 as char), 16
+                ) {
+                    out.push(n as char);
+                    continue;
+                }
+            }
+            out.push(b as char);
+        }
+        out
+    }
+
+    fn icon_name_for_item(item: &ClippyItem) -> String {
+        match &item.payload {
+            ClippyPayload::File { uri, .. } => {
+                let path = if let Some(p) = uri.strip_prefix("file://") {
+                    std::path::PathBuf::from(percent_decode(p))
+                } else {
+                    std::path::PathBuf::from(uri.as_str())
+                };
+                icon_for_path(&path)
+            }
+            ClippyPayload::Link { .. } => "emblem-web".to_string(),
+            ClippyPayload::Text { .. } => "text-x-generic".to_string(),
+        }
+    }
+
+    fn build_master_drag_icon(
+        display: &gtk4::gdk::Display,
+        items:   &[ClippyItem],
+    ) -> Option<gtk4::gdk::Paintable> {
+        if items.is_empty() {
+            return None;
+        }
+
+        const TILE: i32 = 32;
+        const STEP: i32 = 5;
+        const MAX_SHOWN: usize = 3;
+
+        let theme = gtk4::IconTheme::for_display(display);
+        let shown = items.len().min(MAX_SHOWN);
+        let canvas = TILE + STEP * (shown.saturating_sub(1)) as i32;
+
+        let snapshot = gtk4::Snapshot::new();
+        for (i, item) in items.iter().take(shown).enumerate() {
+            let icon_name = icon_name_for_item(item);
+            let paintable = theme.lookup_icon(
+                &icon_name,
+                &["application-x-executable"],
+                TILE,
+                1,
+                gtk4::TextDirection::None,
+                gtk4::IconLookupFlags::empty(),
+            );
+            let offset = (i as i32 * STEP) as f32;
+            snapshot.save();
+            snapshot.translate(&gtk4::graphene::Point::new(offset, offset));
+            paintable.snapshot(&snapshot, TILE as f64, TILE as f64);
+            snapshot.restore();
+        }
+        snapshot.to_paintable(Some(&gtk4::graphene::Size::new(canvas as f32, canvas as f32)))
+    }
+
+    fn build_master_provider(items: &[ClippyItem]) -> Option<gtk4::gdk::ContentProvider> {
+        if items.is_empty() {
+            return None;
+        }
+
+        let mut providers: Vec<gtk4::gdk::ContentProvider> = vec![];
+        let mut uri_lines:  Vec<String> = vec![];
+        let mut text_lines: Vec<String> = vec![];
+
+        for item in items {
+            match &item.payload {
+                ClippyPayload::File { uri, mime } => {
+                    uri_lines.push(uri.clone());
+
+                    let gfile     = gtk4::gio::File::for_uri(uri);
+                    let gfile_val = glib::Value::from(&gfile);
+                    providers.push(gtk4::gdk::ContentProvider::for_value(&gfile_val));
+
+                    if let (Some(mime), Some(local_path)) = (mime, uri.strip_prefix("file://")) {
+                        let decoded = percent_decode(local_path);
+                        if let Ok(file_bytes) = std::fs::read(&decoded) {
+                            let gbytes = glib::Bytes::from_owned(file_bytes);
+                            providers.push(gtk4::gdk::ContentProvider::for_bytes(mime, &gbytes));
+                        }
+                    }
+                }
+                ClippyPayload::Link { url } => {
+                    uri_lines.push(url.clone());
+                    text_lines.push(url.clone());
+                }
+                ClippyPayload::Text { text } => {
+                    text_lines.push(text.clone());
+                }
+            }
+        }
+
+        if !uri_lines.is_empty() {
+            let uri_list  = uri_lines.iter().map(|u| format!("{u}\r\n")).collect::<String>();
+            let uri_bytes = glib::Bytes::from_owned(uri_list.into_bytes());
+            providers.push(gtk4::gdk::ContentProvider::for_bytes("text/uri-list", &uri_bytes));
+        }
+
+        if !text_lines.is_empty() {
+            let joined     = text_lines.join("\n");
+            let text_bytes = glib::Bytes::from_owned(joined.into_bytes());
+            providers.push(gtk4::gdk::ContentProvider::for_bytes("text/plain;charset=utf-8", &text_bytes));
+            providers.push(gtk4::gdk::ContentProvider::for_bytes("text/plain", &text_bytes));
+        }
+
+        if providers.is_empty() {
+            None
+        } else {
+            Some(gtk4::gdk::ContentProvider::new_union(&providers))
+        }
+    }
+
+    fn sync_clippy_master(
+        clippy: &GtkBox,
+        items:  &Rc<RefCell<Vec<ClippyItem>>>,
+        master: &Rc<RefCell<Option<Button>>>,
+    ) {
+        let count = items.borrow().len();
+
+        if count <= 2 {
+            if let Some(btn) = master.borrow_mut().take() {
+                clippy.remove(&btn);
+            }
+            return;
+        }
+
+        if master.borrow().is_some() {
+            return;
+        }
+
+        let txt_tr = Label::new(Some("dummy"));
+        txt_tr.set_css_classes(&["dummytxt"]);
+
+        let btn = Button::new();
+        btn.set_child(Some(&txt_tr));
+        btn.set_css_classes(&["clippyFileBtn", "clippyMasterBtn"]);
+        btn.set_has_tooltip(true);
+        btn.set_tooltip_text(Some("Drop all"));
+        btn.set_cursor_from_name(Some("grab"));
+
+        let drag_src = gtk4::DragSource::new();
+        drag_src.set_actions(gtk4::gdk::DragAction::COPY | gtk4::gdk::DragAction::MOVE);
+
+        let items_for_prepare = items.clone();
+        drag_src.connect_prepare(move |_src, _, _| {
+            build_master_provider(&items_for_prepare.borrow())
+        });
+
+        let items_for_drag_begin = items.clone();
+        drag_src.connect_drag_begin(move |src, _drag| {
+            let display = gtk4::gdk::Display::default().expect("No display found");
+
+            match build_master_drag_icon(&display, &items_for_drag_begin.borrow()) {
+                Some(collage) => src.set_icon(Some(&collage), 16, 16),
+                None => {
+                    let theme = gtk4::IconTheme::for_display(&display);
+                    let paintable = theme.lookup_icon(
+                        "edit-copy",
+                        &["application-x-executable"],
+                        48,
+                        1,
+                        gtk4::TextDirection::None,
+                        gtk4::IconLookupFlags::empty(),
+                    );
+                    src.set_icon(Some(&paintable), 24, 24);
+                }
+            }
+
+        });
+
+        let clippy_for_drag_end = clippy.clone();
+        let items_for_drag_end  = items.clone();
+        let master_for_drag_end = master.clone();
+        drag_src.connect_drag_end(move |_, _drag, _delete_data| {
+            for item in items_for_drag_end.borrow_mut().drain(..) {
+                clippy_for_drag_end.remove(&item.btn);
+            }
+            if let Some(m) = master_for_drag_end.borrow_mut().take() {
+                clippy_for_drag_end.remove(&m);
+            }
+        });
+        btn.add_controller(drag_src);
+
+        let gesture_rm = gtk4::GestureClick::new();
+        gesture_rm.set_button(3);
+        let clippy_for_remove = clippy.clone();
+        let items_for_remove  = items.clone();
+        let master_for_remove = master.clone();
+        let btn_for_remove    = btn.clone();
+        gesture_rm.connect_released(move |_, _, _, _| {
+            for item in items_for_remove.borrow_mut().drain(..) {
+                clippy_for_remove.remove(&item.btn);
+            }
+            clippy_for_remove.remove(&btn_for_remove);
+            *master_for_remove.borrow_mut() = None;
+        });
+        btn.add_controller(gesture_rm);
+
+        clippy.append(&btn);
+        *master.borrow_mut() = Some(btn);
+    }
+
+    fn add_link_to_clippy(
+        clippy: &GtkBox,
+        items:  &Rc<RefCell<Vec<ClippyItem>>>,
+        master: &Rc<RefCell<Option<Button>>>,
+        url:    &str,
+    ) {
         let url_owned = url.to_string();
 
         let img = Image::new();
@@ -724,47 +964,55 @@ fn coping_with(app: &Application) {
             src.set_icon(Some(&paintable), 24, 24);
         });
 
-        // let btn_for_drag_end = btn.clone();
-        // let clippy_for_drag_end = clippy.clone();
-        // drag_src.connect_drag_end(move |_, _drag, _delete_data| {
-        //     clippy_for_drag_end.remove(&btn_for_drag_end);
-        // });
+        let btn_for_drag_end    = btn.clone();
+        let clippy_for_drag_end = clippy.clone();
+        let items_for_drag_end  = items.clone();
+        let master_for_drag_end = master.clone();
+        drag_src.connect_drag_end(move |_, _drag, _delete_data| {
+            clippy_for_drag_end.remove(&btn_for_drag_end);
+            items_for_drag_end.borrow_mut().retain(|it| it.btn != btn_for_drag_end);
+            sync_clippy_master(&clippy_for_drag_end, &items_for_drag_end, &master_for_drag_end);
+        });
         btn.add_controller(drag_src);
 
         let gesture_rm = gtk4::GestureClick::new();
         gesture_rm.set_button(3);
-        let btn_for_remove = btn.clone();
+        let btn_for_remove    = btn.clone();
         let clippy_for_remove = clippy.clone();
+        let items_for_remove  = items.clone();
+        let master_for_remove = master.clone();
         gesture_rm.connect_released(move |_, _, _, _| {
             clippy_for_remove.remove(&btn_for_remove);
+            items_for_remove.borrow_mut().retain(|it| it.btn != btn_for_remove);
+            sync_clippy_master(&clippy_for_remove, &items_for_remove, &master_for_remove);
         });
         btn.add_controller(gesture_rm);
 
         clippy.append(&btn);
         clippy.set_visible(true);
+        items.borrow_mut().push(ClippyItem { btn, payload: ClippyPayload::Link { url: url_owned } });
+        sync_clippy_master(clippy, items, master);
     }
 
-    fn add_text_to_clippy(clippy: &GtkBox, text: &str) {
+    fn add_text_to_clippy(
+        clippy: &GtkBox,
+        items:  &Rc<RefCell<Vec<ClippyItem>>>,
+        master: &Rc<RefCell<Option<Button>>>,
+        text:   &str,
+    ) {
         let text_owned = text.to_string();
-        let preview: String = text_owned.chars().take(40).collect();
-        let display_label = if text_owned.chars().count() > 40 {
-            format!("{}…", preview)
-        } else {
-            preview.clone()
-        };
 
-        let lbl = gtk4::Label::new(Some(&display_label));
-        lbl.set_max_width_chars(12);
-        lbl.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-        lbl.set_single_line_mode(true);
+        let img = Image::new();
+        img.set_icon_name(Some("text-x-generic"));
+        img.set_icon_size(gtk4::IconSize::Large);
 
         let btn = Button::new();
-        btn.set_child(Some(&lbl));
+        btn.set_child(Some(&img));
         btn.set_css_classes(&["clippyFileBtn", "clippyTextBtn"]);
         btn.set_has_tooltip(false);
 
         let hover_ctl = EventControllerMotion::new();
-        let btn_enter = btn.clone();
+        let btn_enter = btn.clone(); 
         let text_for_tip = text_owned.clone();
         hover_ctl.connect_enter(move |_, _, _| {
             btn_enter.set_has_tooltip(true);
@@ -811,27 +1059,42 @@ fn coping_with(app: &Application) {
             src.set_icon(Some(&paintable), 24, 24);
         });
 
-        // let btn_for_drag_end = btn.clone();
-        // let clippy_for_drag_end = clippy.clone();
-        // drag_src.connect_drag_end(move |_, _drag, _delete_data| {
-        //     clippy_for_drag_end.remove(&btn_for_drag_end);
-        // });
+        let btn_for_drag_end    = btn.clone();
+        let clippy_for_drag_end = clippy.clone();
+        let items_for_drag_end  = items.clone();
+        let master_for_drag_end = master.clone();
+        drag_src.connect_drag_end(move |_, _drag, _delete_data| {
+            clippy_for_drag_end.remove(&btn_for_drag_end);
+            items_for_drag_end.borrow_mut().retain(|it| it.btn != btn_for_drag_end);
+            sync_clippy_master(&clippy_for_drag_end, &items_for_drag_end, &master_for_drag_end);
+        });
         btn.add_controller(drag_src);
 
         let gesture_rm = gtk4::GestureClick::new();
         gesture_rm.set_button(3);
-        let btn_for_remove = btn.clone();
+        let btn_for_remove    = btn.clone();
         let clippy_for_remove = clippy.clone();
+        let items_for_remove  = items.clone();
+        let master_for_remove = master.clone();
         gesture_rm.connect_released(move |_, _, _, _| {
             clippy_for_remove.remove(&btn_for_remove);
+            items_for_remove.borrow_mut().retain(|it| it.btn != btn_for_remove);
+            sync_clippy_master(&clippy_for_remove, &items_for_remove, &master_for_remove);
         });
         btn.add_controller(gesture_rm);
 
         clippy.append(&btn);
         clippy.set_visible(true);
+        items.borrow_mut().push(ClippyItem { btn, payload: ClippyPayload::Text { text: text_owned } });
+        sync_clippy_master(clippy, items, master);
     }
 
-    fn add_file_to_clippy(clippy: &GtkBox, uri: &str) {
+    fn add_file_to_clippy(
+        clippy: &GtkBox,
+        items:  &Rc<RefCell<Vec<ClippyItem>>>,
+        master: &Rc<RefCell<Option<Button>>>,
+        uri:    &str,
+    ) {
         let path = if let Some(p) = uri.strip_prefix("file://") {
             let decoded = percent_decode(p);
             std::path::PathBuf::from(decoded)
@@ -844,8 +1107,10 @@ fn coping_with(app: &Application) {
             .and_then(|n| n.to_str())
             .unwrap_or(uri)
             .to_string();
+
         let icon_name = icon_for_path(&path);
         let uri_owned = uri.to_string();
+        let mime      = if uri_owned.starts_with("file://") { Some(mime_for_path(&path)) } else { None };
 
         let img = Image::new();
         img.set_icon_name(Some(&icon_name));
@@ -914,47 +1179,37 @@ fn coping_with(app: &Application) {
                 gtk4::TextDirection::None,
                 gtk4::IconLookupFlags::empty(),
             );
-            src.set_icon(Some(&paintable), 24, 24);
+            src.set_icon(Some(&paintable), 24, 24 );
         });
 
-        // let btn_for_drag_end = btn.clone();
-        // let clippy_for_drag_end = clippy.clone();
-        // drag_src.connect_drag_end(move |_, _drag, _delete_data| {
-        //     clippy_for_drag_end.remove(&btn_for_drag_end);
-        // });
-
+        let btn_for_drag_end    = btn.clone();
+        let clippy_for_drag_end = clippy.clone();
+        let items_for_drag_end  = items.clone();
+        let master_for_drag_end = master.clone();
+        drag_src.connect_drag_end(move |_, _drag, _delete_data| {
+            clippy_for_drag_end.remove(&btn_for_drag_end);
+            items_for_drag_end.borrow_mut().retain(|it| it.btn != btn_for_drag_end);
+            sync_clippy_master(&clippy_for_drag_end, &items_for_drag_end, &master_for_drag_end);
+        });
         btn.add_controller(drag_src);
 
         let gesture = gtk4::GestureClick::new();
         gesture.set_button(3);
-        let btn_for_remove = btn.clone();
+        let btn_for_remove    = btn.clone();
         let clippy_for_remove = clippy.clone();
+        let items_for_remove  = items.clone();
+        let master_for_remove = master.clone();
         gesture.connect_released(move |_, _, _, _| {
             clippy_for_remove.remove(&btn_for_remove);
+            items_for_remove.borrow_mut().retain(|it| it.btn != btn_for_remove);
+            sync_clippy_master(&clippy_for_remove, &items_for_remove, &master_for_remove);
         });
         btn.add_controller(gesture);
 
         clippy.append(&btn);
         clippy.set_visible(true);
-    }
-
-    fn percent_decode(s: &str) -> String {
-        let mut out = String::with_capacity(s.len());
-        let mut bytes = s.bytes().peekable();
-        while let Some(b) = bytes.next() {
-            if b == b'%' {
-                let h1 = bytes.next().unwrap_or(b'?');
-                let h2 = bytes.next().unwrap_or(b'?');
-                if let Ok(n) = u8::from_str_radix(
-                    &format!("{}{}", h1 as char, h2 as char), 16
-                ) {
-                    out.push(n as char);
-                    continue;
-                }
-            }
-            out.push(b as char);
-        }
-        out
+        items.borrow_mut().push(ClippyItem { btn, payload: ClippyPayload::File { uri: uri_owned, mime } });
+        sync_clippy_master(clippy, items, master);
     }
 
     {
@@ -963,12 +1218,14 @@ fn coping_with(app: &Application) {
             .build();
         drop_target.set_types(&[gtk4::gio::File::static_type(), glib::Type::STRING]);
 
-        let clippy_drop = clippy.clone();
+        let clippy_drop  = clippy.clone();
+        let items_drop    = clippy_items.clone();
+        let master_drop   = clippy_master.clone();
         drop_target.connect_drop(move |_, value, _, _| {
             if let Ok(file) = value.get::<gtk4::gio::File>() {
                 let uri = file.uri().to_string();
                 if !uri.is_empty() {
-                    add_file_to_clippy(&clippy_drop, &uri);
+                    add_file_to_clippy(&clippy_drop, &items_drop, &master_drop, &uri);
                 } else {
                     clippy_drop.add_css_class("nooclip");
                 }
@@ -999,17 +1256,17 @@ fn coping_with(app: &Application) {
                             } else {
                                 token.to_string()
                             };
-                            add_file_to_clippy(&clippy_drop, &normalized);
+                            add_file_to_clippy(&clippy_drop, &items_drop, &master_drop, &normalized);
                         } else if token.starts_with("http://")
                             || token.starts_with("https://")
                             || token.starts_with("ftp://")
                         {
-                            add_link_to_clippy(&clippy_drop, token);
+                            add_link_to_clippy(&clippy_drop, &items_drop, &master_drop, token);
                         }
                         handled = true;
                     }
                 } else if !text.trim().is_empty() {
-                    add_text_to_clippy(&clippy_drop, text.trim());
+                    add_text_to_clippy(&clippy_drop, &items_drop, &master_drop, text.trim());
                     handled = true;
                 }
 
