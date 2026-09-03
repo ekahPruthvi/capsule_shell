@@ -758,21 +758,21 @@ fn coping_with(app: &Application) {
         let mut providers: Vec<gtk4::gdk::ContentProvider> = vec![];
         let mut uri_lines:  Vec<String> = vec![];
         let mut text_lines: Vec<String> = vec![];
+        let mut gfiles:     Vec<gtk4::gio::File> = vec![];
 
         for item in items {
             match &item.payload {
                 ClippyPayload::File { uri, mime } => {
                     uri_lines.push(uri.clone());
+                    gfiles.push(gtk4::gio::File::for_uri(uri));
 
-                    let gfile     = gtk4::gio::File::for_uri(uri);
-                    let gfile_val = glib::Value::from(&gfile);
-                    providers.push(gtk4::gdk::ContentProvider::for_value(&gfile_val));
-
-                    if let (Some(mime), Some(local_path)) = (mime, uri.strip_prefix("file://")) {
-                        let decoded = percent_decode(local_path);
-                        if let Ok(file_bytes) = std::fs::read(&decoded) {
-                            let gbytes = glib::Bytes::from_owned(file_bytes);
-                            providers.push(gtk4::gdk::ContentProvider::for_bytes(mime, &gbytes));
+                    if items.len() == 1 {
+                        if let (Some(mime), Some(local_path)) = (mime, uri.strip_prefix("file://")) {
+                            let decoded = percent_decode(local_path);
+                            if let Ok(file_bytes) = std::fs::read(&decoded) {
+                                let gbytes = glib::Bytes::from_owned(file_bytes);
+                                providers.push(gtk4::gdk::ContentProvider::for_bytes(mime, &gbytes));
+                            }
                         }
                     }
                 }
@@ -783,6 +783,23 @@ fn coping_with(app: &Application) {
                 ClippyPayload::Text { text } => {
                     text_lines.push(text.clone());
                 }
+            }
+        }
+
+        // A single GFile-typed provider only ever carries one file, and
+        // stacking several of them in a union means the receiver can only
+        // ever pull the first one out. GdkFileList is the GType built for
+        // exactly this: a single value that carries every dragged file, so
+        // apps that ask for a file list (most file managers, browsers, chat
+        // clients) get everything, not just the first item.
+        if !gfiles.is_empty() {
+            if gfiles.len() == 1 {
+                let gfile_val = glib::Value::from(&gfiles[0]);
+                providers.push(gtk4::gdk::ContentProvider::for_value(&gfile_val));
+            } else {
+                let file_list = gtk4::gdk::FileList::from_array(&gfiles);
+                let file_list_val = glib::Value::from(&file_list);
+                providers.push(gtk4::gdk::ContentProvider::for_value(&file_list_val));
             }
         }
 

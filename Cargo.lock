@@ -296,11 +296,12 @@ dependencies = [
 
 [[package]]
 name = "capsule"
-version = "1.4.66"
+version = "1.4.67"
 dependencies = [
  "async-channel",
  "chrono",
  "dirs",
+ "gdk4",
  "gtk4",
  "gtk4-layer-shell",
  "inotify",
