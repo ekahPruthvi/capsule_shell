@@ -455,13 +455,14 @@ pub fn connect_notifications_to_dock(
                         is_expanded.set(true);
                         current_width.set(start_width as f64);
 
-                        // main_window.set_width_request(target_width + 50);
+                        main_window.set_default_size(target_width + 50, -1);
                         noti_window.set_width_request(start_width);
-                        noti_window.set_css_classes(&["timeCapsule"]);
+                        noti_window.set_css_classes(&["timeCapsule", "notiCapsule"]);
                         if is_it_dnd() == "false" {
                             main_window.set_layer(gtk4_layer_shell::Layer::Overlay);
                         }
 
+                        main_window.set_namespace(Some("notification!"));
                         let noti_window_anim   = noti_window.clone();
                         let current_width_anim = Rc::clone(&current_width);
                         let main_c = main_window.clone();
@@ -474,7 +475,7 @@ pub fn connect_notifications_to_dock(
                                     current_width_anim.set(target_width as f64);
                                     noti_window_anim.set_width_request(target_width);
                                     main_c.set_width_request(current_width_anim.get() as i32 + 30);
-                                    noti_window_anim.set_css_classes(&["blip", "timeCapsule"]);
+                                    noti_window_anim.set_css_classes(&["blip", "timeCapsule", "notiCapsule"]);
                                     return gtk4::glib::ControlFlow::Break;
                                 }
                                 current_width_anim.set(next_w);
@@ -529,7 +530,10 @@ pub fn connect_notifications_to_dock(
                                     if next_w <= start_width as f64 {
                                         noti_window_c.set_width_request(start_width);
                                         noti_window_c.remove_css_class("blip");
+                                        noti_window_c.remove_css_class("notiCapsule");
                                         main_c.set_layer(gtk4_layer_shell::Layer::Top);
+                                        main_c.set_namespace(Some("TimeCapsule"));
+                                        main_c.set_default_size(-1, -1);
                                         return glib::ControlFlow::Break;
                                     }
                                     current_width_c.set(next_w);

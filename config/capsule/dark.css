@@ -39,15 +39,17 @@
     --bg: rgba(0, 0, 0, 0.559);
     padding: 6px;
     background-color: var(--bg);
-    /* border: 2px solid transparent;
-    background-image: linear-gradient(var(--bg), var(--bg)),
-                        linear-gradient(15deg, var(--shineline), transparent, var(--shineline));
-    background-origin: border-box;
-    background-clip: padding-box, border-box; */
     border: 1px solid rgba(166, 166, 166, 0.216);
     border-radius: 22px;
-    /* box-shadow:  inset 0px -5px 20px rgba(255, 255, 255, 0.239); */
-    /* box-shadow: rgba(0, 0, 0, 0.24) 0px 3px 8px; */
+}
+
+.notiCapsule {
+    background-color: rgba(34, 34, 34, 0.559);
+    border: 2px solid transparent;
+    background-image: linear-gradient(rgb(29, 29, 29), rgb(29, 29, 29)),
+                        linear-gradient(0deg, rgb(9, 9, 9), rgba(94, 94, 94, 0.686));
+    background-origin: border-box;
+    background-clip: padding-box, border-box;
 }
 
 .osdCapsule {
@@ -562,15 +564,58 @@ calendar.view > grid > label:selected {
 } */
 
 .outerBat {
-    padding: 10px;
+    padding: 15px;
     background-color: rgba(34, 34, 34, 0.559);
     border: 2px solid transparent;
     background-image: linear-gradient(rgb(29, 29, 29), rgb(29, 29, 29)),
                         linear-gradient(0deg, rgb(9, 9, 9), rgba(94, 94, 94, 0.686));
     background-origin: border-box;
     background-clip: padding-box, border-box;
-    border-radius: 30px;
+    border-radius: 40px;
     /* box-shadow:  inset 0px -5px 20px rgba(255, 255, 255, 0.239); */
+}
+
+.outerAppd {
+    padding: 15px;
+    background-color: rgba(34, 34, 34, 0.559);
+    border: 2px solid transparent;
+    background-image: linear-gradient(rgb(29, 29, 29), rgb(29, 29, 29)),
+                        linear-gradient(0deg, rgb(9, 9, 9), rgba(94, 94, 94, 0.686));
+    background-origin: border-box;
+    background-clip: padding-box, border-box;
+    border-radius: 40px;
+    /* box-shadow:  inset 0px -5px 20px rgba(255, 255, 255, 0.239); */
+    transition: all 0.5s ease;
+}
+
+.appdMenu {
+    padding: 2px;
+    border: 2px solid transparent;
+    background-image: 
+        linear-gradient(rgb(6, 6, 6), rgb(6, 6, 6)),
+        linear-gradient(0deg, rgb(9, 9, 9), rgba(61, 61, 61, 0.686));
+    background-origin: border-box;
+    background-clip: padding-box, border-box;
+    border-radius: 50px;
+    /* box-shadow:  inset 0px -5px 20px rgba(255, 255, 255, 0.239); */
+    transition: all 0.5s ease;
+}
+
+.appdBtn {
+    all: unset;
+    padding: 10px;
+    border-radius: 50px;
+    transition: all 400ms cubic-bezier(0.4, 0.0, 0.2, 1);
+    font-weight: 300;
+    font-size: 16px;
+}
+
+.appdBtn:hover {
+    background-color: #ffffff1a;
+}
+
+.appdBtn:active {
+    transform: scale(0.5);
 }
 
 .batLabel {
@@ -594,7 +639,7 @@ calendar.view > grid > label:selected {
     /* rgb(177, 218, 218) inverse color */
     background-origin: border-box;
     background-clip: padding-box, border-box;
-    border-radius: 30px;
+    border-radius: 40px;
     /* box-shadow:  inset 0px -5px 20px rgba(255, 255, 255, 0.239); */
 }
 
@@ -792,7 +837,7 @@ calendar.view > grid > label:selected {
     all: unset;
     min-width: 40px;
     padding: 10px;
-    border-radius: 20px;border: 2px solid transparent;
+    border-radius: 25px;border: 2px solid transparent;
     background-image: linear-gradient(rgb(6, 6, 6), rgb(6, 6, 6)),
                         linear-gradient(0deg, rgb(9, 9, 9), rgba(61, 61, 61, 0.686));
     background-origin: border-box;
@@ -927,6 +972,21 @@ calendar.view > grid > label:selected {
     border-radius: 5px;
 }
 
+.closeBox {
+    animation: closeup 0.2s forwards ease-in-out;
+}
+
+@keyframes closeup {
+    0% {
+        transform: translate(0px, 0px);
+        opacity: 1;
+    }
+    100% {
+        transform: translate(0px, -100px);
+        opacity: 0;
+    }
+}
+
 .netListEmpty {
     padding: 10px;
 }
@@ -994,6 +1054,44 @@ row:focus {
     }
 }
 
+.errWidget {
+    animation: err 1s forwards ease-in-out; 
+}
+
+@keyframes err {
+    0% {
+        transform: scale(1);
+        border: 2px solid transparent;
+    }
+    50% {
+        transform: scale(0.8);
+        border: 5px solid crimson;
+    }
+    100% {
+        transform: scale(1);
+        border: 2px solid transparent;
+    }
+}
+
+.okWidget {
+    animation: okk 0.2s forwards ease-in-out; 
+}
+
+@keyframes okk {
+    0% {
+        transform: scale(1);
+        border: 2px solid transparent;
+    }
+    50% {
+        transform: scale(0.8);
+        border: 5px solid rgb(0, 83, 68);
+    }
+    100% {
+        transform: scale(1);
+        border: 2px solid transparent;
+    }
+}
+
 switch {
     all: unset;
     font-weight: bold;
@@ -1034,4 +1132,102 @@ switch:disabled > slider {
     box-shadow: none;
 }
 
+.dockBox {
+    all: unset;
+    min-width: 400px;
+    padding: 20px;
+    border-radius: 50px;
+    border: 2px solid transparent;
+    background-image: linear-gradient(rgb(6, 6, 6), rgb(6, 6, 6)),
+                        linear-gradient(0deg, rgb(9, 9, 9), rgba(61, 61, 61, 0.686));
+    background-origin: border-box;
+    background-clip: padding-box, border-box;
+    box-shadow: rgba(0, 0, 0, 0.24) 0px 3px 8px;
+}
 
+.dockBtn {
+    all: unset;
+    padding: 10px;
+    transition: all 400ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.trayBtn {
+    all: unset;
+    background-color: #48484816;
+    border-radius: 50px;
+    padding: 10px;
+    transition: all 400ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.trayBtn:hover {
+    transform: scale(1.1);
+}
+
+.trayBtn:active {
+    transform: scale(0.5);
+}
+
+.trayMenuBox {
+    background-color: #fdfcfc11;
+    border-radius: 40px;
+    padding: 10px;
+}
+
+.trayMenuItem {
+    all: unset;
+    padding: 10px;
+    border-radius: 50px;
+    transition: all 2ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.trayMenuItem:hover {
+    background-color: #5151511e;
+}
+
+.trayMenuSeparator {
+    background-color: rgba(142, 142, 142, 0.062);
+}
+
+.dockBtn:hover {
+    transform: scale(1.1);
+}
+
+.dockBtn:active {
+    transform: scale(0.5);
+}
+
+.dockBtnActive {
+    border-radius: 20px;
+    background-color: rgba(255, 255, 255, 0.076);
+}
+
+@keyframes dockcum {
+    0% {
+        transform: translateY(-200px);
+    }
+    100% {
+        transform: translateY(0);
+    }
+}
+
+@keyframes dockleave {
+    0% {
+        transform: translateY(0);
+    }
+    100% {
+        transform: translateY(-200px);
+    }
+}
+
+.dockcum {
+    animation: dockcum 0.4s cubic-bezier(0.53, 0, 0.58, 1.5);
+}
+
+.dockleave {
+    animation: dockleave 0.4s cubic-bezier(0.53, 0, 0.58, 1.5);
+}
+
+.dummytxt {
+    font-size: 5px;
+    color: transparent;
+}
