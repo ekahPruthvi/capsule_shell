@@ -7,9 +7,11 @@ use gtk4::glib;
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use std::time::Duration;
 use std::cell::RefCell;
+use std::cell::Cell;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::TryRecvError;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum NetworkState {
@@ -22,17 +24,19 @@ pub enum NetworkState {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SoundState {
-    pub volume:  u32,
-    pub muted:   bool,
-    pub sink:    String,
+    pub volume:     u32,
+    pub muted:      bool,
+    pub sink:       String,
+    pub mic_volume: u32,
+    pub mic_muted:  bool,
 }
 
-fn get_sound_state() -> SoundState {
-    let wpctl = std::process::Command::new("wpctl")
-        .args(["get-volume", "@DEFAULT_AUDIO_SINK@"])
+fn get_volume_and_mute(target: &str) -> (u32, bool) {
+    let out = std::process::Command::new("wpctl")
+        .args(["get-volume", target])
         .output();
 
-    let (volume, muted) = if let Ok(out) = wpctl {
+    if let Ok(out) = out {
         let text = String::from_utf8_lossy(&out.stdout).to_string();
         let is_muted = text.contains("[MUTED]");
         let vol = text
@@ -44,7 +48,12 @@ fn get_sound_state() -> SoundState {
         (vol, is_muted)
     } else {
         (0, false)
-    };
+    }
+}
+
+fn get_sound_state() -> SoundState {
+    let (volume, muted) = get_volume_and_mute("@DEFAULT_AUDIO_SINK@");
+    let (mic_volume, mic_muted) = get_volume_and_mute("@DEFAULT_AUDIO_SOURCE@");
 
     let sink = std::process::Command::new("pactl")
         .args(["get-default-sink"])
@@ -78,7 +87,7 @@ fn get_sound_state() -> SoundState {
         })
         .unwrap_or_else(|| "Unknown Output".to_string());
 
-    SoundState { volume, muted, sink }
+    SoundState { volume, muted, sink, mic_volume, mic_muted }
 }
 
 fn sound_icon(state: &SoundState) -> &'static str {
@@ -107,6 +116,394 @@ pub fn spawn_sound_watcher(interval: Duration) -> std::sync::mpsc::Receiver<Soun
         }
     });
     rx
+}
+
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct OutputDevice {
+    pub id:         String,  
+    pub label:      String,  
+    pub volume:     u32,
+    pub muted:      bool,
+    pub is_default: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AppPlayback {
+    pub id:     String,      
+    pub label:  String,       
+    pub volume: u32,
+    pub muted:  bool,
+}
+
+fn parse_pactl_volume_pct(line: &str) -> u32 {
+    if let Some(pct_pos) = line.find('%') {
+        let bytes = line.as_bytes();
+        let mut start = pct_pos;
+        while start > 0 && bytes[start - 1].is_ascii_digit() {
+            start -= 1;
+        }
+        if let Ok(v) = line[start..pct_pos].trim().parse::<u32>() {
+            return v;
+        }
+    }
+    0
+}
+
+fn get_output_devices() -> Vec<OutputDevice> {
+    let default_sink = std::process::Command::new("pactl")
+        .args(["get-default-sink"])
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default();
+
+    let out = match std::process::Command::new("pactl").args(["list", "sinks"]).output() {
+        Ok(o) => o,
+        Err(_) => return vec![],
+    };
+    let text = String::from_utf8_lossy(&out.stdout).to_string();
+
+    let mut devices = Vec::new();
+    let mut name  = String::new();
+    let mut desc  = String::new();
+    let mut vol: u32 = 0;
+    let mut muted = false;
+    let mut in_block = false;
+
+    macro_rules! flush {
+        () => {
+            if !name.is_empty() {
+                let label = if desc.is_empty() { name.clone() } else { desc.clone() };
+                devices.push(OutputDevice {
+                    is_default: name == default_sink,
+                    id: name.clone(),
+                    label,
+                    volume: vol,
+                    muted,
+                });
+            }
+            name.clear();
+            desc.clear();
+            vol = 0;
+            muted = false;
+        };
+    }
+
+    for line in text.lines() {
+        if line.starts_with("Sink #") {
+            if in_block { flush!(); }
+            in_block = true;
+            continue;
+        }
+        let t = line.trim();
+        if let Some(v) = t.strip_prefix("Name:") {
+            name = v.trim().to_string();
+        } else if let Some(v) = t.strip_prefix("Description:") {
+            desc = v.trim().to_string();
+        } else if t.starts_with("Mute:") {
+            muted = t.contains("yes");
+        } else if t.starts_with("Volume:") {
+            vol = parse_pactl_volume_pct(t);
+        }
+    }
+    if in_block { flush!(); }
+
+    devices
+}
+
+fn get_app_playbacks() -> Vec<AppPlayback> {
+    let out = match std::process::Command::new("pactl").args(["list", "sink-inputs"]).output() {
+        Ok(o) => o,
+        Err(_) => return vec![],
+    };
+    let text = String::from_utf8_lossy(&out.stdout).to_string();
+
+    let mut apps = Vec::new();
+    let mut id   = String::new();
+    let mut vol: u32 = 0;
+    let mut muted = false;
+    let mut app_name: Option<String>   = None;
+    let mut media_name: Option<String> = None;
+    let mut in_block = false;
+
+    macro_rules! flush {
+        () => {
+            if !id.is_empty() {
+                let label = app_name.clone()
+                    .or_else(|| media_name.clone())
+                    .unwrap_or_else(|| format!("Stream {}", id));
+                apps.push(AppPlayback { id: id.clone(), label, volume: vol, muted });
+            }
+            id.clear();
+            vol = 0;
+            muted = false;
+            app_name = None;
+            media_name = None;
+        };
+    }
+
+    for line in text.lines() {
+        if let Some(rest) = line.strip_prefix("Sink Input #") {
+            if in_block { flush!(); }
+            in_block = true;
+            id = rest.trim().to_string();
+            continue;
+        }
+        let t = line.trim();
+        if t.starts_with("Mute:") {
+            muted = t.contains("yes");
+        } else if t.starts_with("Volume:") {
+            vol = parse_pactl_volume_pct(t);
+        } else if let Some(v) = t.strip_prefix("application.name = ") {
+            app_name = Some(v.trim_matches('"').to_string());
+        } else if let Some(v) = t.strip_prefix("media.name = ") {
+            media_name = Some(v.trim_matches('"').to_string());
+        }
+    }
+    if in_block { flush!(); }
+
+    apps
+}
+
+fn set_output_volume(sink_name: &str, pct: u32) {
+    let _ = std::process::Command::new("pactl")
+        .args(["set-sink-volume", sink_name, &format!("{}%", pct)])
+        .spawn();
+}
+
+fn set_app_volume(sink_input_id: &str, pct: u32) {
+    let _ = std::process::Command::new("pactl")
+        .args(["set-sink-input-volume", sink_input_id, &format!("{}%", pct)])
+        .spawn();
+}
+
+fn set_master_mute(mute: bool) {
+    let val = if mute { "1" } else { "0" };
+    let _ = std::process::Command::new("wpctl")
+        .args(["set-mute", "@DEFAULT_AUDIO_SINK@", val])
+        .spawn();
+}
+
+fn set_mic_mute(mute: bool) {
+    let val = if mute { "1" } else { "0" };
+    let _ = std::process::Command::new("wpctl")
+        .args(["set-mute", "@DEFAULT_AUDIO_SOURCE@", val])
+        .spawn();
+}
+
+pub fn spawn_sound_devices_watcher(
+    interval: Duration,
+) -> std::sync::mpsc::Receiver<(Vec<OutputDevice>, Vec<AppPlayback>)> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut last: Option<(Vec<OutputDevice>, Vec<AppPlayback>)> = None;
+        loop {
+            let fresh = (get_output_devices(), get_app_playbacks());
+            if Some(&fresh) != last.as_ref() {
+                if tx.send(fresh.clone()).is_err() { break; }
+                last = Some(fresh);
+            }
+            std::thread::sleep(interval);
+        }
+    });
+    rx
+}
+
+struct SliderRowHandles {
+    row:        gtk4::ListBoxRow,
+    scale:      gtk4::Scale,
+    handler:    glib::SignalHandlerId,
+    value_lbl:  Label,
+    name_lbl:   Label,
+    last_touch: Rc<Cell<std::time::Instant>>,
+}
+
+fn build_sound_row(
+    id:         String,
+    label_text: String,
+    volume:     u32,
+    is_default: bool,
+    on_change:  Rc<dyn Fn(&str, u32)>,
+) -> SliderRowHandles {
+    let root = GtkBox::new(Orientation::Vertical, 4);
+    root.add_css_class("soundListRow");
+
+    let top = GtkBox::new(Orientation::Horizontal, 8);
+    let name_lbl = gtk4::Label::new(Some(&label_text));
+    name_lbl.set_hexpand(true);
+    name_lbl.set_halign(gtk4::Align::Start);
+    name_lbl.add_css_class("soundListName");
+    if is_default {
+        name_lbl.add_css_class("soundListDefault");
+    }
+
+    let value_lbl = gtk4::Label::new(Some(&format!("{}%", volume)));
+    value_lbl.add_css_class("soundListValue");
+
+    top.append(&name_lbl);
+    top.append(&value_lbl);
+
+    let adjustment = gtk4::Adjustment::new(volume as f64, 0.0, 100.0, 1.0, 5.0, 0.0);
+    let scale = gtk4::Scale::new(Orientation::Horizontal, Some(&adjustment));
+    scale.set_draw_value(false);
+    scale.set_hexpand(true);
+    scale.add_css_class("soundListSlider");
+
+    let last_touch = Rc::new(Cell::new(
+        std::time::Instant::now() - Duration::from_secs(10),
+    ));
+
+    let id_for_cb     = id.clone();
+    let last_touch_cb = last_touch.clone();
+    let value_lbl_cb  = value_lbl.clone();
+    let handler = scale.connect_value_changed(move |s| {
+        let v = s.value().round() as u32;
+        value_lbl_cb.set_label(&format!("{}%", v));
+        last_touch_cb.set(std::time::Instant::now());
+        on_change(&id_for_cb, v);
+    });
+
+    root.append(&top);
+    root.append(&scale);
+
+    let row = gtk4::ListBoxRow::new();
+    row.set_selectable(false);
+    row.set_activatable(false);
+    row.set_child(Some(&root));
+    row.add_css_class("soundListRowWrap");
+
+    SliderRowHandles { row, scale, handler, value_lbl, name_lbl, last_touch }
+}
+
+fn ensure_placeholder(
+    list_rc:     &Rc<gtk4::ListBox>,
+    placeholder: &Rc<RefCell<Option<gtk4::ListBoxRow>>>,
+    text:        &str,
+) {
+    if placeholder.borrow().is_none() {
+        let lbl = gtk4::Label::new(Some(text));
+        lbl.add_css_class("soundListEmpty");
+        let row = gtk4::ListBoxRow::new();
+        row.set_selectable(false);
+        row.set_activatable(false);
+        row.set_child(Some(&lbl));
+        list_rc.append(&row);
+        *placeholder.borrow_mut() = Some(row);
+    }
+}
+
+fn clear_placeholder(list_rc: &Rc<gtk4::ListBox>, placeholder: &Rc<RefCell<Option<gtk4::ListBoxRow>>>) {
+    if let Some(row) = placeholder.borrow_mut().take() {
+        list_rc.remove(&row);
+    }
+}
+
+const SLIDER_TOUCH_GUARD: Duration = Duration::from_millis(900);
+
+fn update_output_rows(
+    list_rc:     &Rc<gtk4::ListBox>,
+    rows:        &Rc<RefCell<HashMap<String, SliderRowHandles>>>,
+    placeholder: &Rc<RefCell<Option<gtk4::ListBoxRow>>>,
+    devices:     &[OutputDevice],
+) {
+    let mut map = rows.borrow_mut();
+
+    if devices.is_empty() {
+        ensure_placeholder(list_rc, placeholder, "No output devices found");
+        for (_, handle) in map.drain() {
+            list_rc.remove(&handle.row);
+        }
+        return;
+    }
+    clear_placeholder(list_rc, placeholder);
+
+    let seen: std::collections::HashSet<String> = devices.iter().map(|d| d.id.clone()).collect();
+
+    for dev in devices {
+        if let Some(handle) = map.get(&dev.id) {
+            let recently_touched = handle.last_touch.get().elapsed() < SLIDER_TOUCH_GUARD;
+            if !recently_touched {
+                let cur = handle.scale.value().round() as u32;
+                if cur != dev.volume {
+                    handle.scale.block_signal(&handle.handler);
+                    handle.scale.set_value(dev.volume as f64);
+                    handle.scale.unblock_signal(&handle.handler);
+                    handle.value_lbl.set_label(&format!("{}%", dev.volume));
+                }
+            }
+            if dev.is_default {
+                handle.name_lbl.add_css_class("soundListDefault");
+            } else {
+                handle.name_lbl.remove_css_class("soundListDefault");
+            }
+            if handle.name_lbl.label().to_string() != dev.label {
+                handle.name_lbl.set_label(&dev.label);
+            }
+        } else {
+            let on_change: Rc<dyn Fn(&str, u32)> = Rc::new(|id: &str, v: u32| set_output_volume(id, v));
+            let handle = build_sound_row(dev.id.clone(), dev.label.clone(), dev.volume, dev.is_default, on_change);
+            list_rc.append(&handle.row);
+            map.insert(dev.id.clone(), handle);
+        }
+    }
+
+    let stale: Vec<String> = map.keys().filter(|k| !seen.contains(*k)).cloned().collect();
+    for k in stale {
+        if let Some(handle) = map.remove(&k) {
+            list_rc.remove(&handle.row);
+        }
+    }
+}
+
+fn update_app_rows(
+    list_rc:     &Rc<gtk4::ListBox>,
+    rows:        &Rc<RefCell<HashMap<String, SliderRowHandles>>>,
+    placeholder: &Rc<RefCell<Option<gtk4::ListBoxRow>>>,
+    apps:        &[AppPlayback],
+) {
+    let mut map = rows.borrow_mut();
+
+    if apps.is_empty() {
+        ensure_placeholder(list_rc, placeholder, "No apps are playing audio");
+        for (_, handle) in map.drain() {
+            list_rc.remove(&handle.row);
+        }
+        return;
+    }
+    clear_placeholder(list_rc, placeholder);
+
+    let seen: std::collections::HashSet<String> = apps.iter().map(|a| a.id.clone()).collect();
+
+    for app in apps {
+        if let Some(handle) = map.get(&app.id) {
+            let recently_touched = handle.last_touch.get().elapsed() < SLIDER_TOUCH_GUARD;
+            if !recently_touched {
+                let cur = handle.scale.value().round() as u32;
+                if cur != app.volume {
+                    handle.scale.block_signal(&handle.handler);
+                    handle.scale.set_value(app.volume as f64);
+                    handle.scale.unblock_signal(&handle.handler);
+                    handle.value_lbl.set_label(&format!("{}%", app.volume));
+                }
+            }
+            if handle.name_lbl.label().to_string() != app.label {
+                handle.name_lbl.set_label(&app.label);
+            }
+        } else {
+            let on_change: Rc<dyn Fn(&str, u32)> = Rc::new(|id: &str, v: u32| set_app_volume(id, v));
+            let handle = build_sound_row(app.id.clone(), app.label.clone(), app.volume, false, on_change);
+            list_rc.append(&handle.row);
+            map.insert(app.id.clone(), handle);
+        }
+    }
+
+    let stale: Vec<String> = map.keys().filter(|k| !seen.contains(*k)).cloned().collect();
+    for k in stale {
+        if let Some(handle) = map.remove(&k) {
+            list_rc.remove(&handle.row);
+        }
+    }
 }
 
 fn wifi_soft_blocked() -> bool {
@@ -635,7 +1032,7 @@ pub fn spawn_ctrl_capsules(
     net_panel_actions.append(&net_settings_btn);
 
     let net_list_box = gtk4::ListBox::new();
-    net_list_box.add_css_class("netList");
+    net_list_box.add_css_class("ctrlpanelList");
     net_list_box.set_selection_mode(gtk4::SelectionMode::None);
 
 
@@ -648,7 +1045,7 @@ pub fn spawn_ctrl_capsules(
     scroll_win.add_css_class("netListScroll");
 
     let net_panel = GtkBox::new(Orientation::Vertical, 6);
-    net_panel.add_css_class("netPanel");
+    net_panel.add_css_class("ctrlPanel");
     net_panel.append(&net_panel_actions);
     net_panel.append(&scroll_win);
     net_panel.set_visible(false);
@@ -816,27 +1213,172 @@ pub fn spawn_ctrl_capsules(
     let snd_body_rc = Rc::new(snd_body);
     let sound_rx = Rc::new(RefCell::new(sound_rx));
 
+    let mute_toggle = Switch::builder()
+        .active(!init_snd.muted)
+        .css_classes(["soundPanelSwitch"])
+        .tooltip_text("Mute/Unmute Sound")
+        .valign(gtk4::Align::Center)
+        .margin_start(10)
+        .build();
+
+    let mic_toggle = Switch::builder()
+        .active(!init_snd.mic_muted)
+        .css_classes(["soundPanelSwitch"])
+        .tooltip_text("Mute/Unmute Microphone")
+        .valign(gtk4::Align::Center)
+        .build();
+
+    let mute_toggle_rc = Rc::new(mute_toggle);
+    let mic_toggle_rc  = Rc::new(mic_toggle);
+
+    let mute_toggle_handler = Rc::new(mute_toggle_rc.connect_state_set(move |_, state| {
+        set_master_mute(!state);
+        glib::Propagation::Proceed
+    }));
+    let mic_toggle_handler = Rc::new(mic_toggle_rc.connect_state_set(move |_, state| {
+        set_mic_mute(!state);
+        glib::Propagation::Proceed
+    }));
+
+    let sound_settings_icon = Image::from_file("/var/lib/cynager/icons/cog.svg");
+    sound_settings_icon.set_icon_size(gtk4::IconSize::Normal);
+    let sound_settings_btn = Button::builder()
+        .child(&sound_settings_icon)
+        .css_classes(["netPanelBtn"])
+        .tooltip_text("Sound settings")
+        .build();
+
+    {
+        sound_settings_btn.connect_clicked(move |_| {
+            let _ = std::process::Command::new("pavucontrol").spawn();
+        });
+    }
+
+    let sound_dummy_fill = GtkBox::new(Orientation::Horizontal, 0);
+    sound_dummy_fill.set_hexpand(true);
+
+    let sound_panel_actions = GtkBox::new(Orientation::Horizontal, 8);
+    sound_panel_actions.add_css_class("soundPanelActions");
+    sound_panel_actions.append(&*mute_toggle_rc);
+    sound_panel_actions.append(&*mic_toggle_rc);
+    sound_panel_actions.append(&sound_dummy_fill);
+    sound_panel_actions.append(&sound_settings_btn);
+
+    let output_list_box = gtk4::ListBox::new();
+    output_list_box.add_css_class("ctrlpanelList");
+    output_list_box.set_selection_mode(gtk4::SelectionMode::None);
+    let output_list_rc = Rc::new(output_list_box);
+    let output_scroll = gtk4::ScrolledWindow::new();
+    output_scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
+    output_scroll.set_max_content_height(220);
+    output_scroll.set_propagate_natural_height(true);
+    output_scroll.set_child(Some(&*output_list_rc));
+
+    let apps_list_box = gtk4::ListBox::new();
+    apps_list_box.add_css_class("ctrlpanelList");
+    apps_list_box.set_selection_mode(gtk4::SelectionMode::None);
+    let apps_list_rc = Rc::new(apps_list_box);
+    let apps_scroll = gtk4::ScrolledWindow::new();
+    apps_scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
+    apps_scroll.set_max_content_height(220);
+    apps_scroll.set_propagate_natural_height(true);
+    apps_scroll.set_child(Some(&*apps_list_rc));
+
+    let sound_stack = gtk4::Stack::new();
+    sound_stack.set_transition_type(gtk4::StackTransitionType::SlideLeftRight);
+    sound_stack.set_transition_duration(150);
+    sound_stack.add_titled(&output_scroll, Some("output"), "Output Devices");
+    sound_stack.add_titled(&apps_scroll, Some("apps"), "Applications");
+
+    let sound_tabs = gtk4::StackSwitcher::new();
+    sound_tabs.set_stack(Some(&sound_stack));
+    sound_tabs.add_css_class("soundTabs");
+
+    let output_rows: Rc<RefCell<HashMap<String, SliderRowHandles>>> = Rc::new(RefCell::new(HashMap::new()));
+    let output_placeholder: Rc<RefCell<Option<gtk4::ListBoxRow>>> = Rc::new(RefCell::new(None));
+    let app_rows: Rc<RefCell<HashMap<String, SliderRowHandles>>> = Rc::new(RefCell::new(HashMap::new()));
+    let app_placeholder: Rc<RefCell<Option<gtk4::ListBoxRow>>> = Rc::new(RefCell::new(None));
+
+    let sound_panel = GtkBox::new(Orientation::Vertical, 6);
+    sound_panel.add_css_class("ctrlPanel");
+    sound_panel.append(&sound_panel_actions);
+    sound_panel.append(&sound_tabs);
+    sound_panel.append(&sound_stack);
+    sound_panel.set_visible(false);
+
+    let sound_panel_rc = Rc::new(sound_panel);
+    let sound_expanded  = Rc::new(RefCell::new(false));
+
+    let device_rx = Rc::new(RefCell::new(spawn_sound_devices_watcher(Duration::from_millis(1200))));
+
+    {
+        let device_rx           = device_rx.clone();
+        let overlay_open        = overlay_open.clone();
+        let sound_expanded      = sound_expanded.clone();
+        let output_list_rc      = output_list_rc.clone();
+        let apps_list_rc        = apps_list_rc.clone();
+        let output_rows         = output_rows.clone();
+        let output_placeholder  = output_placeholder.clone();
+        let app_rows            = app_rows.clone();
+        let app_placeholder     = app_placeholder.clone();
+
+        glib::timeout_add_local(Duration::from_millis(400), move || {
+            let rx = device_rx.borrow();
+            let mut latest: Option<(Vec<OutputDevice>, Vec<AppPlayback>)> = None;
+            while let Ok(state) = rx.try_recv() {
+                latest = Some(state);
+            }
+            drop(rx);
+            if *overlay_open.borrow() && *sound_expanded.borrow() {
+                if let Some((devices, apps)) = latest {
+                    update_output_rows(&output_list_rc, &output_rows, &output_placeholder, &devices);
+                    update_app_rows(&apps_list_rc, &app_rows, &app_placeholder, &apps);
+                }
+            }
+            glib::ControlFlow::Continue
+        });
+    }
+
     {
         let snd_icon_rc = snd_icon_rc.clone();
         let snd_label_rc = snd_label_rc.clone();
         let snd_body_rc = snd_body_rc.clone();
         let sound_rx = sound_rx.clone();
         let overlay_open = overlay_open.clone();
+        let mute_toggle_rc = mute_toggle_rc.clone();
+        let mic_toggle_rc = mic_toggle_rc.clone();
+        let mute_toggle_handler = mute_toggle_handler.clone();
+        let mic_toggle_handler = mic_toggle_handler.clone();
 
         glib::timeout_add_local(Duration::from_millis(500), move || {
-            if !*overlay_open.borrow() {
-                return glib::ControlFlow::Break;
-            }
             let rx = sound_rx.borrow();
             let mut latest: Option<SoundState> = None;
             while let Ok(state) = rx.try_recv() {
                 latest = Some(state);
             }
             drop(rx);
-            if let Some(state) = latest {
-                snd_icon_rc.set_from_file(Some(sound_icon(&state)));
-                snd_label_rc.set_label(&format!("{}%", state.volume));
-                snd_body_rc.set_label(&state.sink);
+            if *overlay_open.borrow() {
+                if let Some(state) = latest {
+                    snd_icon_rc.set_from_file(Some(sound_icon(&state)));
+                    snd_label_rc.set_label(&format!("{}%", state.volume));
+                    snd_body_rc.set_label(&state.sink);
+
+                    let want_active = !state.muted;
+                    if mute_toggle_rc.is_active() != want_active {
+                        mute_toggle_rc.block_signal(&mute_toggle_handler);
+                        mute_toggle_rc.set_active(want_active);
+                        mute_toggle_rc.set_state(want_active);
+                        mute_toggle_rc.unblock_signal(&mute_toggle_handler);
+                    }
+
+                    let mic_want_active = !state.mic_muted;
+                    if mic_toggle_rc.is_active() != mic_want_active {
+                        mic_toggle_rc.block_signal(&mic_toggle_handler);
+                        mic_toggle_rc.set_active(mic_want_active);
+                        mic_toggle_rc.set_state(mic_want_active);
+                        mic_toggle_rc.unblock_signal(&mic_toggle_handler);
+                    }
+                }
             }
             glib::ControlFlow::Continue
         });
@@ -892,6 +1434,7 @@ pub fn spawn_ctrl_capsules(
     ctrl_column.append(&top_backdrop);
     ctrl_column.append(&btns);
     ctrl_column.append(&*net_panel_rc);
+    ctrl_column.append(&*sound_panel_rc);
 
     let layout = gtk4::Overlay::new();
     layout.set_child(Some(&backdrop));
@@ -940,11 +1483,11 @@ pub fn spawn_ctrl_capsules(
             let mut expanded = net_expanded.borrow_mut();
             *expanded = !*expanded;
             if *expanded {
-                netbtn_c.add_css_class("netBtnExpanded");
+                netbtn_c.set_css_classes(&["ctrlExpanded"]);
                 net_panel_rc.set_visible(true);
                 populate();
             } else {
-                netbtn_c.remove_css_class("netBtnExpanded");
+                netbtn_c.set_css_classes(&["ctrlBtnL"]);
                 net_panel_rc.set_visible(false);
             }
         });
@@ -971,9 +1514,30 @@ pub fn spawn_ctrl_capsules(
     }
 
     {
+        let sound_panel_rc     = sound_panel_rc.clone();
+        let sound_expanded     = sound_expanded.clone();
+        let soundbtn_c         = soundbtn.clone();
+        let output_list_rc     = output_list_rc.clone();
+        let apps_list_rc       = apps_list_rc.clone();
+        let output_rows        = output_rows.clone();
+        let output_placeholder = output_placeholder.clone();
+        let app_rows           = app_rows.clone();
+        let app_placeholder    = app_placeholder.clone();
+
         soundbtn.connect_clicked(move |_| {
-            // let _ = std::process::Command::new("pavucontrol").spawn();
-            close();
+            let mut expanded = sound_expanded.borrow_mut();
+            *expanded = !*expanded;
+            if *expanded {
+                soundbtn_c.set_css_classes(&["ctrlExpanded"]);
+                sound_panel_rc.set_visible(true);
+                let devices = get_output_devices();
+                let apps = get_app_playbacks();
+                update_output_rows(&output_list_rc, &output_rows, &output_placeholder, &devices);
+                update_app_rows(&apps_list_rc, &app_rows, &app_placeholder, &apps);
+            } else {
+                soundbtn_c.set_css_classes(&["ctrlBtnL"]);
+                sound_panel_rc.set_visible(false);
+            }
         });
     }
 
