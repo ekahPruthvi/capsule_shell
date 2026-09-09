@@ -102,13 +102,6 @@ fn sound_icon(state: &SoundState) -> &'static str {
     }
 }
 
-/// Spawns a background thread that runs `pactl subscribe` and forwards a
-/// unit event any time a line matching one of `keywords` is seen. This is
-/// what lets the sound watchers react within milliseconds of a real change
-/// (mute toggle, new app, volume change) instead of waiting on a fixed
-/// polling interval. The `pactl subscribe` process is self-healing: if it
-/// exits (pipewire/pulseaudio restart, etc.) it's reaped and relaunched
-/// after a short backoff.
 fn spawn_pactl_event_pump(keywords: &'static [&'static str]) -> std::sync::mpsc::Receiver<()> {
     let (evt_tx, evt_rx) = std::sync::mpsc::channel::<()>();
     std::thread::spawn(move || {
@@ -123,8 +116,6 @@ fn spawn_pactl_event_pump(keywords: &'static [&'static str]) -> std::sync::mpsc:
             let mut child = match child {
                 Ok(c) => c,
                 Err(_) => {
-                    // pactl missing or failed to launch; retry slowly rather
-                    // than busy-looping.
                     std::thread::sleep(Duration::from_secs(3));
                     continue;
                 }
@@ -147,8 +138,6 @@ fn spawn_pactl_event_pump(keywords: &'static [&'static str]) -> std::sync::mpsc:
                 }
             }
 
-            // Stream ended/died - reap the child so it doesn't zombie, then
-            // reconnect after a brief backoff.
             let _ = child.kill();
             let _ = child.wait();
             std::thread::sleep(Duration::from_millis(500));
@@ -157,33 +146,21 @@ fn spawn_pactl_event_pump(keywords: &'static [&'static str]) -> std::sync::mpsc:
     evt_rx
 }
 
-/// Waits for the next batch of events on `evt_rx`, coalescing rapid bursts
-/// (pactl often emits several related lines for a single real change, e.g.
-/// a mute toggle fires both a sink and a server event). Returns once no
-/// further events have arrived for `debounce`, or after `fallback` elapses
-/// with no events at all (a cheap safety-net poll in case an event was
-/// ever missed).
 fn wait_for_event_batch(evt_rx: &std::sync::mpsc::Receiver<()>, fallback: Duration, debounce: Duration) {
     match evt_rx.recv_timeout(fallback) {
         Ok(()) => {
             while evt_rx.recv_timeout(debounce).is_ok() {}
         }
         Err(_) => {
-            // Timed out with no events, or the pump disconnected - either
-            // way just fall through and re-check the current state.
         }
     }
 }
 
 pub fn spawn_sound_watcher(fallback_interval: Duration) -> std::sync::mpsc::Receiver<SoundState> {
     let (tx, rx) = std::sync::mpsc::channel::<SoundState>();
-    // "server" catches default-sink/source changes; "sink"/"source" catch
-    // volume and mute changes on the current output/input.
     let evt_rx = spawn_pactl_event_pump(&["sink", "source", "server"]);
 
     std::thread::spawn(move || {
-        // Push the current state immediately so the panel is never stale
-        // the first time it's read.
         let mut last = get_sound_state();
         if tx.send(last.clone()).is_err() { return; }
 
@@ -392,8 +369,6 @@ pub fn spawn_sound_devices_watcher(
     fallback_interval: Duration,
 ) -> std::sync::mpsc::Receiver<(Vec<OutputDevice>, Vec<AppPlayback>)> {
     let (tx, rx) = std::sync::mpsc::channel();
-    // "sink" covers both output devices and sink-input (app playback)
-    // events; "card" catches hardware being hot-plugged/removed.
     let evt_rx = spawn_pactl_event_pump(&["sink", "card"]);
 
     std::thread::spawn(move || {
@@ -429,6 +404,16 @@ struct RadioConfig {
     group_leader: Rc<RefCell<Option<gtk4::CheckButton>>>,
     on_select:    Rc<dyn Fn(&str)>,
 }
+
+struct AppTileHandles {
+    child:      gtk4::FlowBoxChild,
+    value_lbl:  Label,
+    name_lbl:   Label,
+    volume:     Rc<Cell<u32>>,
+    last_touch: Rc<Cell<std::time::Instant>>,
+}
+
+const APP_TILE_SCROLL_STEP: u32 = 5;
 
 fn build_sound_row(
     id:         String,
@@ -528,69 +513,79 @@ fn build_app_row(
     icon_name:  String,
     volume:     u32,
     on_change:  Rc<dyn Fn(&str, u32)>,
-) -> SliderRowHandles {
-    let root = GtkBox::new(Orientation::Vertical, 6);
-    root.add_css_class("soundListRow");
-    root.add_css_class("appTileRow");
-
-    let tile = GtkBox::new(Orientation::Vertical, 4);
+) -> AppTileHandles {
+    let tile = GtkBox::new(Orientation::Horizontal, 4);
     tile.add_css_class("appTile");
-    tile.set_halign(gtk4::Align::Center);
+    tile.set_halign(gtk4::Align::Fill);
+    tile.set_hexpand(true);
+    tile.set_vexpand(false);
+    tile.set_valign(gtk4::Align::Start);
 
-    let icon_row = GtkBox::new(Orientation::Horizontal, 6);
-    icon_row.add_css_class("appTileTop");
-    icon_row.set_halign(gtk4::Align::Center);
+    let name_n_val = GtkBox::new(Orientation::Vertical, 6);
+    name_n_val.add_css_class("appTileTop");
+    name_n_val.set_halign(gtk4::Align::End);
+    name_n_val.set_hexpand(true);
 
     let icon = Image::from_icon_name(&icon_name);
     icon.set_pixel_size(28);
     icon.add_css_class("appTileIcon");
 
     let value_lbl = gtk4::Label::new(Some(&format!("{}%", volume)));
-    value_lbl.add_css_class("appTileValue");
-
-    icon_row.append(&icon);
-    icon_row.append(&value_lbl);
+    value_lbl.add_css_class("soundApptxt");
+    value_lbl.set_halign(gtk4::Align::End);
+    value_lbl.set_justify(gtk4::Justification::Right);
 
     let name_lbl = gtk4::Label::new(Some(&label_text));
-    name_lbl.add_css_class("appTileName");
-    name_lbl.set_halign(gtk4::Align::Center);
-    name_lbl.set_justify(gtk4::Justification::Center);
+    name_lbl.add_css_class("soundApptxt");
+    name_lbl.set_halign(gtk4::Align::End);
+    name_lbl.set_justify(gtk4::Justification::Right);
     name_lbl.set_wrap(true);
-    name_lbl.set_max_width_chars(18);
+    name_lbl.set_max_width_chars(100);
 
-    tile.append(&icon_row);
-    tile.append(&name_lbl);
 
-    let adjustment = gtk4::Adjustment::new(volume as f64, 0.0, 100.0, 1.0, 5.0, 0.0);
-    let scale = gtk4::Scale::new(Orientation::Horizontal, Some(&adjustment));
-    scale.set_draw_value(false);
-    scale.set_hexpand(true);
-    scale.add_css_class("soundListSlider");
+    name_n_val.append(&name_lbl);
+    name_n_val.append(&value_lbl);
 
-    let last_touch = Rc::new(Cell::new(
+    tile.append(&icon);
+    tile.append(&name_n_val);
+    tile.set_tooltip_text(Some("Scroll to change volume"));
+
+    let child = gtk4::FlowBoxChild::new();
+    child.set_child(Some(&tile));
+    child.set_focusable(false);
+    child.add_css_class("appTileRow");
+
+    let volume_cell = Rc::new(Cell::new(volume.min(100)));
+    let last_touch  = Rc::new(Cell::new(
         std::time::Instant::now() - Duration::from_secs(10),
     ));
 
-    let id_for_cb     = id.clone();
-    let last_touch_cb = last_touch.clone();
-    let value_lbl_cb  = value_lbl.clone();
-    let handler = scale.connect_value_changed(move |s| {
-        let v = s.value().round() as u32;
-        value_lbl_cb.set_label(&format!("{}%", v));
-        last_touch_cb.set(std::time::Instant::now());
-        on_change(&id_for_cb, v);
+    let scroll = EventControllerScroll::new(
+        EventControllerScrollFlags::VERTICAL | EventControllerScrollFlags::DISCRETE,
+    );
+
+    let id_for_scroll = id.clone();
+    let volume_cell_for_scroll = volume_cell.clone();
+    let last_touch_for_scroll = last_touch.clone();
+    let value_lbl_for_scroll = value_lbl.clone();
+    scroll.connect_scroll(move |_, _dx, dy| {
+        let cur  = volume_cell_for_scroll.get() as i32;
+        let step = APP_TILE_SCROLL_STEP as i32;
+        let delta = if dy < 0.0 { step } else { -step };
+        let new_vol = (cur + delta).clamp(0, 100) as u32;
+
+        if new_vol != cur as u32 {
+            volume_cell_for_scroll.set(new_vol);
+            value_lbl_for_scroll.set_label(&format!("{}%", new_vol));
+            last_touch_for_scroll.set(std::time::Instant::now());
+            on_change(&id_for_scroll, new_vol);
+        }
+
+        glib::Propagation::Stop
     });
+    child.add_controller(scroll);
 
-    root.append(&tile);
-    root.append(&scale);
-
-    let row = gtk4::ListBoxRow::new();
-    row.set_selectable(false);
-    row.set_activatable(false);
-    row.set_child(Some(&root));
-    row.add_css_class("soundListRowWrap");
-
-    SliderRowHandles { row, scale, handler, value_lbl, name_lbl, last_touch, radio: None, radio_handler: None }
+    AppTileHandles { child, value_lbl, name_lbl, volume: volume_cell, last_touch }
 }
 
 fn ensure_placeholder(
@@ -613,6 +608,28 @@ fn ensure_placeholder(
 fn clear_placeholder(list_rc: &Rc<gtk4::ListBox>, placeholder: &Rc<RefCell<Option<gtk4::ListBoxRow>>>) {
     if let Some(row) = placeholder.borrow_mut().take() {
         list_rc.remove(&row);
+    }
+}
+
+fn ensure_app_placeholder(
+    list_rc:     &Rc<gtk4::FlowBox>,
+    placeholder: &Rc<RefCell<Option<gtk4::FlowBoxChild>>>,
+    text:        &str,
+) {
+    if placeholder.borrow().is_none() {
+        let lbl = gtk4::Label::new(Some(text));
+        lbl.add_css_class("soundListEmpty");
+        let child = gtk4::FlowBoxChild::new();
+        child.set_child(Some(&lbl));
+        child.set_focusable(false);
+        list_rc.insert(&child, -1);
+        *placeholder.borrow_mut() = Some(child);
+    }
+}
+
+fn clear_app_placeholder(list_rc: &Rc<gtk4::FlowBox>, placeholder: &Rc<RefCell<Option<gtk4::FlowBoxChild>>>) {
+    if let Some(child) = placeholder.borrow_mut().take() {
+        list_rc.remove(&child);
     }
 }
 
@@ -694,35 +711,30 @@ fn update_output_rows(
 }
 
 fn update_app_rows(
-    list_rc:     &Rc<gtk4::ListBox>,
-    rows:        &Rc<RefCell<HashMap<String, SliderRowHandles>>>,
-    placeholder: &Rc<RefCell<Option<gtk4::ListBoxRow>>>,
+    list_rc:     &Rc<gtk4::FlowBox>,
+    rows:        &Rc<RefCell<HashMap<String, AppTileHandles>>>,
+    placeholder: &Rc<RefCell<Option<gtk4::FlowBoxChild>>>,
     apps:        &[AppPlayback],
 ) {
     let mut map = rows.borrow_mut();
 
     if apps.is_empty() {
-        ensure_placeholder(list_rc, placeholder, "No apps are playing audio");
+        ensure_app_placeholder(list_rc, placeholder, "No apps are playing audio");
         for (_, handle) in map.drain() {
-            list_rc.remove(&handle.row);
+            list_rc.remove(&handle.child);
         }
         return;
     }
-    clear_placeholder(list_rc, placeholder);
+    clear_app_placeholder(list_rc, placeholder);
 
     let seen: std::collections::HashSet<String> = apps.iter().map(|a| a.id.clone()).collect();
 
     for app in apps {
         if let Some(handle) = map.get(&app.id) {
             let recently_touched = handle.last_touch.get().elapsed() < SLIDER_TOUCH_GUARD;
-            if !recently_touched {
-                let cur = handle.scale.value().round() as u32;
-                if cur != app.volume {
-                    handle.scale.block_signal(&handle.handler);
-                    handle.scale.set_value(app.volume as f64);
-                    handle.scale.unblock_signal(&handle.handler);
-                    handle.value_lbl.set_label(&format!("{}%", app.volume));
-                }
+            if !recently_touched && handle.volume.get() != app.volume {
+                handle.volume.set(app.volume);
+                handle.value_lbl.set_label(&format!("{}%", app.volume));
             }
             if handle.name_lbl.label().to_string() != app.label {
                 handle.name_lbl.set_label(&app.label);
@@ -730,7 +742,7 @@ fn update_app_rows(
         } else {
             let on_change: Rc<dyn Fn(&str, u32)> = Rc::new(|id: &str, v: u32| set_app_volume(id, v));
             let handle = build_app_row(app.id.clone(), app.label.clone(), app.icon_name.clone(), app.volume, on_change);
-            list_rc.append(&handle.row);
+            list_rc.insert(&handle.child, -1);
             map.insert(app.id.clone(), handle);
         }
     }
@@ -738,7 +750,7 @@ fn update_app_rows(
     let stale: Vec<String> = map.keys().filter(|k| !seen.contains(*k)).cloned().collect();
     for k in stale {
         if let Some(handle) = map.remove(&k) {
-            list_rc.remove(&handle.row);
+            list_rc.remove(&handle.child);
         }
     }
 }
@@ -1415,8 +1427,6 @@ pub fn spawn_ctrl_capsules(
         });
     }
 
-    // 3s is just a safety-net poll now; real updates arrive instantly via
-    // pactl subscribe (see spawn_pactl_event_pump).
     let sound_rx = spawn_sound_watcher(Duration::from_secs(3));
     let init_snd = get_sound_state();
 
@@ -1533,9 +1543,15 @@ pub fn spawn_ctrl_capsules(
     output_scroll.set_child(Some(&*output_list_rc));
     output_scroll.add_css_class("netListScroll");
 
-    let apps_list_box = gtk4::ListBox::new();
+    let apps_list_box = gtk4::FlowBox::new();
     apps_list_box.add_css_class("ctrlpanelList");
+    apps_list_box.add_css_class("appsGrid");
     apps_list_box.set_selection_mode(gtk4::SelectionMode::None);
+    apps_list_box.set_homogeneous(true);
+    apps_list_box.set_min_children_per_line(2);
+    apps_list_box.set_max_children_per_line(2);
+    apps_list_box.set_row_spacing(8);
+    apps_list_box.set_column_spacing(8);
     let apps_list_rc = Rc::new(apps_list_box);
     let apps_scroll = gtk4::ScrolledWindow::new();
     apps_scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
@@ -1557,8 +1573,8 @@ pub fn spawn_ctrl_capsules(
     let output_rows: Rc<RefCell<HashMap<String, SliderRowHandles>>> = Rc::new(RefCell::new(HashMap::new()));
     let output_radio_group: Rc<RefCell<Option<gtk4::CheckButton>>> = Rc::new(RefCell::new(None));
     let output_placeholder: Rc<RefCell<Option<gtk4::ListBoxRow>>> = Rc::new(RefCell::new(None));
-    let app_rows: Rc<RefCell<HashMap<String, SliderRowHandles>>> = Rc::new(RefCell::new(HashMap::new()));
-    let app_placeholder: Rc<RefCell<Option<gtk4::ListBoxRow>>> = Rc::new(RefCell::new(None));
+    let app_rows: Rc<RefCell<HashMap<String, AppTileHandles>>> = Rc::new(RefCell::new(HashMap::new()));
+    let app_placeholder: Rc<RefCell<Option<gtk4::FlowBoxChild>>> = Rc::new(RefCell::new(None));
 
     let sound_panel = GtkBox::new(Orientation::Vertical, 6);
     sound_panel.add_css_class("ctrlPanel");
@@ -1850,11 +1866,11 @@ pub fn spawn_ctrl_capsules(
 
             glib::Propagation::Stop
         });
-
+ 
         soundbtn.add_controller(scroll);
     }
  
     win.present();
     win.set_visible(false);
     win
-}
+}  
