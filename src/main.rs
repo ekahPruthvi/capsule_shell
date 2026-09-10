@@ -367,14 +367,12 @@ fn coping_with(app: &Application) {
         .build();
 
     time_window.init_layer_shell();
-    time_window.set_namespace(Some("TimeCapsule"));
     time_window.set_layer(Layer::Top);
     time_window.remove_css_class("background");
     time_window.set_anchor(Edge::Top, true);
     time_window.set_margin(Edge::Top, 5);
     time_window.set_width_request(400);
     time_window.set_exclusive_zone(0);
-    time_window.set_default_size(-1, -1);
 
     pin_to_monitor(&time_window, mon);
 
@@ -401,14 +399,22 @@ fn coping_with(app: &Application) {
         // .halign(gtk4::Align::End)
         .build();
 
+    
+    let now = Local::now();
+    time.set_text(&now.format("%I:%M").to_string());
+    ampm.set_text(&now.format(" %p \n %a, %b %e").to_string());
+
     let time_win = time_capsule.clone();
     let time_actual_window = time_window.clone();
+
+    let mut just_started = true;
     glib::timeout_add_local(Duration::from_millis(1200), move || {
-        let now = Local::now();
-        time.set_text(&now.format("%I:%M").to_string());
-        ampm.set_text(&now.format(" %p \n %a, %b %e").to_string());
-        time_win.remove_css_class("starting");
         time_actual_window.set_width_request(300);
+        if just_started {
+            time_win.remove_css_class("starting");
+            time_actual_window.set_namespace(Some("TimeCapsule"));
+            just_started = false;
+        }
         glib::ControlFlow::Continue
     });
 
@@ -1673,4 +1679,10 @@ fn main() {
     let app = Application::new(Some("ekah.scu.cynideshell"), Default::default());
     app.connect_activate(coping_with);
     app.run();
+
+    let _ = Command::new("spawn-at-startup")
+        .arg("sh")
+        .arg("-c")
+        .arg("touch /run/user/$UID/octobacillus-ready")
+        .status();
 }

@@ -1072,7 +1072,7 @@ pub fn spawn_ctrl_capsules(
 
     win.init_layer_shell();
     win.set_namespace(Some("CtrlOverlay"));
-    win.set_layer(Layer::Top);
+    win.set_layer(Layer::Overlay);
     win.remove_css_class("background");
     win.set_anchor(Edge::Top, true);
     win.set_anchor(Edge::Bottom,true);
@@ -1428,7 +1428,13 @@ pub fn spawn_ctrl_capsules(
     }
 
     let sound_rx = spawn_sound_watcher(Duration::from_secs(3));
-    let init_snd = get_sound_state();
+    let init_snd = SoundState {
+        volume: 0,
+        muted: false,
+        sink: "Loading audio…".to_string(),
+        mic_volume: 0,
+        mic_muted: false,
+    };
 
     let snd_icon = Image::from_file(sound_icon(&init_snd));
     snd_icon.set_icon_size(gtk4::IconSize::Large);
@@ -1461,6 +1467,7 @@ pub fn spawn_ctrl_capsules(
     let snd_label_rc = Rc::new(snd_label);
     let snd_body_rc = Rc::new(snd_body);
     let sound_rx = Rc::new(RefCell::new(sound_rx));
+    let sound_cache: Rc<RefCell<Option<SoundState>>> = Rc::new(RefCell::new(None));
 
     let volume_icon = Image::from_file(sound_icon(&init_snd));
     volume_icon.set_icon_size(gtk4::IconSize::Normal);
@@ -1550,7 +1557,7 @@ pub fn spawn_ctrl_capsules(
     apps_list_box.set_homogeneous(true);
     apps_list_box.set_min_children_per_line(2);
     apps_list_box.set_max_children_per_line(2);
-    apps_list_box.set_row_spacing(8);
+    apps_list_box.set_row_spacing(5);
     apps_list_box.set_column_spacing(8);
     let apps_list_rc = Rc::new(apps_list_box);
     let apps_scroll = gtk4::ScrolledWindow::new();
@@ -1586,39 +1593,49 @@ pub fn spawn_ctrl_capsules(
     let sound_panel_rc = Rc::new(sound_panel);
     let sound_expanded  = Rc::new(RefCell::new(false));
 
-    // Same here - 1.2s fallback poll only; pactl subscribe drives the
-    // real-time updates.
     let device_rx = Rc::new(RefCell::new(spawn_sound_devices_watcher(Duration::from_millis(1200))));
+    let device_cache: Rc<RefCell<Option<(Vec<OutputDevice>, Vec<AppPlayback>)>>> = Rc::new(RefCell::new(None));
 
     {
-        let device_rx           = device_rx.clone();
-        let overlay_open        = overlay_open.clone();
-        let sound_expanded      = sound_expanded.clone();
-        let output_list_rc      = output_list_rc.clone();
-        let apps_list_rc        = apps_list_rc.clone();
-        let output_rows         = output_rows.clone();
-        let output_radio_group  = output_radio_group.clone();
-        let output_placeholder  = output_placeholder.clone();
-        let app_rows            = app_rows.clone();
-        let app_placeholder     = app_placeholder.clone();
+        let device_rx = device_rx.clone();
+        let device_cache = device_cache.clone();
+        let overlay_open = overlay_open.clone();
+        let sound_expanded = sound_expanded.clone();
+        let output_list_rc = output_list_rc.clone();
+        let apps_list_rc = apps_list_rc.clone();
+        let output_rows = output_rows.clone();
+        let output_radio_group = output_radio_group.clone();
+        let output_placeholder = output_placeholder.clone();
+        let app_rows = app_rows.clone();
+        let app_placeholder = app_placeholder.clone();
 
-        // This just drains an mpsc channel (cheap, no subprocess spawn), so
-        // it can afford to run much more often than the old 400ms tick -
-        // that's what let up to 400ms of extra lag stack on top of the
-        // producer-side delay.
         glib::timeout_add_local(Duration::from_millis(120), move || {
-            let rx = device_rx.borrow();
-            let mut latest: Option<(Vec<OutputDevice>, Vec<AppPlayback>)> = None;
-            while let Ok(state) = rx.try_recv() {
-                latest = Some(state);
+            let latest = {
+                let rx = device_rx.borrow();
+                let mut latest = None;
+                while let Ok(state) = rx.try_recv() {
+                    latest = Some(state);
+                }
+                latest
+            };
+
+            if let Some(state) = latest {
+                *device_cache.borrow_mut() = Some(state);
             }
-            drop(rx);
+
             if *overlay_open.borrow() && *sound_expanded.borrow() {
-                if let Some((devices, apps)) = latest {
-                    update_output_rows(&output_list_rc, &output_rows, &output_placeholder, &output_radio_group, &devices);
-                    update_app_rows(&apps_list_rc, &app_rows, &app_placeholder, &apps);
+                if let Some((devices, apps)) = device_cache.borrow().as_ref() {
+                    update_output_rows(
+                        &output_list_rc,
+                        &output_rows,
+                        &output_placeholder,
+                        &output_radio_group,
+                        devices,
+                    );
+                    update_app_rows(&apps_list_rc, &app_rows, &app_placeholder, apps);
                 }
             }
+
             glib::ControlFlow::Continue
         });
     }
@@ -1628,6 +1645,7 @@ pub fn spawn_ctrl_capsules(
         let snd_label_rc = snd_label_rc.clone();
         let snd_body_rc = snd_body_rc.clone();
         let sound_rx = sound_rx.clone();
+        let sound_cache_poll = sound_cache.clone();
         let overlay_open = overlay_open.clone();
         let mute_toggle_rc = mute_toggle_rc.clone();
         let mic_toggle_rc = mic_toggle_rc.clone();
@@ -1636,9 +1654,6 @@ pub fn spawn_ctrl_capsules(
         let volume_icon_rc = volume_icon_rc.clone();
         let mic_icon_rc = mic_icon_rc.clone();
 
-        // Same reasoning as the device-list poll above: cheap channel
-        // drain, so poll it fast so pushed updates show up almost
-        // immediately instead of waiting on a coarse tick.
         glib::timeout_add_local(Duration::from_millis(120), move || {
             let rx = sound_rx.borrow();
             let mut latest: Option<SoundState> = None;
@@ -1646,9 +1661,13 @@ pub fn spawn_ctrl_capsules(
                 latest = Some(state);
             }
             drop(rx);
+            if let Some(state) = latest {
+                *sound_cache_poll.borrow_mut() = Some(state);
+            }
+
             if *overlay_open.borrow() {
-                if let Some(state) = latest {
-                    snd_icon_rc.set_from_file(Some(sound_icon(&state)));
+                if let Some(state) = sound_cache_poll.borrow().as_ref() {
+                    snd_icon_rc.set_from_file(Some(sound_icon(state)));
                     snd_label_rc.set_label(&format!("{}%", state.volume));
                     snd_body_rc.set_label(&state.sink);
                     volume_icon_rc.set_from_file(Some(sound_icon(&state)));
@@ -1809,16 +1828,17 @@ pub fn spawn_ctrl_capsules(
     }
 
     {
-        let sound_panel_rc     = sound_panel_rc.clone();
-        let sound_expanded     = sound_expanded.clone();
-        let soundbtn_c         = soundbtn.clone();
-        let output_list_rc     = output_list_rc.clone();
-        let apps_list_rc       = apps_list_rc.clone();
-        let output_rows        = output_rows.clone();
+        let sound_panel_rc = sound_panel_rc.clone();
+        let sound_expanded = sound_expanded.clone();
+        let soundbtn_c = soundbtn.clone();
+        let output_list_rc = output_list_rc.clone();
+        let apps_list_rc  = apps_list_rc.clone();
+        let output_rows = output_rows.clone();
         let output_radio_group = output_radio_group.clone();
         let output_placeholder = output_placeholder.clone();
-        let app_rows           = app_rows.clone();
-        let app_placeholder    = app_placeholder.clone();
+        let app_rows = app_rows.clone();
+        let app_placeholder = app_placeholder.clone();
+        let device_cache = device_cache.clone();
 
         soundbtn.connect_clicked(move |_| {
             let mut expanded = sound_expanded.borrow_mut();
@@ -1826,10 +1846,28 @@ pub fn spawn_ctrl_capsules(
             if *expanded {
                 soundbtn_c.set_css_classes(&["ctrlExpanded"]);
                 sound_panel_rc.set_visible(true);
-                let devices = get_output_devices();
-                let apps = get_app_playbacks();
-                update_output_rows(&output_list_rc, &output_rows, &output_placeholder, &output_radio_group, &devices);
-                update_app_rows(&apps_list_rc, &app_rows, &app_placeholder, &apps);
+
+                if let Some((devices, apps)) = device_cache.borrow().as_ref() {
+                    update_output_rows(
+                        &output_list_rc,
+                        &output_rows,
+                        &output_placeholder,
+                        &output_radio_group,
+                        devices,
+                    );
+                    update_app_rows(&apps_list_rc, &app_rows, &app_placeholder, apps);
+                } else {
+                    ensure_placeholder(
+                        &output_list_rc,
+                        &output_placeholder,
+                        "Loading output devices…",
+                    );
+                    ensure_app_placeholder(
+                        &apps_list_rc,
+                        &app_placeholder,
+                        "Loading audio apps…",
+                    );
+                }
             } else {
                 soundbtn_c.set_css_classes(&["ctrlBtnL"]);
                 sound_panel_rc.set_visible(false);
@@ -1838,9 +1876,9 @@ pub fn spawn_ctrl_capsules(
     }
 
     {
-        let snd_icon_rc  = snd_icon_rc.clone();
+        let snd_icon_rc = snd_icon_rc.clone();
         let snd_label_rc = snd_label_rc.clone();
-        let snd_body_rc  = snd_body_rc.clone();
+        let sound_cache = sound_cache.clone();
 
         let scroll = EventControllerScroll::new(
             EventControllerScrollFlags::VERTICAL | EventControllerScrollFlags::DISCRETE,
@@ -1852,21 +1890,16 @@ pub fn spawn_ctrl_capsules(
                 .args(["set-volume", "-l", "1.0", "@DEFAULT_AUDIO_SINK@", step])
                 .spawn();
 
-            glib::timeout_add_local_once(Duration::from_millis(80), {
-                let snd_icon_rc  = snd_icon_rc.clone();
-                let snd_label_rc = snd_label_rc.clone();
-                let snd_body_rc  = snd_body_rc.clone();
-                move || {
-                    let state = get_sound_state();
-                    snd_icon_rc.set_from_file(Some(sound_icon(&state)));
-                    snd_label_rc.set_label(&format!("{}%", state.volume));
-                    snd_body_rc.set_label(&state.sink);
-                }
-            });
+            if let Some(state) = sound_cache.borrow_mut().as_mut() {
+                let delta = if dy < 0.0 { 5 } else { -5 };
+                state.volume = (state.volume as i32 + delta).clamp(0, 100) as u32;
+                snd_label_rc.set_label(&format!("{}%", state.volume));
+                snd_icon_rc.set_from_file(Some(sound_icon(state)));
+            }
 
             glib::Propagation::Stop
         });
- 
+
         soundbtn.add_controller(scroll);
     }
  
