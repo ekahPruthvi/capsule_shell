@@ -399,7 +399,7 @@ fn send_tray_snapshot(
     let _ = tx.send(snapshot);
 }
 
-pub fn spawn_tray_watcher() -> (
+fn spawn_tray_watcher() -> (
     std::sync::mpsc::Receiver<HashMap<String, TrayItemData>>,
     TrayCmdSender,
 ) {
@@ -846,7 +846,7 @@ fn make_dock_btn(win: &NiriWindow) -> Button {
         pending_leave.set(false);
     });
 
-    btn.add_controller(hover_ctrl);
+    // btn.add_controller(hover_ctrl); small hover bugg to fix
 
     if let Some(desktop_path) = desktop_for_app_id(&win.app_id) {
         let drag_source = DragSource::new();
