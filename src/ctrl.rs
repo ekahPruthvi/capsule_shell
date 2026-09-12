@@ -1057,6 +1057,152 @@ fn render_network_rows(
     }
 }
 
+fn build_round_user_icon(pixbuf: Pixbuf, size: i32) -> DrawingArea {
+    let icon = DrawingArea::new();
+    icon.set_content_width(size);
+    icon.set_content_height(size);
+
+    icon.set_draw_func(move |_, cr, w, h| {
+        let w = w as f64;
+        let h = h as f64;
+        let cx = w / 2.0;
+        let cy = h / 2.0;
+        let r  = w / 2.0;
+
+        cr.arc(cx, cy, r, 0.0, 2.0 * std::f64::consts::PI);
+        cr.clip();
+
+        let pb = pixbuf.scale_simple(w as i32, h as i32, gtk4::gdk_pixbuf::InterpType::Bilinear).unwrap();
+        cr.set_source_pixbuf(&pb, 0.0, 0.0);
+        cr.paint().unwrap();
+
+        let shine = gtk4::cairo::LinearGradient::new(
+            cx * 0.35, cy * 0.10,
+            cx * 0.80, cy * 0.75,
+        );
+        shine.add_color_stop_rgba(0.00, 1.0, 1.0, 1.0, 0.55);
+        shine.add_color_stop_rgba(0.40, 1.0, 1.0, 1.0, 0.18);
+        shine.add_color_stop_rgba(1.00, 1.0, 1.0, 1.0, 0.00);
+
+        cr.set_source(&shine).unwrap();
+
+        cr.save().unwrap();
+        cr.translate(cx, cy);
+        cr.scale(r * 0.85, r * 0.55);
+        cr.translate(-r * 0.08, -r * 0.80);
+        cr.arc(0.0, 0.0, 1.0, 0.0, 2.0 * std::f64::consts::PI);
+        cr.restore().unwrap();
+        cr.fill().unwrap();
+
+        let rim = gtk4::cairo::LinearGradient::new(cx * 0.4, 0.0, cx * 1.6, r * 0.18);
+        rim.add_color_stop_rgba(0.0, 1.0, 1.0, 1.0, 0.00);
+        rim.add_color_stop_rgba(0.5, 1.0, 1.0, 1.0, 0.45);
+        rim.add_color_stop_rgba(1.0, 1.0, 1.0, 1.0, 0.00);
+        cr.set_source(&rim).unwrap();
+        cr.arc(cx, cy, r - 0.5, std::f64::consts::PI * 1.15, std::f64::consts::PI * 1.85);
+        cr.set_line_width(1.5);
+        cr.stroke().unwrap();
+    });
+
+    icon
+}
+
+fn parse_probe_ver_block(path: &str) -> Vec<(String, String)> {
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(err) => {
+            eprintln!("Error reading probe file {}: {}", path, err);
+            return Vec::new();
+        }
+    };
+
+    let mut in_block = false;
+    let mut entries  = Vec::new();
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+
+        if trimmed == ":ver" {
+            in_block = true;
+            continue;
+        }
+
+        if trimmed == ":end" {
+            if in_block {
+                break;
+            }
+            continue;
+        }
+
+        if in_block && !trimmed.is_empty() {
+            if let Some((name, ver)) = trimmed.split_once(':') {
+                let name = name.trim().to_string();
+                let ver  = ver.trim().to_string();
+                if !name.is_empty() {
+                    entries.push((name, ver));
+                }
+            }
+        }
+    }
+
+    entries
+}
+
+fn build_ver_row(name: &str, version: &str) -> gtk4::ListBoxRow {
+    let row = gtk4::ListBoxRow::new();
+    row.set_selectable(false);
+    row.set_activatable(false);
+    row.add_css_class("verListRow");
+
+    let row_box = GtkBox::new(Orientation::Horizontal, 10);
+    row_box.add_css_class("verListRowBox");
+
+    let name_lbl = Label::builder()
+        .label(name)
+        .css_classes(if name == "cynageOS" {
+            ["cynverListName"]
+        } else {
+            ["verListName"]
+        } )
+        .halign(gtk4::Align::Start)
+        .hexpand(true)
+        .build();
+
+    let ver_lbl = Label::builder()
+        .label(version)
+        .css_classes(["verListValue"])
+        .halign(gtk4::Align::End)
+        .build();
+
+    row_box.append(&name_lbl);
+    row_box.append(&ver_lbl);
+    row.set_child(Some(&row_box));
+    row
+}
+
+fn populate_ver_table(list_rc: &Rc<gtk4::ListBox>) {
+    while let Some(child) = list_rc.first_child() {
+        list_rc.remove(&child);
+    }
+
+    let entries = parse_probe_ver_block("/var/lib/cynager/info.probe");
+
+    if entries.is_empty() {
+        let row = gtk4::ListBoxRow::new();
+        row.set_selectable(false);
+        row.set_activatable(false);
+        let lbl = Label::new(Some("No version info found"));
+        lbl.add_css_class("netListEmpty");
+        row.set_child(Some(&lbl));
+        list_rc.append(&row);
+        return;
+    }
+
+    for (name, version) in entries {
+        list_rc.append(&build_ver_row(&name, &version));
+    }
+}
+
 pub fn spawn_ctrl_capsules(
     app:          &Application,
     overlay_open: Rc<RefCell<bool>>,
@@ -1118,60 +1264,14 @@ pub fn spawn_ctrl_capsules(
 
 
     let pixbuf = Pixbuf::from_file(&final_path).unwrap();
-    let size = 35;
-
-    let usricon = DrawingArea::new();
-    usricon.set_content_width(size);
-    usricon.set_content_height(size);
-
-    usricon.set_draw_func(move |_, cr, w, h| {
-        let w = w as f64;
-        let h = h as f64;
-        let cx = w / 2.0;
-        let cy = h / 2.0;
-        let r  = w / 2.0;
- 
-        cr.arc(cx, cy, r, 0.0, 2.0 * std::f64::consts::PI);
-        cr.clip();
- 
-        let pb = pixbuf.scale_simple(w as i32, h as i32, gtk4::gdk_pixbuf::InterpType::Bilinear).unwrap();
-        cr.set_source_pixbuf(&pb, 0.0, 0.0);
-        cr.paint().unwrap();
- 
-        let shine = gtk4::cairo::LinearGradient::new(
-            cx * 0.35, cy * 0.10,
-            cx * 0.80, cy * 0.75,
-        );
-        shine.add_color_stop_rgba(0.00, 1.0, 1.0, 1.0, 0.55);
-        shine.add_color_stop_rgba(0.40, 1.0, 1.0, 1.0, 0.18);
-        shine.add_color_stop_rgba(1.00, 1.0, 1.0, 1.0, 0.00);
- 
-        cr.set_source(&shine).unwrap();
- 
-        cr.save().unwrap();
-        cr.translate(cx, cy);
-        cr.scale(r * 0.85, r * 0.55);
-        cr.translate(-r * 0.08, -r * 0.80);
-        cr.arc(0.0, 0.0, 1.0, 0.0, 2.0 * std::f64::consts::PI);
-        cr.restore().unwrap();
-        cr.fill().unwrap();
- 
-        let rim = gtk4::cairo::LinearGradient::new(cx * 0.4, 0.0, cx * 1.6, r * 0.18);
-        rim.add_color_stop_rgba(0.0, 1.0, 1.0, 1.0, 0.00);
-        rim.add_color_stop_rgba(0.5, 1.0, 1.0, 1.0, 0.45);
-        rim.add_color_stop_rgba(1.0, 1.0, 1.0, 1.0, 0.00);
-        cr.set_source(&rim).unwrap();
-        cr.arc(cx, cy, r - 0.5, std::f64::consts::PI * 1.15, std::f64::consts::PI * 1.85);
-        cr.set_line_width(1.5);
-        cr.stroke().unwrap();
-    });
+    let usricon = build_round_user_icon(pixbuf.clone(), 35);
 
     
     let usrname = match std::fs::read_to_string("/usr/share/octobacillus/user.octo") {
         Ok(content) => content,
         Err(err) => {
             eprintln!("Error reading file: {}", err);
-            "name = user4.0".to_string() //chnage this as update progresses  
+            "name = user4.0".to_string()
         }
     };
 
@@ -1210,6 +1310,55 @@ pub fn spawn_ctrl_capsules(
         .css_classes(["ctrlBtnL"])
         .build();
 
+    let usr_panel_icon = build_round_user_icon(pixbuf.clone(), 72);
+    usr_panel_icon.add_css_class("userPanelIcon");
+
+    let usr_panel_power_icon = Image::from_file("/var/lib/cynager/icons/cos-shutdown.svg");
+    usr_panel_power_icon.set_icon_size(gtk4::IconSize::Large);
+
+    let usr_panel_power_btn = Button::builder()
+        .child(&usr_panel_power_icon)
+        .css_classes(["dockBtn"])
+        .tooltip_text("Power")
+        .valign(gtk4::Align::Center)
+        .build();
+
+    {
+        usr_panel_power_btn.connect_clicked(move |_| {
+            let _ = std::process::Command::new("terminatee").spawn();
+        });
+    }
+
+    let usr_panel_dummy_fill = GtkBox::new(Orientation::Horizontal, 0);
+    usr_panel_dummy_fill.set_hexpand(true);
+
+    let usr_panel_actions = GtkBox::new(Orientation::Horizontal, 8);
+    usr_panel_actions.add_css_class("userPanelActions");
+    usr_panel_actions.append(&usr_panel_icon);
+    usr_panel_actions.append(&usr_panel_dummy_fill);
+    usr_panel_actions.append(&usr_panel_power_btn);
+
+    let ver_list_box = gtk4::ListBox::new();
+    ver_list_box.add_css_class("ctrlpanelList");
+    ver_list_box.add_css_class("verList");
+    ver_list_box.set_selection_mode(gtk4::SelectionMode::None);
+    let ver_list_rc = Rc::new(ver_list_box);
+
+    let ver_scroll = gtk4::ScrolledWindow::new();
+    ver_scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
+    ver_scroll.set_max_content_height(220);
+    ver_scroll.set_propagate_natural_height(true);
+    ver_scroll.set_child(Some(&*ver_list_rc));
+    ver_scroll.add_css_class("netListScroll");
+
+    let user_panel = GtkBox::new(Orientation::Vertical, 6);
+    user_panel.add_css_class("ctrlPanel");
+    user_panel.append(&usr_panel_actions);
+    user_panel.append(&ver_scroll);
+    user_panel.set_visible(false);
+
+    let user_panel_rc = Rc::new(user_panel);
+    let user_expanded = Rc::new(RefCell::new(false));
 
     let initial_state = net_hub.get();
     let (init_icon, init_label, init_body) = network_icon_and_tip(initial_state.clone());
@@ -1747,6 +1896,7 @@ pub fn spawn_ctrl_capsules(
     ctrl_column.set_valign(gtk4::Align::Start);
     ctrl_column.append(&top_backdrop);
     ctrl_column.append(&btns);
+    ctrl_column.append(&*user_panel_rc);
     ctrl_column.append(&*net_panel_rc);
     ctrl_column.append(&*sound_panel_rc);
 
@@ -1783,8 +1933,22 @@ pub fn spawn_ctrl_capsules(
     }
  
     {
+        let user_panel_rc = user_panel_rc.clone();
+        let user_expanded  = user_expanded.clone();
+        let usr_c          = usr.clone();
+        let ver_list_rc    = ver_list_rc.clone();
+
         usr.connect_clicked(move |_| {
-            // let _ = std::process::Command::new("nm-connection-editor").spawn();
+            let mut expanded = user_expanded.borrow_mut();
+            *expanded = !*expanded;
+            if *expanded {
+                usr_c.set_css_classes(&["ctrlExpanded"]);
+                user_panel_rc.set_visible(true);
+                populate_ver_table(&ver_list_rc);
+            } else {
+                usr_c.set_css_classes(&["ctrlBtnL"]);
+                user_panel_rc.set_visible(false);
+            }
         });
     }
  
@@ -1906,4 +2070,4 @@ pub fn spawn_ctrl_capsules(
     win.present();
     win.set_visible(false);
     win
-}  
+}
