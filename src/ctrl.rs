@@ -1,4 +1,3 @@
-use gdk4::glib::Error;
 use gtk4::{
     Application, ApplicationWindow, Label, Box as GtkBox, Button, Orientation, prelude::*,
     DrawingArea, gdk_pixbuf::Pixbuf, Image, EventControllerScroll, EventControllerScrollFlags,
@@ -6,14 +5,17 @@ use gtk4::{
 };
 use gtk4::glib;
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
-use std::process::ExitStatus;
-use std::time::Duration;
-use std::cell::RefCell;
-use std::cell::Cell;
-use std::rc::Rc;
+use std::{
+    time::Duration, 
+    cell::RefCell,
+    cell::Cell,
+    rc::Rc,
+    collections::HashMap,
+    fs::File,
+};
+use std::io::{BufRead, BufReader, Write, BufWriter};
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::TryRecvError;
-use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum NetworkState {
@@ -1245,6 +1247,77 @@ fn is_airplane() -> bool {
     false
 }
 
+fn is_dnd() -> bool {
+    let file = File::open("/var/lib/cynager/info.probe").expect("[ctrl] info probe file not found");
+    let mut sett_block = false;
+    for line in BufReader::new(file).lines() {
+        let line = line.expect("[ctrl] reading tru lines error");
+        let line = line.trim();
+
+        if sett_block && line.starts_with("dnd") {
+            let ye_no = line.strip_prefix("dnd :").expect("[ctrl] cant strip in settings block");
+            if ye_no.trim() == "true" {
+                return true
+            }
+        }
+
+        if line.starts_with(":set") {
+            sett_block = true;
+        }
+    }
+
+    false
+}
+
+fn toggle_dnd() {
+    let path = "/var/lib/cynager/info.probe";
+    let tmp_path = "/var/lib/cynager/info.probe.tmp";
+
+    let file = File::open(path).expect("[ctrl] info probe file not found");
+    let reader = BufReader::new(file);
+
+    let out = File::create(tmp_path).expect("[ctrl] cant create tmp file");
+    let mut writer = BufWriter::new(out);
+
+    let mut sett_block = false;
+
+    for line in reader.lines() {
+        let line = line.expect("[ctrl] reading line error");
+        let trimmed = line.trim();
+
+        if trimmed == ":set" {
+            sett_block = true;
+            writeln!(writer, "{}", line).expect("[ctrl] write error");
+            continue;
+        }
+
+        if trimmed == ":end" {
+            sett_block = false;
+            writeln!(writer, "{}", line).expect("[ctrl] write error");
+            continue;
+        }
+
+        if sett_block && trimmed.starts_with("dnd") {
+            let ye_no = trimmed.strip_prefix("dnd :")
+                .expect("[ctrl] cant strip in settings block")
+                .trim();
+
+            let flipped = if ye_no == "true" { "false" } else { "true" };
+
+            let indent_len = line.len() - line.trim_start().len();
+            let indent = &line[..indent_len];
+
+            writeln!(writer, "{}dnd :{}", indent, flipped).expect("[ctrl] write error");
+            continue;
+        }
+
+        writeln!(writer, "{}", line).expect("[ctrl] write error");
+    }
+
+    writer.flush().expect("[ctrl] flush error");
+    std::fs::rename(tmp_path, path).expect("[ctrl] cant replace original file");
+}
+
 pub fn spawn_ctrl_capsules(
     app:          &Application,
     overlay_open: Rc<RefCell<bool>>,
@@ -1909,7 +1982,11 @@ pub fn spawn_ctrl_capsules(
 
     let dnd: Button = Button::builder()
         .child(&dndicon)
-        .css_classes(["ctrlBtnS"])
+        .css_classes(if is_dnd() {
+            ["ctrlExpandedS"]
+        } else{ 
+            ["ctrlBtnS"]
+        })
         .tooltip_text("Toggle Do Not Disturb")
         .build();
 
@@ -2021,20 +2098,20 @@ pub fn spawn_ctrl_capsules(
         let airplaneicon_c = airplaneicon.clone();
         airplane.connect_clicked(move |_| {
             if is_airplane() {
-                let wifi = std::process::Command::new("rfkill")
+                let _ = std::process::Command::new("rfkill")
                     .args(["unblock", "wifi"])
                     .status();
 
-                let bluetooth = std::process::Command::new("rfkill")
+                let _ = std::process::Command::new("rfkill")
                     .args(["unblock", "bluetooth"])
                     .status();
                 airplaneicon_c.add_css_class("flyplane");
             } else {
-                let wifi = std::process::Command::new("rfkill")
+                let _ = std::process::Command::new("rfkill")
                     .args(["block", "wifi"])
                     .status();
 
-                let bluetooth = std::process::Command::new("rfkill")
+                let _ = std::process::Command::new("rfkill")
                     .args(["block", "bluetooth"])
                     .status();
             }
@@ -2050,6 +2127,18 @@ pub fn spawn_ctrl_capsules(
                     });
                 }
                 glib::ControlFlow::Break 
+            });
+        });
+    }
+
+    {   
+        let dnd_clone = dnd.clone();
+        dnd.connect_clicked(move |_| {
+            toggle_dnd();
+            dnd_clone.set_css_classes(if is_dnd() {
+                &["ctrlExpandedS"]
+            }else {
+                &["ctrlBtnS"]
             });
         });
     }
