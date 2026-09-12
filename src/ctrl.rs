@@ -1,3 +1,4 @@
+use gdk4::glib::Error;
 use gtk4::{
     Application, ApplicationWindow, Label, Box as GtkBox, Button, Orientation, prelude::*,
     DrawingArea, gdk_pixbuf::Pixbuf, Image, EventControllerScroll, EventControllerScrollFlags,
@@ -5,6 +6,7 @@ use gtk4::{
 };
 use gtk4::glib;
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
+use std::process::ExitStatus;
 use std::time::Duration;
 use std::cell::RefCell;
 use std::cell::Cell;
@@ -1111,7 +1113,7 @@ fn parse_probe_ver_block(path: &str) -> Vec<(String, String)> {
     let content = match std::fs::read_to_string(path) {
         Ok(c) => c,
         Err(err) => {
-            eprintln!("Error reading probe file {}: {}", path, err);
+            eprintln!("[ctrl] Error reading probe file {}: {}", path, err);
             return Vec::new();
         }
     };
@@ -1203,6 +1205,46 @@ fn populate_ver_table(list_rc: &Rc<gtk4::ListBox>) {
     }
 }
 
+fn is_airplane() -> bool {
+    let output = std::process::Command::new("rfkill")
+        .arg("list")
+        .output()
+        .expect("[ctrl] failed to run rfkill");
+
+    let mut wifi_on = true;
+    let mut blue_on = true;
+    let mut tyype = "";
+
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        let line = line.trim();
+        
+        if line.to_lowercase().contains("bluetooth") {
+            tyype = "bluet";
+        } else if line.to_lowercase().contains("wireless lan") {
+            tyype = "wifi";
+        } else if line.starts_with("Soft blocked:") {
+            match tyype {
+                "wifi" => {
+                    let ye_no = line.strip_prefix("Soft blocked:").expect("[ctrl] stripping error :/");
+                    wifi_on &= ye_no.trim() == "no";
+                }
+                "bluet" => {
+                    let ye_no = line.strip_prefix("Soft blocked:").expect("[ctrl] the other stripping error :|");
+                    blue_on &= ye_no.trim() == "no";
+                }
+                _ => {}
+            }
+        }
+    }
+
+
+    if !wifi_on && !blue_on {
+        return true
+    }
+
+    false
+}
+
 pub fn spawn_ctrl_capsules(
     app:          &Application,
     overlay_open: Rc<RefCell<bool>>,
@@ -1270,7 +1312,7 @@ pub fn spawn_ctrl_capsules(
     let usrname = match std::fs::read_to_string("/usr/share/octobacillus/user.octo") {
         Ok(content) => content,
         Err(err) => {
-            eprintln!("Error reading file: {}", err);
+            eprintln!("[ctrl] Error reading file: {}", err);
             "name = user4.0".to_string()
         }
     };
@@ -1852,7 +1894,11 @@ pub fn spawn_ctrl_capsules(
 
     let airplane: Button = Button::builder()
         .child(&airplaneicon)
-        .css_classes(["ctrlBtnS"])
+        .css_classes(if is_airplane() {
+            ["ctrlExpandedS"]
+        } else {
+            ["ctrlBtnS"]
+        })
         .tooltip_text("Airplane Mode")
         .build();
 
@@ -1864,7 +1910,7 @@ pub fn spawn_ctrl_capsules(
     let dnd: Button = Button::builder()
         .child(&dndicon)
         .css_classes(["ctrlBtnS"])
-        .tooltip_text("Airplane Mode")
+        .tooltip_text("Toggle Do Not Disturb")
         .build();
 
     let setticon = Image::from_file("/var/lib/cynager/icons/cog.svg");
@@ -1974,11 +2020,35 @@ pub fn spawn_ctrl_capsules(
     {
         let airplaneicon_c = airplaneicon.clone();
         airplane.connect_clicked(move |_| {
-            // let _ = std::process::Command::new("nm-connection-editor").spawn();
+            if is_airplane() {
+                let wifi = std::process::Command::new("rfkill")
+                    .args(["unblock", "wifi"])
+                    .status();
+
+                let bluetooth = std::process::Command::new("rfkill")
+                    .args(["unblock", "bluetooth"])
+                    .status();
+                airplaneicon_c.add_css_class("flyplane");
+            } else {
+                let wifi = std::process::Command::new("rfkill")
+                    .args(["block", "wifi"])
+                    .status();
+
+                let bluetooth = std::process::Command::new("rfkill")
+                    .args(["block", "bluetooth"])
+                    .status();
+            }
             airplaneicon_c.add_css_class("flyplane");
             let airplaneicon_timeout = airplaneicon_c.clone();
             glib::timeout_add_local(std::time::Duration::from_millis(500), move || {
                 airplaneicon_timeout.remove_css_class("flyplane");
+                if let Some(airbtn) = airplaneicon_timeout.parent() {
+                    airbtn.set_css_classes(if is_airplane() {
+                        &["ctrlExpandedS"]
+                    }else {
+                        &["ctrlBtnS"]
+                    });
+                }
                 glib::ControlFlow::Break 
             });
         });
