@@ -4,10 +4,11 @@ use gtk4::{
 };
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use gtk4::gdk::Display;
-use std::{env, time::Duration, process::Command};
+use std::{env, process::Command, time::Duration};
 use chrono::Local;
 use gtk4::gio::File;
 use std::rc::Rc;
+use std::process::exit;
 use libc;
 use niri_ipc::{socket::Socket, Action, PositionChange, Request, Response, WorkspaceReferenceArg};
 use std::cell::{Cell, RefCell};
@@ -792,12 +793,7 @@ fn coping_with(app: &Application) {
             }
         }
 
-        // A single GFile-typed provider only ever carries one file, and
-        // stacking several of them in a union means the receiver can only
-        // ever pull the first one out. GdkFileList is the GType built for
-        // exactly this: a single value that carries every dragged file, so
-        // apps that ask for a file list (most file managers, browsers, chat
-        // clients) get everything, not just the first item.
+
         if !gfiles.is_empty() {
             if gfiles.len() == 1 {
                 let gfile_val = glib::Value::from(&gfiles[0]);
@@ -1290,8 +1286,8 @@ fn coping_with(app: &Application) {
                 if all_uris {
                     for token in &tokens {
                         if token.starts_with("file://") || token.starts_with('/') {
-                            let normalized = if token.starts_with('/') {
-                                format!("file://{token}")
+                            let normalized: String = if token.starts_with('/') {
+                                format!("file://{token}").to_string()
                             } else {
                                 token.to_string()
                             };
@@ -1676,11 +1672,14 @@ fn coping_with(app: &Application) {
 }
 
 fn main() {
+    let args: Vec<String> = std::env::args().collect();
+    
+    if args.len() > 1 && (args[1] == "--version" || args[1] == "-V") {
+        println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+        exit(1);
+    }
+
     let app = Application::new(Some("ekah.scu.cynideshell"), Default::default());
     app.connect_activate(coping_with);
-    let _ = Command::new("sh")
-        .arg("-c")
-        .arg("touch /run/user/$UID/cos-ready")
-        .status();
     app.run();
 }
