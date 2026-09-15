@@ -1,4 +1,4 @@
-use gtk4::{gdk, prelude::*, ApplicationWindow, Box as GtkBox, Button, GestureDrag, Label, glib, Orientation};
+use gtk4::{gdk, prelude::*, ApplicationWindow, Box as GtkBox, Button, GestureDrag, Image, Label, glib, Orientation};
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use niri_ipc::{socket::Socket, Action, PositionChange, Request, Response};
 use std::cell::RefCell;
@@ -15,6 +15,7 @@ struct FocusedGeo {
     ysize: i32,
     output: String,
     is_floating: bool,
+    app_id: Option<String>,
 }
 
 #[derive(Debug)]
@@ -91,37 +92,6 @@ pub fn spawn_shelly_side_decorations(app: &gtk4::Application) {
         niri_action(Action::CloseWindow { id: None });
     });
 
-    // {
-    //     let alt_held = alt_held.clone();
-    //     btn_min.connect_clicked(move |btn| {
-    //         let mut held = alt_held.borrow_mut();
-    //         if *held {
-    //             let _ = std::process::Command::new("ydotool")
-    //                 .args(["key", "--key-delay=0", "125:0"])
-    //                 .spawn();
-    //             *held = false;
-    //             btn.remove_css_class("ssdMinActive");
-    //         } else {
-    //             let _ = std::process::Command::new("ydotool")
-    //                 .args(["key", "--key-delay=0", "125:1"])
-    //                 .spawn();
-    //             *held = true;
-    //             btn.add_css_class("ssdMinActive");
-    //         }
-    //     });
-    // }
-
-    // let btn_min_for_sig = btn_min.clone();
-    // gtk4::glib::unix_signal_add_local(libc::SIGUSR2, move || {
-    //     let mut held = alt_held.borrow_mut();
-    //     let _ = std::process::Command::new("ydotool")
-    //         .args(["key", "--key-delay=0", "125:0"])
-    //         .spawn();
-    //     *held = false;
-    //     btn_min_for_sig.remove_css_class("ssdMinActive");
-    //     gtk4::glib::ControlFlow::Continue
-    // });
-
     btn_float.connect_clicked(|_| {
         niri_action(Action::FullscreenWindow { id: None });
     });
@@ -129,7 +99,7 @@ pub fn spawn_shelly_side_decorations(app: &gtk4::Application) {
     let timendate = GtkBox::new(Orientation::Horizontal, 5);
     timendate.set_hexpand(true);
     timendate.set_halign(gtk4::Align::Center);
-    let time      = Label::new(Some(""));
+    let time = Label::new(Some(""));
     time.set_justify(gtk4::Justification::Center);
     time.set_css_classes(&["ampm"]);
     let ampm = Label::new(Some("cynageOS"));
@@ -226,6 +196,7 @@ pub fn spawn_shelly_side_decorations(app: &gtk4::Application) {
                             ghost_win.set_monitor(Some(monitor));
                         }
                         ghost_box_set_size(&ghost_win, geo.xsize.max(1), geo.ysize.max(1));
+                        ghost_box_set_icon(&ghost_win, geo.app_id.as_deref());
                         ghost_win.set_visible(true);
                     }
                 }
@@ -380,6 +351,25 @@ fn ghost_box_set_size(ghost_win: &ApplicationWindow, width: i32, height: i32) {
     }
 }
 
+fn ghost_box_set_icon(ghost_win: &ApplicationWindow, app_id: Option<&str>) {
+    let Some(child) = ghost_win.child() else { return; };
+    let Ok(gbox) = child.downcast::<GtkBox>() else { return; };
+
+    while let Some(c) = gbox.first_child() {
+        gbox.remove(&c);
+    }
+
+    let icon_name = app_id.unwrap_or("application-x-executable");
+    let image = Image::from_icon_name(icon_name);
+    image.set_pixel_size(56);
+    image.set_halign(gtk4::Align::Center);
+    image.set_valign(gtk4::Align::Center);
+    image.set_hexpand(true);
+    image.set_vexpand(true);
+    image.set_css_classes(&["ssdDragGhostIcon"]);
+    gbox.append(&image);
+}
+
 fn find_monitor_by_connector(connector: &str) -> Option<gdk::Monitor> {
     let display = gdk::Display::default()?;
     let monitors = display.monitors();
@@ -483,5 +473,6 @@ fn query_focused_geo() -> Option<FocusedGeo> {
         ysize: ysize.round() as i32,
         output,
         is_floating,
+        app_id: w.app_id.clone(),
     })
 }
