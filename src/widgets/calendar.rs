@@ -34,7 +34,7 @@ pub fn spawn_calendar_widget(monitor: Option<&gtk4::gdk::Monitor>) -> Window {
     outer.set_css_classes(&["starting", "widgetBox"]);
 
     let handle = GtkBox::new(Orientation::Horizontal, 0);
-    handle.add_css_class("dragHandle");
+    handle.add_css_class("dragHandleM");
     handle.set_cursor_from_name(Some("grab"));
     handle.set_margin_bottom(5);
     // handle.set_width_request(150);

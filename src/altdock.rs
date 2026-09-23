@@ -8,6 +8,7 @@ use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::io::BufRead;
+use std::println;
 use std::process::{Command, Stdio};
 use std::rc::Rc;
 use std::time::Duration;
@@ -469,7 +470,7 @@ fn tray_icon_image(item: &StatusNotifierItem) -> Image {
         .filter(|n| !n.is_empty())
         .unwrap_or_else(|| "image-missing".to_string());
     let icon = Image::from_icon_name(&icon_name);
-    icon.set_pixel_size(22);
+    icon.set_pixel_size(32);
     icon
 }
 

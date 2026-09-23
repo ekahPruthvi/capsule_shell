@@ -296,7 +296,7 @@ dependencies = [
 
 [[package]]
 name = "capsule"
-version = "1.4.911"
+version = "1.4.92"
 dependencies = [
  "async-channel",
  "chrono",

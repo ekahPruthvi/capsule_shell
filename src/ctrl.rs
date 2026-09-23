@@ -1993,10 +1993,23 @@ pub fn spawn_ctrl_capsules(
     let setticon = Image::from_file("/var/lib/cynager/icons/cog.svg");
     setticon.set_icon_size(gtk4::IconSize::Large);
 
+    let spinner = Image::from_file("/var/lib/cynager/icons/spinner.svg");
+    spinner.set_pixel_size(24);
+    spinner.set_css_classes(&["spinner"]);
+    spinner.set_visible(false);
+    
+    let iconbox = GtkBox::new(Orientation::Horizontal, 0);
+    iconbox.append(&setticon);
+    iconbox.append(&spinner);
+    iconbox.set_hexpand(true);
+    iconbox.set_vexpand(true);
+    iconbox.set_halign(gtk4::Align::Center);
+    iconbox.set_valign(gtk4::Align::Center);
+
     let setting: Button = Button::builder()
-        .child(&setticon)
+        .child(&iconbox)
         .css_classes(["ctrlBtnS"])
-        .tooltip_text("Airplane Mode")
+        .tooltip_text("Open Calibrate")
         .build();
 
     let btns = GtkBox::new(Orientation::Horizontal, 16);
@@ -2143,10 +2156,69 @@ pub fn spawn_ctrl_capsules(
         });
     }
 
-    {
-        setting.connect_clicked(move |_| {
-            // let _ = std::process::Command::new("nm-connection-editor").spawn();
-            // close();
+        {
+        setting.connect_clicked(move |btn| {
+            use std::process::{Command, Stdio};
+
+            let mut child = match Command::new("calibrate")
+                .stdout(Stdio::piped())
+                .spawn()
+            {
+                Ok(c) => c,
+                Err(err) => {
+                    eprintln!("[ctrl] failed to launch calibrate: {}", err);
+                    return;
+                }
+            };
+
+            btn.set_sensitive(false);
+            setticon.set_visible(false);
+            spinner.set_visible(true);
+
+            let (tx, rx) = std::sync::mpsc::channel::<()>();
+            let stdout = child.stdout.take();
+            std::thread::spawn(move || {
+                let mut sent = false;
+                if let Some(out) = stdout {
+                    for line in BufReader::new(out).lines() {
+                        let Ok(line) = line else { break };
+                        if !sent && line.trim() == "ready" {
+                            let _ = tx.send(());
+                            sent = true;
+                        }
+                    }
+                }
+                let _ = child.wait();
+            });
+
+            let close = close.clone();
+            let spinner = spinner.clone();
+            let seticon = setticon.clone();
+            let btn = btn.clone();
+            let started = std::time::Instant::now();
+
+            glib::timeout_add_local(Duration::from_millis(50), move || {
+                let (done, should_close) = match rx.try_recv() {
+                    Ok(()) => (true, true),
+                    Err(TryRecvError::Empty) => {
+                        let timed_out = started.elapsed() > Duration::from_secs(10);
+                        (timed_out, timed_out)
+                    }
+                    Err(TryRecvError::Disconnected) => (true, false),
+                };
+
+                if !done {
+                    return glib::ControlFlow::Continue;
+                }
+
+                seticon.set_visible(true);
+                spinner.set_visible(false);
+                btn.set_sensitive(true);
+                if should_close {
+                    close();
+                }
+                glib::ControlFlow::Break
+            });
         });
     }
 

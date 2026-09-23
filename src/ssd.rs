@@ -135,6 +135,10 @@ pub fn spawn_shelly_side_decorations(app: &gtk4::Application) {
         let drag_origin: Rc<RefCell<Option<(i32, i32)>>> = Rc::new(RefCell::new(None));
         let dragging: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
 
+        let drag_start_mon_geo: Rc<RefCell<Option<(i32, i32)>>> = Rc::new(RefCell::new(None));
+
+        let ghost_drag_monitor: Rc<RefCell<Option<gdk::Monitor>>> = Rc::new(RefCell::new(None));
+
         let drag = GestureDrag::new();
         
         drag.connect_drag_begin({
@@ -143,6 +147,9 @@ pub fn spawn_shelly_side_decorations(app: &gtk4::Application) {
             let drag_origin = drag_origin.clone();
             let dragging = dragging.clone();
             let btn_min_inner = btn_min.clone();
+            let current_monitor_rc = current_monitor_rc.clone();
+            let drag_start_mon_geo = drag_start_mon_geo.clone();
+            let ghost_drag_monitor = ghost_drag_monitor.clone();
             move |_gesture, _x, _y| {
                 let is_floating = latest_geo
                     .borrow()
@@ -151,10 +158,21 @@ pub fn spawn_shelly_side_decorations(app: &gtk4::Application) {
                     .unwrap_or(false);
                 if !is_floating {
                     *drag_origin.borrow_mut() = None;
+                    *drag_start_mon_geo.borrow_mut() = None;
+                    *ghost_drag_monitor.borrow_mut() = None;
                     return;
                 }
                 *drag_origin.borrow_mut() = Some(*win_margin_rc.borrow());
                 *dragging.borrow_mut() = false;
+
+                *drag_start_mon_geo.borrow_mut() = current_monitor_rc
+                    .borrow()
+                    .as_ref()
+                    .map(|m| {
+                        let g = m.geometry();
+                        (g.x(), g.y())
+                    });
+                *ghost_drag_monitor.borrow_mut() = current_monitor_rc.borrow().clone();
 
                 
                 if let Some(native) = btn_min_inner.native() {
@@ -171,11 +189,15 @@ pub fn spawn_shelly_side_decorations(app: &gtk4::Application) {
             let win_weak = win_weak.clone();
             let ghost_win_weak = ghost_win_weak.clone();
             let latest_geo = latest_geo.clone();
-            let current_monitor_rc = current_monitor_rc.clone();
             let drag_origin = drag_origin.clone();
             let dragging = dragging.clone();
+            let drag_start_mon_geo = drag_start_mon_geo.clone();
+            let ghost_drag_monitor = ghost_drag_monitor.clone();
             move |_gesture, dx, dy| {
                 let Some((top0, left0)) = *drag_origin.borrow() else {
+                    return;
+                };
+                let Some((mon_x0, mon_y0)) = *drag_start_mon_geo.borrow() else {
                     return;
                 };
                 let Some(win) = win_weak.upgrade() else { return; };
@@ -192,7 +214,7 @@ pub fn spawn_shelly_side_decorations(app: &gtk4::Application) {
                     if let (Some(ghost_win), Some(geo)) =
                         (ghost_win_weak.upgrade(), latest_geo.borrow().clone())
                     {
-                        if let Some(monitor) = current_monitor_rc.borrow().as_ref() {
+                        if let Some(monitor) = ghost_drag_monitor.borrow().as_ref() {
                             ghost_win.set_monitor(Some(monitor));
                         }
                         ghost_box_set_size(&ghost_win, geo.xsize.max(1), geo.ysize.max(1));
@@ -207,21 +229,57 @@ pub fn spawn_shelly_side_decorations(app: &gtk4::Application) {
                 if let (Some(ghost_win), Some(geo)) =
                     (ghost_win_weak.upgrade(), latest_geo.borrow().clone())
                 {
-                    ghost_win.set_margin(Edge::Top, geo.y + dy - 4);
-                    ghost_win.set_margin(Edge::Left, geo.x + dx - 4);
+                    let ghost_abs_top = mon_y0 + (geo.y - 4) + dy;
+                    let ghost_abs_left = mon_x0 + (geo.x - 4) + dx;
+
+                    let current_connector = ghost_drag_monitor
+                        .borrow()
+                        .as_ref()
+                        .and_then(|m| m.connector())
+                        .map(|c| c.to_string());
+                    if let Some(target) = monitor_at_point(ghost_abs_left, ghost_abs_top) {
+                        let target_connector = target.connector().map(|c| c.to_string());
+                        if current_connector != target_connector {
+                            ghost_win.set_visible(false);
+                            ghost_win.set_monitor(Some(&target));
+                            ghost_box_set_size(&ghost_win, geo.xsize.max(1), geo.ysize.max(1));
+                            ghost_box_set_icon(&ghost_win, geo.app_id.as_deref());
+                            ghost_win.set_visible(true);
+                            *ghost_drag_monitor.borrow_mut() = Some(target);
+                        }
+                    }
+
+                    if let Some(mon_geo) =
+                        ghost_drag_monitor.borrow().as_ref().map(|m| m.geometry())
+                    {
+                        ghost_win.set_margin(Edge::Top, ghost_abs_top - mon_geo.y());
+                        ghost_win.set_margin(Edge::Left, ghost_abs_left - mon_geo.x());
+                    }
                 }
             }
         });
 
         drag.connect_drag_end({
             let ghost_win_weak = ghost_win_weak.clone();
+            let latest_geo = latest_geo.clone();
             let drag_origin = drag_origin.clone();
             let dragging = dragging.clone();
+            let drag_start_mon_geo = drag_start_mon_geo.clone();
+            let ghost_drag_monitor = ghost_drag_monitor.clone();
             let btn_min_done_inner = btn_min.clone();
             move |_gesture, dx, dy| {
                 let was_dragging = *dragging.borrow();
                 *dragging.borrow_mut() = false;
+
+                // Grab everything we need before clearing the drag state.
+                let origin = *drag_origin.borrow();
+                let start_mon_geo = *drag_start_mon_geo.borrow();
+                let end_monitor = ghost_drag_monitor.borrow().clone();
+                let geo = latest_geo.borrow().clone();
+
                 *drag_origin.borrow_mut() = None;
+                *drag_start_mon_geo.borrow_mut() = None;
+                *ghost_drag_monitor.borrow_mut() = None;
 
                 if let Some(ghost_win) = ghost_win_weak.upgrade() {
                     ghost_win.set_visible(false);
@@ -243,7 +301,38 @@ pub fn spawn_shelly_side_decorations(app: &gtk4::Application) {
 
                 let dx = dx.round() as i32;
                 let dy = dy.round() as i32;
-                if dx != 0 || dy != 0 {
+                if dx == 0 && dy == 0 {
+                    return;
+                }
+
+                let crossed_output = match (&geo, &end_monitor) {
+                    (Some(geo), Some(monitor)) => {
+                        monitor.connector().as_deref() != Some(geo.output.as_str())
+                    }
+                    _ => false,
+                };
+
+                if crossed_output {
+                    if let (Some((top0, left0)), Some((mon_x0, mon_y0)), Some(monitor)) =
+                        (origin, start_mon_geo, end_monitor)
+                    {
+                        let abs_top = mon_y0 + top0 + dy;
+                        let abs_left = mon_x0 + left0 + dx;
+                        let mon_geo = monitor.geometry();
+
+                        if let Some(output) = monitor.connector() {
+                            niri_action(Action::MoveWindowToMonitor {
+                                id: None,
+                                output: output.to_string(),
+                            });
+                        }
+                        niri_action(Action::MoveFloatingWindow {
+                            id: None,
+                            x: PositionChange::SetFixed((abs_left - mon_geo.x()) as f64),
+                            y: PositionChange::SetFixed((abs_top - mon_geo.y()) as f64),
+                        });
+                    }
+                } else {
                     niri_action(Action::MoveFloatingWindow {
                         id: None,
                         x: PositionChange::AdjustFixed(dx as f64),
@@ -368,6 +457,22 @@ fn ghost_box_set_icon(ghost_win: &ApplicationWindow, app_id: Option<&str>) {
     image.set_vexpand(true);
     image.set_css_classes(&["ssdDragGhostIcon"]);
     gbox.append(&image);
+}
+
+/// Finds the monitor whose geometry contains the given point, expressed in
+/// global/compositor-space coordinates (i.e. gdk::Monitor::geometry() space,
+/// not coordinates local to any one output).
+fn monitor_at_point(x: i32, y: i32) -> Option<gdk::Monitor> {
+    let display = gdk::Display::default()?;
+    let monitors = display.monitors();
+    for i in 0..monitors.n_items() {
+        let monitor = monitors.item(i)?.downcast::<gdk::Monitor>().ok()?;
+        let g = monitor.geometry();
+        if x >= g.x() && x < g.x() + g.width() && y >= g.y() && y < g.y() + g.height() {
+            return Some(monitor);
+        }
+    }
+    None
 }
 
 fn find_monitor_by_connector(connector: &str) -> Option<gdk::Monitor> {
