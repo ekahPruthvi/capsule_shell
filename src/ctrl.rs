@@ -16,6 +16,7 @@ use std::{
 use std::io::{BufRead, BufReader, Write, BufWriter};
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::TryRecvError;
+use self_update::cargo_crate_version;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum NetworkState {
@@ -1111,100 +1112,25 @@ fn build_round_user_icon(pixbuf: Pixbuf, size: i32) -> DrawingArea {
     icon
 }
 
-fn parse_probe_ver_block(path: &str) -> Vec<(String, String)> {
-    let content = match std::fs::read_to_string(path) {
-        Ok(c) => c,
-        Err(err) => {
-            eprintln!("[ctrl] Error reading probe file {}: {}", path, err);
-            return Vec::new();
-        }
-    };
-
-    let mut in_block = false;
-    let mut entries  = Vec::new();
-
-    for line in content.lines() {
-        let trimmed = line.trim();
-
-        if trimmed == ":ver" {
-            in_block = true;
-            continue;
-        }
-
-        if trimmed == ":end" {
-            if in_block {
-                break;
-            }
-            continue;
-        }
-
-        if in_block && !trimmed.is_empty() {
-            if let Some((name, ver)) = trimmed.split_once(':') {
-                let name = name.trim().to_string();
-                let ver  = ver.trim().to_string();
-                if !name.is_empty() {
-                    entries.push((name, ver));
-                }
-            }
-        }
-    }
-
-    entries
+struct UpdateOutcome {
+    updated: bool,
+    version: String,
 }
 
-fn build_ver_row(name: &str, version: &str) -> gtk4::ListBoxRow {
-    let row = gtk4::ListBoxRow::new();
-    row.set_selectable(false);
-    row.set_activatable(false);
-    row.add_css_class("verListRow");
+fn check_for_updates() -> Result<UpdateOutcome, Box<dyn std::error::Error>> {
+    let status = self_update::backends::github::Update::configure()
+        .repo_owner("your-github-username")
+        .repo_name("your-app-repo")
+        .bin_name("my-app")
+        .show_download_progress(true)
+        .current_version(cargo_crate_version!())
+        .build()?
+        .update()?;
 
-    let row_box = GtkBox::new(Orientation::Horizontal, 10);
-    row_box.add_css_class("verListRowBox");
-
-    let name_lbl = Label::builder()
-        .label(name)
-        .css_classes(if name == "cynageOS" {
-            ["cynverListName"]
-        } else {
-            ["verListName"]
-        } )
-        .halign(gtk4::Align::Start)
-        .hexpand(true)
-        .build();
-
-    let ver_lbl = Label::builder()
-        .label(version)
-        .css_classes(["verListValue"])
-        .halign(gtk4::Align::End)
-        .build();
-
-    row_box.append(&name_lbl);
-    row_box.append(&ver_lbl);
-    row.set_child(Some(&row_box));
-    row
-}
-
-fn populate_ver_table(list_rc: &Rc<gtk4::ListBox>) {
-    while let Some(child) = list_rc.first_child() {
-        list_rc.remove(&child);
-    }
-
-    let entries = parse_probe_ver_block("/var/lib/cynager/info.probe");
-
-    if entries.is_empty() {
-        let row = gtk4::ListBoxRow::new();
-        row.set_selectable(false);
-        row.set_activatable(false);
-        let lbl = Label::new(Some("No version info found"));
-        lbl.add_css_class("netListEmpty");
-        row.set_child(Some(&lbl));
-        list_rc.append(&row);
-        return;
-    }
-
-    for (name, version) in entries {
-        list_rc.append(&build_ver_row(&name, &version));
-    }
+    Ok(UpdateOutcome {
+        updated: status.is_updated(),
+        version: status.version().to_string(),
+    })
 }
 
 fn is_airplane() -> bool {
@@ -1453,23 +1379,36 @@ pub fn spawn_ctrl_capsules(
     usr_panel_actions.append(&usr_panel_dummy_fill);
     usr_panel_actions.append(&usr_panel_power_btn);
 
-    let ver_list_box = gtk4::ListBox::new();
-    ver_list_box.add_css_class("ctrlpanelList");
-    ver_list_box.add_css_class("verList");
-    ver_list_box.set_selection_mode(gtk4::SelectionMode::None);
-    let ver_list_rc = Rc::new(ver_list_box);
+    let update_status_label = Label::builder()
+        .label("")
+        .css_classes(["updateStatusLabel"])
+        .halign(gtk4::Align::Start)
+        .hexpand(true)
+        .wrap(true)
+        .build();
+    update_status_label.set_visible(false);
 
-    let ver_scroll = gtk4::ScrolledWindow::new();
-    ver_scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
-    ver_scroll.set_max_content_height(220);
-    ver_scroll.set_propagate_natural_height(true);
-    ver_scroll.set_child(Some(&*ver_list_rc));
-    ver_scroll.add_css_class("netListScroll");
+    let update_spinner = Image::from_file("/var/lib/cynager/icons/spinner.svg");
+    update_spinner.set_pixel_size(20);
+    update_spinner.set_css_classes(&["spinner"]);
+    update_spinner.set_visible(false);
+
+    let check_updates_btn = Button::builder()
+        .label("Check for Updates")
+        .css_classes(["ctrlpanelBtn"])
+        .build();
+    let check_updates_btn_rc = Rc::new(check_updates_btn);
+
+    let update_row = GtkBox::new(Orientation::Horizontal, 8);
+    update_row.add_css_class("updateRow");
+    update_row.append(&*check_updates_btn_rc);
+    update_row.append(&update_spinner);
+    update_row.append(&update_status_label);
 
     let user_panel = GtkBox::new(Orientation::Vertical, 6);
     user_panel.add_css_class("ctrlPanel");
     user_panel.append(&usr_panel_actions);
-    user_panel.append(&ver_scroll);
+    user_panel.append(&update_row);
     user_panel.set_visible(false);
 
     let user_panel_rc = Rc::new(user_panel);
@@ -2072,7 +2011,6 @@ pub fn spawn_ctrl_capsules(
         let user_panel_rc = user_panel_rc.clone();
         let user_expanded  = user_expanded.clone();
         let usr_c          = usr.clone();
-        let ver_list_rc    = ver_list_rc.clone();
 
         usr.connect_clicked(move |_| {
             let mut expanded = user_expanded.borrow_mut();
@@ -2080,7 +2018,6 @@ pub fn spawn_ctrl_capsules(
             if *expanded {
                 usr_c.set_css_classes(&["ctrlExpanded"]);
                 user_panel_rc.set_visible(true);
-                populate_ver_table(&ver_list_rc);
             } else {
                 usr_c.set_css_classes(&["ctrlBtnL"]);
                 user_panel_rc.set_visible(false);
@@ -2218,6 +2155,59 @@ pub fn spawn_ctrl_capsules(
                     close();
                 }
                 glib::ControlFlow::Break
+            });
+        });
+    }
+
+    {
+        let update_status_label = update_status_label.clone();
+        let update_spinner = update_spinner.clone();
+
+        check_updates_btn_rc.connect_clicked(move |btn| {
+            btn.set_sensitive(false);
+            update_status_label.set_visible(true);
+            update_status_label.set_label("Checking for updates…");
+            update_spinner.set_visible(true);
+
+            let (tx, rx) = std::sync::mpsc::channel::<Result<(bool, String), String>>();
+
+            std::thread::spawn(move || {
+                let result = check_for_updates()
+                    .map(|outcome| (outcome.updated, outcome.version))
+                    .map_err(|err| err.to_string());
+                let _ = tx.send(result);
+            });
+
+            let btn = btn.clone();
+            let update_status_label = update_status_label.clone();
+            let update_spinner = update_spinner.clone();
+
+            glib::timeout_add_local(Duration::from_millis(150), move || {
+                match rx.try_recv() {
+                    Ok(Ok((updated, version))) => {
+                        update_spinner.set_visible(false);
+                        if updated {
+                            update_status_label.set_label(&format!("Updated to version {}", version));
+                        } else {
+                            update_status_label.set_label("App is up to date.");
+                        }
+                        btn.set_sensitive(true);
+                        glib::ControlFlow::Break
+                    }
+                    Ok(Err(err)) => {
+                        update_spinner.set_visible(false);
+                        update_status_label.set_label(&format!("Update check failed: {}", err));
+                        btn.set_sensitive(true);
+                        glib::ControlFlow::Break
+                    }
+                    Err(TryRecvError::Empty) => glib::ControlFlow::Continue,
+                    Err(TryRecvError::Disconnected) => {
+                        update_spinner.set_visible(false);
+                        update_status_label.set_label("Update check failed.");
+                        btn.set_sensitive(true);
+                        glib::ControlFlow::Break
+                    }
+                }
             });
         });
     }
