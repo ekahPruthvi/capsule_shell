@@ -20,6 +20,8 @@ mod widgets;
 mod ctrl;
 mod altdock;
 
+use self_update::cargo_crate_version;
+
 use widgets::{
     system::spawn_sys_widget, 
     calendar::spawn_calendar_widget,
@@ -1671,12 +1673,103 @@ fn coping_with(app: &Application) {
     ssd::spawn_shelly_side_decorations(app);
 }
 
+struct UpdateOutcome {
+    updated: bool,
+    version: String,
+}
+
+/// Path to the installed binary that gets overwritten during a self-update.
+const CAPSULE_BIN_PATH: &str = "/usr/bin/capsule";
+
+/// Checks that the current process can actually write to the installed
+/// binary (and its parent directory, since self_update replaces the file
+/// via a rename) before attempting a self-update. Returns Err with a
+/// human-readable message if permissions are insufficient.
+fn ensure_writable(path: &str) -> Result<(), String> {
+    use std::ffi::CString;
+
+    let c_path = CString::new(path).map_err(|e| e.to_string())?;
+
+    // If the binary itself exists, check it's writable.
+    let path_obj = std::path::Path::new(path);
+    if path_obj.exists() {
+        let writable = unsafe { libc::access(c_path.as_ptr(), libc::W_OK) == 0 };
+        if !writable {
+            return Err(format!(
+                "no write permission for '{}'. Try: sudo capsule --update",
+                path
+            ));
+        }
+    }
+
+    // self_update replaces the file by writing a temp file into the same
+    // directory and renaming it into place, so the parent directory also
+    // needs to be writable (e.g. /usr/bin is typically root-owned).
+    if let Some(parent) = path_obj.parent() {
+        let c_parent = CString::new(parent.to_string_lossy().to_string())
+            .map_err(|e| e.to_string())?;
+        let dir_writable = unsafe { libc::access(c_parent.as_ptr(), libc::W_OK) == 0 };
+        if !dir_writable {
+            return Err(format!(
+                "no write permission for directory '{}'. Try: sudo capsule --update",
+                parent.display()
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn check_for_updates() -> Result<UpdateOutcome, Box<dyn std::error::Error>> {
+    let status = self_update::backends::github::Update::configure()
+        .repo_owner("ekahPruthvi")
+        .repo_name("capsule_shell")
+        .bin_name("capsule")
+        .target("x86_64")
+        .bin_install_path(CAPSULE_BIN_PATH)
+        .show_download_progress(true)
+        .current_version(cargo_crate_version!())
+        .build()?
+        .update()?;
+
+    Ok(UpdateOutcome {
+        updated: status.is_updated(),
+        version: status.version().to_string(),
+    })
+}
+
+fn run_update() -> i32 {
+    println!("Checking for updates...");
+
+    if let Err(msg) = ensure_writable(CAPSULE_BIN_PATH) {
+        eprintln!("Cannot update capsule: {}", msg);
+        return 1;
+    }
+
+    match check_for_updates() {
+        Ok(outcome) => {
+            if outcome.updated {
+                println!("capsule updated to version {}", outcome.version);
+            } else {
+                println!("capsule is already up to date ({})", outcome.version);
+            }
+            0
+        }
+        Err(e) => {
+            eprintln!("Update failed: {}", e);
+            1
+        }
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     
     if args.len() > 1 && (args[1] == "--version" || args[1] == "-V") {
         println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
         exit(1);
+    } else if args.len() > 1 && (args[1] == "--update" || args[1] == "-U") {
+        exit(run_update());
     }
 
     let app = Application::new(Some("ekah.scu.cynideshell"), Default::default());
