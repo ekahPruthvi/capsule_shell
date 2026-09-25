@@ -8,7 +8,6 @@ use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::io::BufRead;
-use std::println;
 use std::process::{Command, Stdio};
 use std::rc::Rc;
 use std::time::Duration;
