@@ -1222,6 +1222,27 @@ fn toggle_dnd() {
     std::fs::rename(tmp_path, path).expect("[ctrl] cant replace original file");
 }
 
+fn shutdown_computer() {
+    std::process::Command::new("systemctl")
+        .arg("poweroff")
+        .spawn()
+        .expect("Failed to shutdown");
+}
+
+fn restart_computer() {
+    std::process::Command::new("systemctl")
+        .arg("reboot")
+        .spawn()
+        .expect("Failed to restart");
+}
+
+fn logout_session() {
+    std::process::Command::new("niri")
+        .args(["msg", "action", "quit", "-s"])
+        .spawn()
+        .expect("Failed to logout");
+}
+
 pub fn spawn_ctrl_capsules(
     app:          &Application,
     overlay_open: Rc<RefCell<bool>>,
@@ -1329,33 +1350,46 @@ pub fn spawn_ctrl_capsules(
         .css_classes(["ctrlBtnL"])
         .build();
 
-    let usr_panel_icon = build_round_user_icon(pixbuf.clone(), 72);
-    usr_panel_icon.add_css_class("userPanelIcon");
-
     let usr_panel_power_icon = Image::from_file("/var/lib/cynager/icons/cos-shutdown.svg");
     usr_panel_power_icon.set_icon_size(gtk4::IconSize::Large);
 
-    let usr_panel_power_btn = Button::builder()
-        .child(&usr_panel_power_icon)
-        .css_classes(["dockBtn"])
-        .tooltip_text("Power")
-        .valign(gtk4::Align::Center)
-        .build();
+    let slide_label = Label::new(Some("Slide to Shutdown"));
+    slide_label.set_css_classes(&["title"]);
+    slide_label.set_halign(gtk4::Align::Start);
+    slide_label.set_margin_start(40);
 
-    {
-        usr_panel_power_btn.connect_clicked(move |_| {
-            let _ = std::process::Command::new("terminatee").spawn();
-        });
-    }
+    let scale = gtk4::Scale::with_range(Orientation::Horizontal, 0.0, 100.0, 1.0);
+    scale.set_draw_value(false);
+    scale.set_hexpand(true);
+    scale.set_width_request(400);
+    scale.set_value(2.0);
 
-    let usr_panel_dummy_fill = GtkBox::new(Orientation::Horizontal, 0);
-    usr_panel_dummy_fill.set_hexpand(true);
+    let scale_clone = scale.clone();
+    scale.connect_value_changed(move |s| {
+        if s.value() >= 100.0 {
+            shutdown_computer();
+        }
+    });
+
+    let restart_btn = Button::with_label("Restart");
+    restart_btn.set_css_classes(&["powerbtns"]);
+
+    let logout_btn = Button::with_label("Logout");
+    logout_btn.set_css_classes(&["powerbtns"]);
+
+    restart_btn.connect_clicked(|_| {
+        restart_computer();
+    });
+
+    logout_btn.connect_clicked(|_| {
+        logout_session();
+    });
 
     let usr_panel_actions = GtkBox::new(Orientation::Horizontal, 8);
     usr_panel_actions.add_css_class("userPanelActions");
-    usr_panel_actions.append(&usr_panel_icon);
-    usr_panel_actions.append(&usr_panel_dummy_fill);
-    usr_panel_actions.append(&usr_panel_power_btn);
+    usr_panel_actions.append(&scale_clone);
+    usr_panel_actions.append(&restart_btn);
+    usr_panel_actions.append(&logout_btn);
 
     let user_panel = GtkBox::new(Orientation::Vertical, 6);
     user_panel.add_css_class("ctrlPanel");

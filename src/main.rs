@@ -1678,19 +1678,13 @@ struct UpdateOutcome {
     version: String,
 }
 
-/// Path to the installed binary that gets overwritten during a self-update.
 const CAPSULE_BIN_PATH: &str = "/usr/bin/capsule";
 
-/// Checks that the current process can actually write to the installed
-/// binary (and its parent directory, since self_update replaces the file
-/// via a rename) before attempting a self-update. Returns Err with a
-/// human-readable message if permissions are insufficient.
 fn ensure_writable(path: &str) -> Result<(), String> {
     use std::ffi::CString;
 
     let c_path = CString::new(path).map_err(|e| e.to_string())?;
 
-    // If the binary itself exists, check it's writable.
     let path_obj = std::path::Path::new(path);
     if path_obj.exists() {
         let writable = unsafe { libc::access(c_path.as_ptr(), libc::W_OK) == 0 };
@@ -1702,9 +1696,6 @@ fn ensure_writable(path: &str) -> Result<(), String> {
         }
     }
 
-    // self_update replaces the file by writing a temp file into the same
-    // directory and renaming it into place, so the parent directory also
-    // needs to be writable (e.g. /usr/bin is typically root-owned).
     if let Some(parent) = path_obj.parent() {
         let c_parent = CString::new(parent.to_string_lossy().to_string())
             .map_err(|e| e.to_string())?;
@@ -1728,6 +1719,7 @@ fn check_for_updates() -> Result<UpdateOutcome, Box<dyn std::error::Error>> {
         .target("x86_64")
         .bin_install_path(CAPSULE_BIN_PATH)
         .show_download_progress(true)
+        .no_confirm(true)
         .current_version(cargo_crate_version!())
         .build()?
         .update()?;

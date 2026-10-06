@@ -1,6 +1,6 @@
 use gtk4::{gdk, prelude::*, ApplicationWindow, Box as GtkBox, Button, GestureDrag, Image, Label, glib, Orientation};
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
-use niri_ipc::{socket::Socket, Action, PositionChange, Request, Response};
+use niri_ipc::{socket::Socket, Action, PositionChange, Request, Response, SizeChange};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::mpsc;
@@ -25,6 +25,7 @@ enum SsdEvent {
 }
 
 const DRAG_THRESHOLD: f64 = 4.0;
+const MIN_RESIZE: i32 = 100;
 
 pub fn spawn_shelly_side_decorations(app: &gtk4::Application) {
     let (tx, rx) = mpsc::channel::<SsdEvent>();
@@ -67,6 +68,31 @@ pub fn spawn_shelly_side_decorations(app: &gtk4::Application) {
     ghost_box.set_css_classes(&["ssdDragGhost"]);
     ghost_win.set_child(Some(&ghost_box));
     ghost_win.set_visible(false);
+
+    let side_win = ApplicationWindow::builder()
+        .application(app)
+        .title("capsuleSSDSide")
+        .build();
+
+    side_win.init_layer_shell();
+    side_win.set_namespace(Some("shell-side-decorations-side"));
+    side_win.set_layer(Layer::Overlay);
+    side_win.set_keyboard_mode(gtk4_layer_shell::KeyboardMode::None);
+    side_win.remove_css_class("background");
+    side_win.set_anchor(Edge::Top, true);
+    side_win.set_anchor(Edge::Left, true);
+    side_win.set_exclusive_zone(0);
+    side_win.set_margin(Edge::Top, 0);
+    side_win.set_margin(Edge::Left, 0);
+
+    let side_btn = make_btn(" ", &["ssdSideBtn"]);
+    side_btn.set_size_request(24, 24);
+
+    let side_box = GtkBox::new(Orientation::Horizontal, 0);
+    side_box.set_css_classes(&["ssdSideBar"]);
+    side_box.append(&side_btn);
+    side_win.set_child(Some(&side_box));
+    side_win.set_visible(false);
 
     let bar = GtkBox::new(Orientation::Horizontal, 0);
     bar.set_css_classes(&["ssdBar"]);
@@ -128,6 +154,7 @@ pub fn spawn_shelly_side_decorations(app: &gtk4::Application) {
     {
         let win_weak = win.downgrade();
         let ghost_win_weak = ghost_win.downgrade();
+        let side_win_weak = side_win.downgrade();
         let latest_geo = latest_geo.clone();
         let win_margin_rc = win_margin_rc.clone();
 
@@ -187,6 +214,7 @@ pub fn spawn_shelly_side_decorations(app: &gtk4::Application) {
 
         drag.connect_drag_update({
             let win_weak = win_weak.clone();
+            let side_win_weak = side_win_weak.clone();
             let ghost_win_weak = ghost_win_weak.clone();
             let latest_geo = latest_geo.clone();
             let drag_origin = drag_origin.clone();
@@ -225,6 +253,14 @@ pub fn spawn_shelly_side_decorations(app: &gtk4::Application) {
 
                 win.set_margin(Edge::Top, top0 + dy);
                 win.set_margin(Edge::Left, left0 + dx);
+
+                if let (Some(side), Some(geo)) =
+                    (side_win_weak.upgrade(), latest_geo.borrow().as_ref())
+                {
+                    let (t, l) = side_btn_margins(geo);
+                    side.set_margin(Edge::Top, t + dy);
+                    side.set_margin(Edge::Left, l + dx);
+                }
 
                 if let (Some(ghost_win), Some(geo)) =
                     (ghost_win_weak.upgrade(), latest_geo.borrow().clone())
@@ -271,7 +307,6 @@ pub fn spawn_shelly_side_decorations(app: &gtk4::Application) {
                 let was_dragging = *dragging.borrow();
                 *dragging.borrow_mut() = false;
 
-                // Grab everything we need before clearing the drag state.
                 let origin = *drag_origin.borrow();
                 let start_mon_geo = *drag_start_mon_geo.borrow();
                 let end_monitor = ghost_drag_monitor.borrow().clone();
@@ -345,14 +380,118 @@ pub fn spawn_shelly_side_decorations(app: &gtk4::Application) {
         btn_min.add_controller(drag);
     }
 
+    {
+        let ghost_win_weak = ghost_win.downgrade();
+        let resize_start: Rc<RefCell<Option<FocusedGeo>>> = Rc::new(RefCell::new(None));
+        let resizing: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
+
+        side_btn.set_cursor_from_name(Some("se-resize"));
+
+        let resize_drag = GestureDrag::new();
+
+        resize_drag.connect_drag_begin({
+            let latest_geo = latest_geo.clone();
+            let resize_start = resize_start.clone();
+            let resizing = resizing.clone();
+            let side_btn_in = side_btn.clone();
+            move |_gesture, _x, _y| {
+                *resizing.borrow_mut() = false;
+                *resize_start.borrow_mut() = latest_geo.borrow().clone();
+                if let Some(native) = side_btn_in.native() {
+                    if let Some(surface) = native.surface() {
+                        surface.set_cursor(
+                            gdk::Cursor::from_name("none", None).as_ref()
+                        );
+                    }
+                }
+            }
+        });
+
+        resize_drag.connect_drag_update({
+            let ghost_win_weak = ghost_win_weak.clone();
+            let resize_start = resize_start.clone();
+            let resizing = resizing.clone();
+            let current_monitor_rc = current_monitor_rc.clone();
+            move |_gesture, dx, dy| {
+                let Some(geo) = resize_start.borrow().clone() else { return; };
+                let Some(ghost_win) = ghost_win_weak.upgrade() else { return; };
+
+                let dx = dx.round() as i32;
+                let dy = dy.round() as i32;
+
+                if !*resizing.borrow() {
+                    if dx.abs() < DRAG_THRESHOLD as i32 && dy.abs() < DRAG_THRESHOLD as i32 {
+                        return;
+                    }
+                    *resizing.borrow_mut() = true;
+
+                    if let Some(monitor) = current_monitor_rc.borrow().as_ref() {
+                        ghost_win.set_monitor(Some(monitor));
+                    }
+                    ghost_box_set_icon(&ghost_win, geo.app_id.as_deref());
+                    ghost_win.set_margin(Edge::Top, (geo.y - 4).max(0));
+                    ghost_win.set_margin(Edge::Left, (geo.x - 4).max(0));
+                    ghost_win.set_visible(true);
+                }
+
+                let (w, h) = resized_dims(&geo, dx, dy);
+                ghost_box_set_size(&ghost_win, w, h);
+            }
+        });
+
+        resize_drag.connect_drag_end({
+            let ghost_win_weak = ghost_win_weak.clone();
+            let resize_start = resize_start.clone();
+            let resizing = resizing.clone();
+            move |_gesture, dx, dy| {
+                let was_resizing = *resizing.borrow();
+                *resizing.borrow_mut() = false;
+                let geo = resize_start.borrow_mut().take();
+
+                if let Some(ghost_win) = ghost_win_weak.upgrade() {
+                    ghost_win.set_visible(false);
+                }
+
+                if !was_resizing {
+                    return;
+                }
+                let Some(geo) = geo else { return; };
+
+                let (w, h) = resized_dims(&geo, dx.round() as i32, dy.round() as i32);
+                let dw = w - geo.xsize;
+                let dh = h - geo.ysize;
+
+                if dw != 0 {
+                    niri_action(Action::SetWindowWidth {
+                        id: None,
+                        change: SizeChange::AdjustFixed(dw),
+                    });
+                }
+                if dh != 0 {
+                    niri_action(Action::SetWindowHeight {
+                        id: None,
+                        change: SizeChange::AdjustFixed(dh),
+                    });
+                }
+            }
+        });
+
+        side_btn.add_controller(resize_drag);
+    }
+
     let win_weak = win.downgrade();
     let ghost_win_weak = ghost_win.downgrade();
+    let side_weak = side_win.downgrade();
     let bar_for_poll = bar.clone();
     let mut current_output: Option<String> = None;
 
     gtk4::glib::timeout_add_local(Duration::from_millis(16), move || {
         let Some(win) = win_weak.upgrade() else {
             eprintln!("window upgrade broken");
+            return gtk4::glib::ControlFlow::Break;
+        };
+
+        let Some(side_win) = side_weak.upgrade() else {
             return gtk4::glib::ControlFlow::Break;
         };
 
@@ -380,6 +519,7 @@ pub fn spawn_shelly_side_decorations(app: &gtk4::Application) {
                                 if let Some(ghost_win) = ghost_win_weak.upgrade() {
                                     ghost_win.set_monitor(Some(&monitor));
                                 }
+                                side_win.set_monitor(Some(&monitor));
                                 *current_monitor_rc.borrow_mut() = Some(monitor);
                                 current_output = Some(geo.output.clone());
                             }
@@ -388,7 +528,12 @@ pub fn spawn_shelly_side_decorations(app: &gtk4::Application) {
                             }
                         }
                     }
+                    let (side_top, side_left) = side_btn_margins(&geo);
+                    side_win.set_margin(Edge::Top, side_top);
+                    side_win.set_margin(Edge::Left, side_left);
+
                     if geo.is_floating {
+                        side_win.set_visible(true);
                         win.set_anchor(Edge::Right, false);
                         bar_for_poll.set_size_request(-1, -1);
                         win.set_margin(Edge::Top,  geo.y + 4);
@@ -399,6 +544,7 @@ pub fn spawn_shelly_side_decorations(app: &gtk4::Application) {
                         }
                         win.set_visible(true);
                     } else {
+                        side_win.set_visible(false);
                         win.set_visible(false);
                         if timendate.parent().as_ref() != Some(bar.upcast_ref()) {
                             bar.append(&timendate);
@@ -423,6 +569,7 @@ pub fn spawn_shelly_side_decorations(app: &gtk4::Application) {
                 SsdEvent::NoFocus => {
                     *latest_geo.borrow_mut() = None;
                     win.set_visible(false);
+                    side_win.set_visible(false);
                     if let Some(ghost_win) = ghost_win_weak.upgrade() {
                         ghost_win.set_visible(false);
                     }
@@ -434,10 +581,25 @@ pub fn spawn_shelly_side_decorations(app: &gtk4::Application) {
     });
 }
 
+fn resized_dims(geo: &FocusedGeo, dx: i32, dy: i32) -> (i32, i32) {
+    (
+        (geo.xsize + dx).max(MIN_RESIZE.min(geo.xsize)),
+        (geo.ysize + dy).max(MIN_RESIZE.min(geo.ysize)),
+    )
+}
+
+fn side_btn_margins(geo: &FocusedGeo) -> (i32, i32) {
+    (
+        (geo.y + geo.ysize - 15).max(0),
+        (geo.x + geo.xsize - 15).max(0),
+    )
+}
+
 fn ghost_box_set_size(ghost_win: &ApplicationWindow, width: i32, height: i32) {
     if let Some(child) = ghost_win.child() {
         child.set_size_request(width, height);
     }
+    ghost_win.set_default_size(width, height);
 }
 
 fn ghost_box_set_icon(ghost_win: &ApplicationWindow, app_id: Option<&str>) {
@@ -459,9 +621,6 @@ fn ghost_box_set_icon(ghost_win: &ApplicationWindow, app_id: Option<&str>) {
     gbox.append(&image);
 }
 
-/// Finds the monitor whose geometry contains the given point, expressed in
-/// global/compositor-space coordinates (i.e. gdk::Monitor::geometry() space,
-/// not coordinates local to any one output).
 fn monitor_at_point(x: i32, y: i32) -> Option<gdk::Monitor> {
     let display = gdk::Display::default()?;
     let monitors = display.monitors();
