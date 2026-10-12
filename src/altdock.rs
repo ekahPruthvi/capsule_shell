@@ -963,14 +963,13 @@ pub fn spawn_altdock(app: &Application, dockbox: GtkBox) -> ApplicationWindow {
 
     win.init_layer_shell();
     win.set_namespace(Some("AltDock"));
-    win.set_layer(Layer::Top);
+    win.set_layer(Layer::Overlay);
     win.remove_css_class("background");
     win.set_anchor(Edge::Top, true);
     win.set_anchor(Edge::Left, false);
     win.set_anchor(Edge::Right, false);
     win.set_anchor(Edge::Bottom, false);
 
-    let dockbox_ctrl = dockbox.clone();
     let dockbox_clone_anim = dockbox.clone();
 
     let dockbox_rc = Rc::new(dockbox);
@@ -992,8 +991,6 @@ pub fn spawn_altdock(app: &Application, dockbox: GtkBox) -> ApplicationWindow {
         &dock_state,
         &initial,
     );
-
-    win.set_child(Some(&*dockbox_rc));
 
     let niri_rx = Rc::new(RefCell::new(spawn_niri_watcher()));
 
@@ -1056,11 +1053,13 @@ pub fn spawn_altdock(app: &Application, dockbox: GtkBox) -> ApplicationWindow {
     let pending: Rc<Cell<bool>> = Rc::new(Cell::new(false));
 
     let pending_leavein = Rc::clone(&pending);
-    let pop_leave = win.clone();
+    let pop_leave = dockbox_rc.clone();
+    let win_size_setter = win.clone();
     let leave_tray_menu_layer = tray_menu_layer.clone();
     hover_ctrl.connect_leave(move |_| {
         pending_leavein.set(true);
         let pop = pop_leave.clone();
+        let win = win_size_setter.clone();
         let pending_hide = Rc::clone(&pending_leavein);
         let dockbox_clone_anim = dockbox_clone_anim.clone();
         let tray_menu_layer = leave_tray_menu_layer.clone();
@@ -1070,11 +1069,14 @@ pub fn spawn_altdock(app: &Application, dockbox: GtkBox) -> ApplicationWindow {
                 dockbox_clone_anim.add_css_class("dockleave");
 
                 let pop2 = pop.clone();
+                let win2 = win.clone();
                 let pending_hide2 = Rc::clone(&pending_hide);
                 let tray_menu_layer = tray_menu_layer.clone();
                 glib::timeout_add_local(Duration::from_millis(400), move || {
                     if pending_hide2.get() {
                         pop2.set_visible(false);
+                        win2.set_visible(false);
+                        win2.set_visible(true);
                         tray_menu_layer.close();
                     }
                     glib::ControlFlow::Break
@@ -1092,9 +1094,9 @@ pub fn spawn_altdock(app: &Application, dockbox: GtkBox) -> ApplicationWindow {
         pop_enter.add_css_class("dockcum");
     });
 
-    dockbox_ctrl.add_controller(hover_ctrl);
+    win.add_controller(hover_ctrl);
 
     win.present();
-    win.set_visible(false);
+    // win.set_visible(false);
     win
 }

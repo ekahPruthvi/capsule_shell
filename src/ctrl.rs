@@ -1363,6 +1363,7 @@ pub fn spawn_ctrl_capsules(
     scale.set_hexpand(true);
     scale.set_width_request(400);
     scale.set_value(2.0);
+    scale.set_css_classes(&["powerScale"]);
 
     let scale_clone = scale.clone();
     scale.connect_value_changed(move |s| {
