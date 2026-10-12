@@ -662,33 +662,50 @@ fn niri_action(action: Action) {
 }
 
 fn niri_event_loop(tx: mpsc::Sender<SsdEvent>) {
-    let _ = tx.send(query_focused_geo().map_or(SsdEvent::NoFocus, SsdEvent::Focused));
+    let (poke_tx, poke_rx) = mpsc::channel::<()>();
+    std::thread::spawn(move || {
+        while poke_rx.recv().is_ok() {
+            while poke_rx.recv_timeout(Duration::from_millis(15)).is_ok() {}
+            let msg = query_focused_geo().map_or(SsdEvent::NoFocus, SsdEvent::Focused);
+            if tx.send(msg).is_err() {
+                return;
+            }
+        }
+    });
 
-    let Ok(mut sock) = Socket::connect() else {
-        eprintln!("[ssd] failed to connect to niri socket");
-        return;
-    };
-
-    let Ok(Ok(Response::Handled)) = sock.send(Request::EventStream) else {
-        eprintln!("[ssd] niri rejected EventStream");
-        return;
-    };
-
-    let mut read_event = sock.read_events();
     loop {
-        match read_event() {
-            Ok(_) => {
-                let msg = query_focused_geo()
-                    .map_or(SsdEvent::NoFocus, SsdEvent::Focused);
-                if tx.send(msg).is_err() {
+        let Ok(mut sock) = Socket::connect() else {
+            eprintln!("[ssd] failed to connect to niri socket, retrying");
+            std::thread::sleep(Duration::from_secs(1));
+            continue;
+        };
+
+        let Ok(Ok(Response::Handled)) = sock.send(Request::EventStream) else {
+            eprintln!("[ssd] niri rejected EventStream, retrying");
+            std::thread::sleep(Duration::from_secs(1));
+            continue;
+        };
+
+        if poke_tx.send(()).is_err() {
+            return;
+        }
+
+        let mut read_event = sock.read_events();
+        loop {
+            match read_event() {
+                Ok(_) => {
+                    if poke_tx.send(()).is_err() {
+                        return;
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[ssd] event-stream error: {e}, reconnecting");
                     break;
                 }
             }
-            Err(e) => {
-                eprintln!("[ssd] event-stream error: {e}");
-                break;
-            }
         }
+
+        std::thread::sleep(Duration::from_millis(300));
     }
 }
 
