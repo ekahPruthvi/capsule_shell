@@ -1,7 +1,7 @@
 use gtk4::gdk;
 use gtk4::glib;
 use gtk4::{
-    Application, ApplicationWindow, Box as GtkBox, Button, DragSource, EventControllerMotion,
+    Application, ApplicationWindow, Box as GtkBox, Button, DragSource,
     GestureClick, Image, Popover, Separator, prelude::*,
 };
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
@@ -20,6 +20,8 @@ use system_tray::item::StatusNotifierItem;
 use system_tray::menu::{
     MenuItem as TrayMenuItem, MenuType as TrayMenuType, ToggleState as TrayToggleState, TrayMenu,
 };
+
+use crate::desktopstat::cbq_ifdesktop;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct NiriWindow {
@@ -205,44 +207,18 @@ fn focus_window_animated(id: u64) {
         return;
     }
 
+    if cbq_ifdesktop() {
+        if let Err(e) = std::process::Command::new("pkill")
+            .args(["-USR1", "capsule"])
+            .spawn()
+        {
+            eprintln!("[altdock] Failed to launch show-desktop before focusing window: {}", e);
+        }
+    }
     nudge_window(orig_id, 300.0, || {});
     nudge_window(id, -300.0, move || {
         focus_window(id);
     });
-}
-
-fn preview_window(
-    id: u64,
-    hover_ctrl: EventControllerMotion,
-    prev_handler: Rc<RefCell<Option<glib::SignalHandlerId>>>,
-    committed: Rc<Cell<bool>>,
-) {
-    let Some(orig_id) = get_focused_window_id() else {
-        return;
-    };
-
-    if orig_id == id {
-        return;
-    }
-
-    committed.set(false);
-
-    focus_window(id);
-
-    let handler_slot = prev_handler.clone();
-    let committed_leave = committed.clone();
-
-    let handler_id = hover_ctrl.connect_leave(move |_| {
-        if committed_leave.get() {
-            *handler_slot.borrow_mut() = None;
-            return;
-        }
-
-        focus_window(orig_id);
-        *handler_slot.borrow_mut() = None;
-    });
-
-    *prev_handler.borrow_mut() = Some(handler_id);
 }
 
 pub fn spawn_niri_watcher() -> std::sync::mpsc::Receiver<Vec<NiriWindow>> {
@@ -825,29 +801,6 @@ fn make_dock_btn(win: &NiriWindow) -> Button {
         focus_window_animated(id);
     });
 
-    let pending_enter = Rc::clone(&pending);
-    let committed_enter = committed.clone();
-    hover_ctrl.connect_enter(move |hvr_ctrl, _, _| {
-        pending_enter.set(true);
-        let pending_timeout = Rc::clone(&pending_enter);
-        let hvr = hvr_ctrl.clone();
-        let prev_handler = prev_preview_handler.clone();
-        let committed = committed_enter.clone();
-        glib::timeout_add_local(Duration::from_millis(1000), move || {
-            if pending_timeout.get() {
-                preview_window(id, hvr.clone(), prev_handler.clone(), committed.clone());
-            }
-            glib::ControlFlow::Break
-        });
-    });
-
-    let pending_leave = Rc::clone(&pending);
-    hover_ctrl.connect_leave(move |_| {
-        pending_leave.set(false);
-    });
-
-    // btn.add_controller(hover_ctrl); small hover bugg to fix
-
     if let Some(desktop_path) = desktop_for_app_id(&win.app_id) {
         let drag_source = DragSource::new();
         drag_source.set_actions(gdk::DragAction::COPY);
@@ -871,11 +824,13 @@ fn make_dock_btn(win: &NiriWindow) -> Button {
             if let Some(paintable) = drag_icon.paintable() {
                 src.set_icon(Some(&paintable), 0, 0);
             }
-            if let Err(e) = std::process::Command::new("pkill")
-                .args(["-USR1", "capsule"])
-                .spawn()
-            {
-                eprintln!("[appd] Failed to launch show-desktop: {}", e);
+            if !cbq_ifdesktop() {
+                if let Err(e) = std::process::Command::new("pkill")
+                    .args(["-USR1", "capsule"])
+                    .spawn()
+                {
+                    eprintln!("[altdock] Failed to launch show-desktop: {}", e);
+                }
             }
         });
 

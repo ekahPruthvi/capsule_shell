@@ -19,6 +19,7 @@ mod ssd;
 mod widgets;
 mod ctrl;
 mod altdock;
+mod desktopstat;
 
 use self_update::cargo_crate_version;
 
@@ -32,6 +33,7 @@ use widgets::{
 };
 use ctrl::{NetworkHub, NetworkState, spawn_ctrl_capsules};
 use altdock::spawn_altdock;
+use desktopstat::HideBus;
 
 #[derive(Debug, Clone, PartialEq)]
 struct WidgetConfig {
@@ -1561,11 +1563,12 @@ fn coping_with(app: &Application) {
     });
 
     let records:             Rc<RefCell<Vec<WindowRecord>>> = Rc::new(RefCell::new(vec![]));
-    let is_hidden:           Rc<RefCell<bool>>              = Rc::new(RefCell::new(false));
     let focused_before_hide: Rc<RefCell<Option<u64>>>       = Rc::new(RefCell::new(None));
 
+    let hide_bus = HideBus::spawn();
+
     let records_clone  = records.clone();
-    let is_hidden_clone = is_hidden.clone();
+    let hide_bus_clone = hide_bus.clone();
     // let timendate_clone = timendate.clone(); this is for focus time mode
     let focused_clone  = focused_before_hide.clone();
 
@@ -1575,15 +1578,15 @@ fn coping_with(app: &Application) {
     show.set_margin_end(5);
 
     glib::unix_signal_add_local(libc::SIGUSR1, move || {
-        let mut hiding = is_hidden_clone.borrow_mut();
+        let hiding = hide_bus_clone.get();
 
         if let Some(f_id) = get_focused_window_id() {
 
-            if !*hiding {
+            if !hiding {
                 let wins = get_windows();
                 *focused_clone.borrow_mut() = Some(f_id);
                 *records_clone.borrow_mut() = wins.clone();
-                *hiding = true;
+                hide_bus_clone.set(true);
                 // timendate_clone.append(&show);
 
                 let screen = get_focused_output_size().unwrap_or((1920.0, 1080.0));
@@ -1677,7 +1680,7 @@ fn coping_with(app: &Application) {
 
                 records_clone.borrow_mut().clear();
                 *focused_clone.borrow_mut() = None;
-                *hiding = false;
+                hide_bus_clone.set(false);
                 // timendate_clone.remove(&show);
             }
         }
@@ -1777,6 +1780,10 @@ fn main() {
         exit(1);
     } else if args.len() > 1 && (args[1] == "--update" || args[1] == "-U") {
         exit(run_update());
+    } else if args.len() > 1 && (args[1] == "--desktop" || args[1] == "-D") {
+        exit(desktopstat::nlq());
+    } else if args.len() > 1 && (args[1] == "--help" || args[1] == "-H") {
+        exit(1); // have to finish tis later
     }
 
     let app = Application::new(Some("ekah.scu.cynideshell"), Default::default());

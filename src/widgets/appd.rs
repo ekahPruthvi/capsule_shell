@@ -10,6 +10,8 @@ use notify::{RecommendedWatcher, RecursiveMode, Watcher, EventKind};
 use std::time::{Duration, Instant};
 use async_channel::Sender;
 
+use crate::desktopstat::cbq_ifdesktop;
+
 const NAME: &str = "appd";
 
 
@@ -163,11 +165,13 @@ fn build_app_grid(grid: &Grid, apps: Vec<Applications>) {
             let mut parts = exec.split_whitespace();
             if let Some(cmd) = parts.next() {
                 let args: Vec<&str> = parts.collect();
-                if let Err(e) = std::process::Command::new("pkill")
-                    .args(["-USR1", "capsule"])
-                    .spawn()
-                {
-                    eprintln!("[appd] Failed to launch show-desktop: {}", e);
+                if cbq_ifdesktop() {
+                    if let Err(e) = std::process::Command::new("pkill")
+                        .args(["-USR1", "capsule"])
+                        .spawn()
+                    {
+                        eprintln!("[appd] Failed to launch show-desktop: {}", e);
+                    }
                 }
                 let _ = std::process::Command::new("setsid")
                     .arg("-f") 
