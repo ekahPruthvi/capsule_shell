@@ -1027,7 +1027,7 @@ pub fn spawn_altdock(app: &Application, dockbox: GtkBox) -> ApplicationWindow {
                 let win2 = win.clone();
                 let pending_hide2 = Rc::clone(&pending_hide);
                 let tray_menu_layer = tray_menu_layer.clone();
-                glib::timeout_add_local(Duration::from_millis(400), move || {
+                glib::timeout_add_local(Duration::from_millis(300), move || {
                     if pending_hide2.get() {
                         pop2.set_visible(false);
                         win2.set_visible(false);

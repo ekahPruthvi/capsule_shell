@@ -1,6 +1,6 @@
 use zbus::connection::Builder;
 use tokio::sync::mpsc;
-use gtk4::{ApplicationWindow, Box as GtkBox, Button, Image, Label, glib, prelude::*};
+use gtk4::{ApplicationWindow, Box as GtkBox, Button, Image, Label, MenuButton, Popover, Revealer, glib, prelude::*};
 use gtk4::glib::clone;
 use tokio::sync::mpsc::UnboundedReceiver;
 use std::cell::{RefCell, Cell};
@@ -26,7 +26,7 @@ pub struct Notification {
 
 struct LastNotiGroup {
     summary: String,
-    popover_vbox: GtkBox,
+    details_vbox: GtkBox,
     body_label: Label,
 }
 
@@ -166,10 +166,81 @@ fn play_notification_sound() {
     }
 }
 
+fn clear_all_notifications(
+    noti_all: &GtkBox,
+    last_group: &Rc<RefCell<Option<LastNotiGroup>>>,
+) {
+    *last_group.borrow_mut() = None;
+    noti_all.add_css_class("vanish");
+    let noti_all = noti_all.clone();
+    glib::timeout_add_local(Duration::from_secs(1), move || {
+        while let Some(child) = noti_all.first_child() {
+            noti_all.remove(&child);
+        }
+        if let Some(root) = noti_all.root() {
+            if let Some(window) = root.downcast_ref::<gtk4::Window>() {
+                window.set_visible(false);
+                window.set_visible(true);
+            }
+        }
+        noti_all.remove_css_class("vanish");
+        noti_all.set_height_request(10);
+        glib::ControlFlow::Break
+    });
+}
+
+fn build_header(
+) -> GtkBox {
+    let header = GtkBox::new(gtk4::Orientation::Horizontal, 8);
+    header.set_css_classes(&["notiHeader"]);
+    header.set_width_request(300);
+    header.set_margin_start(10);
+    header.set_margin_end(10);
+    header.set_halign(gtk4::Align::Center);
+
+    let header_icon = Image::from_file("/var/lib/cynager/icons/noti.svg");
+    header_icon.set_icon_size(gtk4::IconSize::Large);
+    header_icon.set_css_classes(&["notiHeaderIcon"]);
+
+    let title = Label::new(Some("Notifications"));
+    title.set_css_classes(&["notiHeaderTitle"]);
+    title.set_halign(gtk4::Align::Start);
+    title.set_hexpand(true);
+
+    header.append(&header_icon);
+    header.append(&title);
+    header
+}
+
+fn build_clear_button(
+    noti_all: &GtkBox,
+    last_group: &Rc<RefCell<Option<LastNotiGroup>>>,
+) -> Button {
+    let clear_all_btn = Button::new();
+    let clear = Image::from_file("/var/lib/cynager/icons/delete.svg");
+
+    clear.set_icon_size(gtk4::IconSize::Large);
+    clear_all_btn.set_child(Some(&clear));
+    clear_all_btn.set_css_classes(&["clearBtn"]);
+    clear_all_btn.set_width_request(30);
+    clear_all_btn.set_height_request(30);
+    clear_all_btn.set_hexpand(true);
+    clear_all_btn.set_halign(gtk4::Align::Fill);
+    clear_all_btn.set_vexpand(true);
+    clear_all_btn.set_valign(gtk4::Align::Center);
+    clear_all_btn.set_cursor_from_name(Some("pointer"));
+
+    let noti_all = noti_all.clone();
+    let last_group = Rc::clone(last_group);
+    clear_all_btn.connect_clicked(move |_| clear_all_notifications(&noti_all, &last_group));
+    clear_all_btn
+}
+
 pub fn connect_notifications_to_dock(
     mut rx: UnboundedReceiver<Notification>,
-    noti_window: &GtkBox,
+    noti_capsule: &GtkBox,
     main_window: &ApplicationWindow,
+    noti_all_window: &ApplicationWindow,
     app_img: &Image,
     cos_btn: &Button,
     badge: &Label,
@@ -186,8 +257,9 @@ pub fn connect_notifications_to_dock(
     let last_group: Rc<RefCell<Option<LastNotiGroup>>> = Rc::new(RefCell::new(None));
     let ctx = gtk4::glib::MainContext::default();
     ctx.spawn_local(clone!(
-        #[strong] noti_window,
+        #[strong] noti_capsule,
         #[strong] main_window,
+        #[strong] noti_all_window,
         #[strong] app_img,
         #[strong] cos_btn,
         #[strong] badge,
@@ -242,7 +314,7 @@ pub fn connect_notifications_to_dock(
                         grouped_label.set_max_width_chars(45);
                         grouped_label.set_halign(gtk4::Align::Start);
 
-                        group.popover_vbox.append(&grouped_label);
+                        group.details_vbox.append(&grouped_label);
                     }
                 } else {
 
@@ -263,16 +335,18 @@ pub fn connect_notifications_to_dock(
                 noti_label_all.append(&noti_label_sum);
                 noti_label_all.append(&noti_label_bod);
 
-                let noti_all_box = GtkBox::new(gtk4::Orientation::Horizontal, 5);
+                let noti_all_box = GtkBox::new(gtk4::Orientation::Vertical, 0);
                 noti_all_box.set_css_classes(&["notificationAll"]);
                 noti_all_box.set_width_request(500);
-                noti_all_box.set_height_request(30);
                 noti_all_box.set_hexpand(true);
                 noti_all_box.set_margin_start(10);
                 noti_all_box.set_margin_end(10);
                 noti_all_box.set_vexpand(false);
                 noti_all_box.set_valign(gtk4::Align::End);
                 noti_all_box.set_halign(gtk4::Align::Center);
+
+                let noti_row = GtkBox::new(gtk4::Orientation::Horizontal, 5);
+                noti_row.set_height_request(30);
 
                 let pop_label = Label::new(Some(&notif.body));
                 pop_label.set_css_classes(&["notificationAllLabelBody"]);
@@ -281,49 +355,58 @@ pub fn connect_notifications_to_dock(
                 pop_label.set_max_width_chars(45);
                 pop_label.set_halign(gtk4::Align::Start);
 
-                let popover_vbox = GtkBox::new(gtk4::Orientation::Vertical, 6);
-                popover_vbox.set_css_classes(&["notiPopupBox"]);
-                popover_vbox.append(&pop_label);
+                let details_vbox = GtkBox::new(gtk4::Orientation::Vertical, 6);
+                details_vbox.set_css_classes(&["notiPopupBox"]);
+                details_vbox.set_margin_start(33);
+                details_vbox.set_margin_top(4);
+                details_vbox.append(&pop_label);
 
-                let popover = gtk4::Popover::new();
-                popover.popdown();
-                popover.set_child(Some(&popover_vbox));
-                popover.set_parent(&noti_all_box);
-                popover.set_css_classes(&["notiPopup"]);
-                popover.set_has_arrow(false);
-                popover.set_autohide(false);
-                popover.set_width_request(-1);
-                popover.set_vexpand(true);
-                popover.set_position(gtk4::PositionType::Bottom);
+                let revealer = Revealer::new();
+                revealer.set_transition_type(gtk4::RevealerTransitionType::SlideDown);
+                revealer.set_transition_duration(250);
+                revealer.set_reveal_child(false);
+                revealer.set_child(Some(&details_vbox));
+
+                revealer.connect_reveal_child_notify(clone!(
+                    #[weak] noti_all_window,
+                    move |_| {
+                        noti_all_window.set_layer(gtk4_layer_shell::Layer::Overlay);
+                    }
+                ));
+
+                revealer.connect_child_revealed_notify(clone!(
+                    #[weak] noti_all_window,
+                    move |r| {
+                        if !r.is_child_revealed() {
+                            let (w, _) = noti_all_window.default_size();
+                            noti_all_window.set_default_size(w, -1);
+                            noti_all_window.set_layer(gtk4_layer_shell::Layer::Bottom);
+                        }
+                    }
+                ));
 
                 let hover_ctrl = gtk4::EventControllerMotion::new();
-                let pending: Rc<Cell<bool>> = Rc::new(Cell::new(false));
- 
-                let pending_enter = Rc::clone(&pending);
-                let popover_enter = popover.clone();
-                // let noti_all_box_enter = noti_all_box.clone();
+                let hover_pending: Rc<Cell<bool>> = Rc::new(Cell::new(false));
+
+                let pending_enter = Rc::clone(&hover_pending);
+                let revealer_enter = revealer.clone();
                 hover_ctrl.connect_enter(move |_, _, _| {
                     pending_enter.set(true);
-                    let pop = popover_enter.clone();
-                    pop.set_width_request(400);
                     let pending_timeout = Rc::clone(&pending_enter);
-                    // let box_clone = noti_all_box_enter.clone();
+                    let revealer_timeout = revealer_enter.clone();
                     glib::timeout_add_local(Duration::from_millis(500), move || {
                         if pending_timeout.get() {
-                            // pop.set_width_request(box_clone.width());
-                            pop.popup();
-                            pop.add_css_class("popupanim");
+                            revealer_timeout.set_reveal_child(true);
                         }
                         glib::ControlFlow::Break
                     });
                 });
- 
-                let pending_leave = Rc::clone(&pending);
-                let popover_leave = popover.clone();
+
+                let pending_leave = Rc::clone(&hover_pending);
+                let revealer_leave = revealer.clone();
                 hover_ctrl.connect_leave(move |_| {
                     pending_leave.set(false);
-                    popover_leave.popdown();
-                    popover_leave.remove_css_class("starting");
+                    revealer_leave.set_reveal_child(false);
                 });
 
                 noti_all_box.add_controller(hover_ctrl);
@@ -339,61 +422,31 @@ pub fn connect_notifications_to_dock(
                 delete_btn.set_halign(gtk4::Align::End);
                 delete_btn.set_cursor_from_name(Some("pointer"));
 
-                noti_all_box.append(&notification_icon);
-                noti_all_box.append(&noti_label_all);
-                noti_all_box.append(&Label::builder()
+                noti_row.append(&notification_icon);
+                noti_row.append(&noti_label_all);
+                noti_row.append(&Label::builder()
                     .label(&notif.app_name)
                     .css_classes(["appName"])
                     .hexpand(true)
                     .halign(gtk4::Align::End)
                     .build()
                 );
-                noti_all_box.append(&delete_btn);
+                noti_row.append(&delete_btn);
 
-
-                let clear_all_btn = Button::new();
-                let clear = Image::from_file("/var/lib/cynager/icons/delete.svg");
-
-                clear.set_icon_size(gtk4::IconSize::Large);
-                clear_all_btn.set_child(Some(&clear));
-                clear_all_btn.set_css_classes(&["clearBtn"]);
-                clear_all_btn.set_width_request(30);
-                clear_all_btn.set_height_request(30);
-                clear_all_btn.set_hexpand(true);
-                clear_all_btn.set_halign(gtk4::Align::Fill);
-                clear_all_btn.set_vexpand(true);
-                clear_all_btn.set_valign(gtk4::Align::Center);
-                clear_all_btn.set_cursor_from_name(Some("pointer"));
-
-                let noti_all_clone = noti_all.clone();
-                clear_all_btn.connect_clicked( move |_| {
-                    noti_all_clone.add_css_class("vanish");
-                    let noti_all_clone = noti_all_clone.clone();
-                    glib::timeout_add_local(Duration::from_secs(1), move || {
-                        while let Some(child) = noti_all_clone.first_child() {
-                            noti_all_clone.remove(&child);
-                        }
-                        if let Some(root) = noti_all_clone.root() {
-                            if let Some(window) = root.downcast_ref::<gtk4::Window>() {
-                                window.set_visible(false);
-                                window.set_visible(true);
-                            }
-                        }
-                        noti_all_clone.remove_css_class("vanish");
-                        noti_all_clone.set_height_request(10);
-                        glib::ControlFlow::Break
-                    });                 
-                });
+                noti_all_box.append(&noti_row);
+                noti_all_box.append(&revealer);
 
                 if noti_all.first_child().is_none() {
-                    noti_all.append(&clear_all_btn);
+                    noti_all.append(&build_header());
+                    noti_all.append(&build_clear_button(&noti_all, &last_group));
                 }
 
-                noti_all.prepend(&noti_all_box);
+                let header = noti_all.first_child();
+                noti_all.insert_child_after(&noti_all_box, header.as_ref());
 
                 let noti_all_clone = noti_all.clone();
                 let last_group_del = Rc::clone(&last_group);
-                let popover_vbox_del = popover_vbox.clone();
+                let details_vbox_del = details_vbox.clone();
                 delete_btn.connect_clicked( move |_| {
                     noti_all_clone.remove(&noti_all_box);
 
@@ -401,39 +454,27 @@ pub fn connect_notifications_to_dock(
                         let mut lg = last_group_del.borrow_mut();
                         let is_current_group = lg
                             .as_ref()
-                            .map(|g| g.popover_vbox == popover_vbox_del)
+                            .map(|g| g.details_vbox == details_vbox_del)
                             .unwrap_or(false);
                         if is_current_group {
                             *lg = None;
                         }
                     }
 
-                    let first = noti_all_clone.first_child();
-                    let last  = noti_all_clone.last_child();
-                    let is_only_clear_btn = first.is_some() && first == last;
- 
-                    if is_only_clear_btn {
-                        noti_all_clone.add_css_class("vanish");
-                        let noti_all_clone = noti_all_clone.clone();
-                        glib::timeout_add_local(Duration::from_secs(1), move || {
-                            if let Some(child) = noti_all_clone.first_child() {
-                                noti_all_clone.remove(&child);
-                            }
-                            if let Some(root) = noti_all_clone.root() {
-                                if let Some(window) = root.downcast_ref::<gtk4::Window>() {
-                                    window.set_visible(false);
-                                    window.set_visible(true);
-                                }
-                            }
-                            noti_all_clone.remove_css_class("vanish");
-                            glib::ControlFlow::Break
-                        });
+                    let mut remaining = 0;
+                    let mut child = noti_all_clone.first_child();
+                    while let Some(w) = child {
+                        remaining += 1;
+                        child = w.next_sibling();
+                    }
+                    if remaining <= 2 {
+                        clear_all_notifications(&noti_all_clone, &last_group_del);
                     }
                 });
 
                 *last_group.borrow_mut() = Some(LastNotiGroup {
                     summary: notif.summary.clone(),
-                    popover_vbox,
+                    details_vbox,
                     body_label: noti_label_bod,
                 });
 
@@ -456,14 +497,14 @@ pub fn connect_notifications_to_dock(
                         current_width.set(start_width as f64);
 
                         main_window.set_default_size(target_width + 50, -1);
-                        noti_window.set_width_request(start_width);
-                        noti_window.set_css_classes(&["timeCapsule", "notiCapsule"]);
+                        noti_capsule.set_width_request(start_width);
+                        noti_capsule.set_css_classes(&["timeCapsule", "notiCapsule"]);
                         if is_it_dnd() == "false" {
                             main_window.set_layer(gtk4_layer_shell::Layer::Overlay);
                         }
 
                         main_window.set_namespace(Some("notification!"));
-                        let noti_window_anim   = noti_window.clone();
+                        let noti_capsule_anim   = noti_capsule.clone();
                         let current_width_anim = Rc::clone(&current_width);
                         let main_c = main_window.clone();
 
@@ -473,25 +514,25 @@ pub fn connect_notifications_to_dock(
                                 let next_w = current_width_anim.get() + increment_per_frame;
                                 if next_w >= target_width as f64 {
                                     current_width_anim.set(target_width as f64);
-                                    noti_window_anim.set_width_request(target_width);
+                                    noti_capsule_anim.set_width_request(target_width);
                                     main_c.set_width_request(current_width_anim.get() as i32 + 30);
-                                    noti_window_anim.set_css_classes(&["blip", "timeCapsule", "notiCapsule"]);
+                                    noti_capsule_anim.set_css_classes(&["blip", "timeCapsule", "notiCapsule"]);
                                     return gtk4::glib::ControlFlow::Break;
                                 }
                                 current_width_anim.set(next_w);
-                                noti_window_anim.set_width_request(next_w as i32);
+                                noti_capsule_anim.set_width_request(next_w as i32);
                                 gtk4::glib::ControlFlow::Continue
                             },
                         );
                     } else {
-                        noti_window.remove_css_class("blip");
-                        let noti_window_blip = noti_window.clone();
+                        noti_capsule.remove_css_class("blip");
+                        let noti_capsule_blip = noti_capsule.clone();
                         let main_c = main_window.clone();
                         let current_width_anim = Rc::clone(&current_width);
                         gtk4::glib::timeout_add_local(
                             std::time::Duration::from_millis(6),
                             move || {
-                                noti_window_blip.add_css_class("blip");
+                                noti_capsule_blip.add_css_class("blip");
                                 main_c.set_width_request(current_width_anim.get() as i32 + 30);
                                 gtk4::glib::ControlFlow::Break
                             },
@@ -501,7 +542,7 @@ pub fn connect_notifications_to_dock(
                     let pending_count_hide = Rc::clone(&pending_count);
                     let is_expanded_hide   = Rc::clone(&is_expanded);
                     let current_width_hide = Rc::clone(&current_width);
-                    let noti_window_hide   = noti_window.clone();
+                    let noti_capsule_hide   = noti_capsule.clone();
                     let main_window_hide   = main_window.clone();
                     let app_img_hide       = app_img.clone();
                     let cos_btn_hide       = cos_btn.clone();
@@ -519,7 +560,7 @@ pub fn connect_notifications_to_dock(
                             cos_btn_hide.remove_css_class("spinning-coin");
                             is_expanded_hide.set(false);
 
-                            let noti_window_c   = noti_window_hide.clone();
+                            let noti_capsule_c   = noti_capsule_hide.clone();
                             let current_width_c = Rc::clone(&current_width_hide);
                             let main_c          = main_window_hide.clone();
 
@@ -528,16 +569,16 @@ pub fn connect_notifications_to_dock(
                                 move || {
                                     let next_w = current_width_c.get() - increment_per_frame;
                                     if next_w <= start_width as f64 {
-                                        noti_window_c.set_width_request(start_width);
-                                        noti_window_c.remove_css_class("blip");
-                                        noti_window_c.remove_css_class("notiCapsule");
+                                        noti_capsule_c.set_width_request(start_width);
+                                        noti_capsule_c.remove_css_class("blip");
+                                        noti_capsule_c.remove_css_class("notiCapsule");
                                         main_c.set_layer(gtk4_layer_shell::Layer::Top);
                                         main_c.set_namespace(Some("TimeCapsule"));
                                         main_c.set_default_size(-1, -1);
                                         return glib::ControlFlow::Break;
                                     }
                                     current_width_c.set(next_w);
-                                    noti_window_c.set_width_request(next_w as i32);
+                                    noti_capsule_c.set_width_request(next_w as i32);
                                     glib::ControlFlow::Continue
                                 },
                             );

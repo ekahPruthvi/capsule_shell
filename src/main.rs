@@ -836,8 +836,7 @@ fn coping_with(app: &Application) {
         master:    &Rc<RefCell<Option<Button>>>,
     ) {
         let count = items.borrow().len();
-
-        if count <= 2 {
+        if count < 2 {
             if let Some(btn) = master.borrow_mut().take() {
                 clippy.remove(&btn);
             }
@@ -904,11 +903,11 @@ fn coping_with(app: &Application) {
 
         let gesture_rm = gtk4::GestureClick::new();
         gesture_rm.set_button(3);
-        let clippy_for_remove    = clippy.clone();
+        let clippy_for_remove = clippy.clone();
         let items_box_for_remove = items_box.clone();
-        let items_for_remove     = items.clone();
-        let master_for_remove    = master.clone();
-        let btn_for_remove       = btn.clone();
+        let items_for_remove = items.clone();
+        let master_for_remove = master.clone();
+        let btn_for_remove = btn.clone();
         gesture_rm.connect_released(move |_, _, _, _| {
             for item in items_for_remove.borrow_mut().drain(..) {
                 items_box_for_remove.remove(&item.btn);
@@ -1377,7 +1376,7 @@ fn coping_with(app: &Application) {
         pending_enter.set(true);
         let dockbox_anim = dockbox_anim.clone();
         let pending_timeout = Rc::clone(&pending_enter);
-        glib::timeout_add_local(Duration::from_millis(200), move || {
+        glib::timeout_add_local(Duration::from_millis(300), move || {
             if pending_timeout.get() {
                 dockbox_anim.remove_css_class("dockleave");
                 dockbox_anim.set_visible(true);
@@ -1464,7 +1463,7 @@ fn coping_with(app: &Application) {
     noti_panel_window.present();
 
     notifications::connect_notifications_to_dock(
-        rx, &time_capsule, &time_window, &cos_logo, &cos, &badge, &badge_head,
+        rx, &time_capsule, &time_window, &noti_panel_window, &cos_logo, &cos, &badge, &badge_head,
         &noti_boxy_inner_notifications_all,
     );
     osd::connect_osd_to_dock(&osd, &osd_revealer, &osd_capsule, &osd_window, &lbl);
