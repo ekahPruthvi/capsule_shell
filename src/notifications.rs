@@ -1,6 +1,6 @@
 use zbus::connection::Builder;
 use tokio::sync::mpsc;
-use gtk4::{ApplicationWindow, Box as GtkBox, Button, Image, Label, MenuButton, Popover, Revealer, glib, prelude::*};
+use gtk4::{ApplicationWindow, Box as GtkBox, Button, Image, Label, Revealer, glib, prelude::*};
 use gtk4::glib::clone;
 use tokio::sync::mpsc::UnboundedReceiver;
 use std::cell::{RefCell, Cell};
@@ -189,29 +189,6 @@ fn clear_all_notifications(
     });
 }
 
-fn build_header(
-) -> GtkBox {
-    let header = GtkBox::new(gtk4::Orientation::Horizontal, 8);
-    header.set_css_classes(&["notiHeader"]);
-    header.set_width_request(300);
-    header.set_margin_start(10);
-    header.set_margin_end(10);
-    header.set_halign(gtk4::Align::Center);
-
-    let header_icon = Image::from_file("/var/lib/cynager/icons/noti.svg");
-    header_icon.set_icon_size(gtk4::IconSize::Large);
-    header_icon.set_css_classes(&["notiHeaderIcon"]);
-
-    let title = Label::new(Some("Notifications"));
-    title.set_css_classes(&["notiHeaderTitle"]);
-    title.set_halign(gtk4::Align::Start);
-    title.set_hexpand(true);
-
-    header.append(&header_icon);
-    header.append(&title);
-    header
-}
-
 fn build_clear_button(
     noti_all: &GtkBox,
     last_group: &Rc<RefCell<Option<LastNotiGroup>>>,
@@ -224,10 +201,11 @@ fn build_clear_button(
     clear_all_btn.set_css_classes(&["clearBtn"]);
     clear_all_btn.set_width_request(30);
     clear_all_btn.set_height_request(30);
+    clear_all_btn.set_margin_bottom(5);
     clear_all_btn.set_hexpand(true);
     clear_all_btn.set_halign(gtk4::Align::Fill);
     clear_all_btn.set_vexpand(true);
-    clear_all_btn.set_valign(gtk4::Align::Center);
+    clear_all_btn.set_valign(gtk4::Align::End);
     clear_all_btn.set_cursor_from_name(Some("pointer"));
 
     let noti_all = noti_all.clone();
@@ -274,9 +252,8 @@ pub fn connect_notifications_to_dock(
                 }
 
                 let notification_icon = Image::from_file("/var/lib/cynager/icons/noti.svg");
-                notification_icon.set_icon_size(gtk4::IconSize::Normal);
                 notification_icon.set_css_classes(&["notiIcon"]);
-                notification_icon.set_height_request(28);
+                notification_icon.set_pixel_size(30);
 
                 let display = gtk4::gdk::Display::default().expect("[notifications] Failed to get default GDK display");
                 let icon_theme = gtk4::IconTheme::for_display(&display);
@@ -331,9 +308,20 @@ pub fn connect_notifications_to_dock(
                 noti_label_bod.set_width_request(100);
                 noti_label_bod.set_ellipsize(gtk4::pango::EllipsizeMode::End);
 
-                let noti_label_all = GtkBox::new(gtk4::Orientation::Horizontal, 20);
+                let noti_label_all = GtkBox::new(gtk4::Orientation::Vertical, 2);
+                noti_label_all.set_margin_start(10);
+                noti_label_all.append(&Label::builder()
+                    .label(if notif.app_name.trim().is_empty() {
+                        "Notification"
+                    } else {
+                        &notif.app_name
+                    })
+                    .css_classes(["appName"])
+                    .hexpand(true)
+                    .halign(gtk4::Align::Start)
+                    .build()
+                );
                 noti_label_all.append(&noti_label_sum);
-                noti_label_all.append(&noti_label_bod);
 
                 let noti_all_box = GtkBox::new(gtk4::Orientation::Vertical, 0);
                 noti_all_box.set_css_classes(&["notificationAll"]);
@@ -345,8 +333,9 @@ pub fn connect_notifications_to_dock(
                 noti_all_box.set_valign(gtk4::Align::End);
                 noti_all_box.set_halign(gtk4::Align::Center);
 
-                let noti_row = GtkBox::new(gtk4::Orientation::Horizontal, 5);
+                let noti_row = GtkBox::new(gtk4::Orientation::Horizontal, 0);
                 noti_row.set_height_request(30);
+                noti_row.set_hexpand(true);
 
                 let pop_label = Label::new(Some(&notif.body));
                 pop_label.set_css_classes(&["notificationAllLabelBody"]);
@@ -357,8 +346,8 @@ pub fn connect_notifications_to_dock(
 
                 let details_vbox = GtkBox::new(gtk4::Orientation::Vertical, 6);
                 details_vbox.set_css_classes(&["notiPopupBox"]);
-                details_vbox.set_margin_start(33);
-                details_vbox.set_margin_top(4);
+                details_vbox.set_margin_top(10);
+                details_vbox.set_margin_bottom(5);
                 details_vbox.append(&pop_label);
 
                 let revealer = Revealer::new();
@@ -424,20 +413,12 @@ pub fn connect_notifications_to_dock(
 
                 noti_row.append(&notification_icon);
                 noti_row.append(&noti_label_all);
-                noti_row.append(&Label::builder()
-                    .label(&notif.app_name)
-                    .css_classes(["appName"])
-                    .hexpand(true)
-                    .halign(gtk4::Align::End)
-                    .build()
-                );
                 noti_row.append(&delete_btn);
 
                 noti_all_box.append(&noti_row);
                 noti_all_box.append(&revealer);
 
                 if noti_all.first_child().is_none() {
-                    noti_all.append(&build_header());
                     noti_all.append(&build_clear_button(&noti_all, &last_group));
                 }
 
