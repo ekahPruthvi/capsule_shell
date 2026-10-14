@@ -1,6 +1,6 @@
 use zbus::connection::Builder;
 use tokio::sync::mpsc;
-use gtk4::{ApplicationWindow, Box as GtkBox, Button, Image, Label, Revealer, glib, prelude::*};
+use gtk4::{ApplicationWindow, Box as GtkBox, Button, Image, Label, Revealer, ScrolledWindow, glib, prelude::*};
 use gtk4::glib::clone;
 use tokio::sync::mpsc::UnboundedReceiver;
 use std::cell::{RefCell, Cell};
@@ -27,6 +27,7 @@ pub struct Notification {
 struct LastNotiGroup {
     summary: String,
     details_vbox: GtkBox,
+    scroller: ScrolledWindow,
     body_label: Label,
 }
 
@@ -85,6 +86,104 @@ impl NotificationServer {
     }
 
     async fn close_notification(&self, _id: u32) {}
+}
+
+fn clean_body(raw: &str) -> String {
+    let mut s = raw.replace("\r\n", "\n").replace('\r', "\n");
+
+    let mut out = String::with_capacity(s.len());
+    let mut in_tag = false;
+    let mut tag = String::new();
+    for c in s.chars() {
+        if in_tag {
+            if c == '>' {
+                let t = tag.trim().trim_start_matches('/').trim_end_matches('/').trim().to_lowercase();
+                let name = t.split_whitespace().next().unwrap_or("");
+                if matches!(name, "br" | "p" | "div" | "li" | "tr") {
+                    out.push('\n');
+                }
+                tag.clear();
+                in_tag = false;
+            } else {
+                tag.push(c);
+            }
+        } else if c == '<' {
+            in_tag = true;
+        } else {
+            out.push(c);
+        }
+    }
+    if in_tag {
+        out.push('<');
+        out.push_str(&tag);
+    }
+    s = out;
+
+    s = s
+        .replace("&nbsp;", " ")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&apos;", "'")
+        .replace("&amp;", "&");
+
+    let mut lines: Vec<String> = Vec::new();
+    let mut last_blank = true;
+    for line in s.lines() {
+        let collapsed = line.split_whitespace().collect::<Vec<_>>().join(" ");
+        if collapsed.is_empty() {
+            if !last_blank {
+                lines.push(String::new());
+            }
+            last_blank = true;
+        } else {
+            lines.push(collapsed);
+            last_blank = false;
+        }
+    }
+    while lines.last().map(|l| l.is_empty()).unwrap_or(false) {
+        lines.pop();
+    }
+    lines.join("\n")
+}
+
+const SCROLLER_MAX_HEIGHT: i32 = 520;
+const SCROLLER_MIN_HEIGHT: i32 = 30;
+const LINE_HEIGHT_PX: i32 = 22;
+const WRAP_CHARS: usize = 45;
+
+fn wrap_in_scroller(content: &GtkBox) -> ScrolledWindow {
+    let scroller = ScrolledWindow::new();
+    scroller.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
+    scroller.set_propagate_natural_height(true);
+    scroller.set_max_content_height(SCROLLER_MAX_HEIGHT);
+    scroller.set_hexpand(true);
+    scroller.set_vexpand(false);
+    scroller.set_valign(gtk4::Align::Start);
+    scroller.set_css_classes(&["notiScroller"]);
+    scroller.set_child(Some(content));
+    fit_scroller(&scroller, content);
+    scroller
+}
+
+fn fit_scroller(scroller: &ScrolledWindow, content: &GtkBox) {
+    let mut lines = 0i32;
+    let mut labels = 0i32;
+    let mut child = content.first_child();
+    while let Some(w) = child {
+        if let Some(label) = w.downcast_ref::<Label>() {
+            labels += 1;
+            for line in label.text().split('\n') {
+                let n = line.chars().count();
+                lines += ((n + WRAP_CHARS - 1) / WRAP_CHARS).max(1) as i32;
+            }
+        }
+        child = w.next_sibling();
+    }
+    let needed = lines * LINE_HEIGHT_PX + (labels - 1).max(0) * 6 + 15;
+    let height = needed.clamp(SCROLLER_MIN_HEIGHT, SCROLLER_MAX_HEIGHT);
+    scroller.set_min_content_height(height);
 }
 
 fn is_it_dnd() -> String {
@@ -156,7 +255,7 @@ fn play_notification_sound() {
                 Ok(s) => s,
                 Err(_) => return,
             };
-            if let Ok(file) = File::open("/var/lib/cynager/niri/sound/notiv/notiv.mp3") {
+            if let Ok(file) = File::open("/var/lib/cynager/sound/notiv/notiv.mp3") {
                 if let Ok(source) = Decoder::new(BufReader::new(file)) {
                     sink.append(source);
                     sink.sleep_until_end();
@@ -280,11 +379,13 @@ pub fn connect_notifications_to_dock(
                     .map(|g| g.summary == notif.summary)
                     .unwrap_or(false);
 
+                let clean = clean_body(&notif.body);
+
                 if is_duplicate {
                     if let Some(group) = last_group.borrow().as_ref() {
-                        group.body_label.set_text(&notif.body);
+                        group.body_label.set_text(&clean.replace('\n', " "));
 
-                        let grouped_label = Label::new(Some(&notif.body));
+                        let grouped_label = Label::new(Some(&clean));
                         grouped_label.set_css_classes(&["notificationAllLabelBody"]);
                         grouped_label.set_wrap(true);
                         grouped_label.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
@@ -292,6 +393,7 @@ pub fn connect_notifications_to_dock(
                         grouped_label.set_halign(gtk4::Align::Start);
 
                         group.details_vbox.append(&grouped_label);
+                        fit_scroller(&group.scroller, &group.details_vbox);
                     }
                 } else {
 
@@ -299,7 +401,7 @@ pub fn connect_notifications_to_dock(
                 noti_label_sum.set_css_classes(&["notificationAllLabelSummary"]);
                 noti_label_sum.set_halign(gtk4::Align::Start);
 
-                let noti_label_bod = Label::new(Some(&notif.body));
+                let noti_label_bod = Label::new(Some(&clean.replace('\n', " ")));
                 noti_label_bod.set_css_classes(&["notificationAllLabelBody"]);
                 noti_label_bod.set_halign(gtk4::Align::Start);
                 noti_label_bod.set_valign(gtk4::Align::Center);
@@ -337,7 +439,7 @@ pub fn connect_notifications_to_dock(
                 noti_row.set_height_request(30);
                 noti_row.set_hexpand(true);
 
-                let pop_label = Label::new(Some(&notif.body));
+                let pop_label = Label::new(Some(&clean));
                 pop_label.set_css_classes(&["notificationAllLabelBody"]);
                 pop_label.set_wrap(true);
                 pop_label.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
@@ -354,7 +456,8 @@ pub fn connect_notifications_to_dock(
                 revealer.set_transition_type(gtk4::RevealerTransitionType::SlideDown);
                 revealer.set_transition_duration(250);
                 revealer.set_reveal_child(false);
-                revealer.set_child(Some(&details_vbox));
+                let scroller = wrap_in_scroller(&details_vbox);
+                revealer.set_child(Some(&scroller));
 
                 revealer.connect_reveal_child_notify(clone!(
                     #[weak] noti_all_window,
@@ -456,6 +559,7 @@ pub fn connect_notifications_to_dock(
                 *last_group.borrow_mut() = Some(LastNotiGroup {
                     summary: notif.summary.clone(),
                     details_vbox,
+                    scroller,
                     body_label: noti_label_bod,
                 });
 
