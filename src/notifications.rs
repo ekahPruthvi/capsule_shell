@@ -161,7 +161,8 @@ fn wrap_in_scroller(content: &GtkBox) -> ScrolledWindow {
     scroller.set_hexpand(true);
     scroller.set_vexpand(false);
     scroller.set_valign(gtk4::Align::Start);
-    scroller.set_css_classes(&["notiScroller"]);
+    scroller.set_css_classes(&["noscroller"]);
+    scroller.set_margin_bottom(5);
     scroller.set_child(Some(content));
     fit_scroller(&scroller, content);
     scroller
@@ -391,7 +392,7 @@ pub fn connect_notifications_to_dock(
                         grouped_label.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
                         grouped_label.set_max_width_chars(45);
                         grouped_label.set_halign(gtk4::Align::Start);
-
+                        grouped_label.set_selectable(true);
                         group.details_vbox.append(&grouped_label);
                         fit_scroller(&group.scroller, &group.details_vbox);
                     }
@@ -445,6 +446,7 @@ pub fn connect_notifications_to_dock(
                 pop_label.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
                 pop_label.set_max_width_chars(45);
                 pop_label.set_halign(gtk4::Align::Start);
+                pop_label.set_selectable(true);
 
                 let details_vbox = GtkBox::new(gtk4::Orientation::Vertical, 6);
                 details_vbox.set_css_classes(&["notiPopupBox"]);

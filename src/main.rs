@@ -430,6 +430,15 @@ fn coping_with(app: &Application) {
     cos.set_css_classes(&["cosIcon"]);
     cos.set_margin_end(15);
 
+    cos.connect_clicked(move |_| {
+        if let Err(e) = std::process::Command::new("pkill")
+            .args(["-USR1", "altDot"])
+            .spawn()
+        {
+            eprintln!("[calpsule] Failed to launch altdot: {}", e);
+        }
+    });
+
     let badge_container = GtkBox::new(Orientation::Vertical, 1);
     badge_container.set_hexpand(true);
 
