@@ -1268,11 +1268,12 @@ pub fn spawn_ctrl_capsules(
     // win.auto_exclusive_zone_enable();
     
     let top_backdrop = Button::builder()
-        .css_classes(["ctrlBackdrop"])
         .hexpand(true)
         .vexpand(false)
-        .height_request(50)
+        .height_request(5)
         .build();
+
+    top_backdrop.set_css_classes(&["dummytxt"]);
 
     let backdrop = Button::builder()
         .css_classes(["ctrlBackdrop"])

@@ -393,7 +393,7 @@ pub fn connect_notifications_to_dock(
                         grouped_label.set_max_width_chars(45);
                         grouped_label.set_halign(gtk4::Align::Start);
                         grouped_label.set_selectable(true);
-                        group.details_vbox.append(&grouped_label);
+                        group.details_vbox.prepend(&grouped_label);
                         fit_scroller(&group.scroller, &group.details_vbox);
                     }
                 } else {

@@ -39,7 +39,7 @@ pub fn spawn_shelly_side_decorations(app: &gtk4::Application) {
 
     win.init_layer_shell();
     win.set_namespace(Some("shell-side-decorations"));
-    win.set_layer(Layer::Overlay);
+    win.set_layer(Layer::Top);
     win.set_keyboard_mode(gtk4_layer_shell::KeyboardMode::None);
     win.remove_css_class("background");
 
