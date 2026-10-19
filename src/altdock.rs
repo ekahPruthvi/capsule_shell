@@ -208,10 +208,6 @@ fn tile_pair_in_new_workspace(target: u64, dragged: u64) {
             .workspace_id
             .and_then(|id| workspaces.iter().find(|ws| ws.id == id));
         if let Some(ws) = anchor_ws {
-            eprintln!(
-                "[altdock] joining {} to tiled window {} on workspace id {} (idx {})",
-                mover.id, anchor.id, ws.id, ws.idx
-            );
             if mover.workspace_id != anchor.workspace_id {
                 SPLIT_ORIGINS.with(|m| {
                     m.borrow_mut()
@@ -289,7 +285,7 @@ fn tile_pair_in_new_workspace(target: u64, dragged: u64) {
             },
         );
     }
-    send_action(Action::FocusWindow { id: dragged });
+    send_action(Action::FocusWindow { id: target });
 }
 
 fn restore_split(id: u64) {
@@ -1070,10 +1066,32 @@ fn niri_window_pid(id: u64) -> Option<i32> {
 }
 
 fn force_quit_window(id: u64) {
-    let Some(pid) = niri_window_pid(id) else {
+    let Ok(mut sock) = Socket::connect() else {
+        eprintln!("[altdock] force quit: cannot connect to niri");
+        return;
+    };
+    let windows = match sock.send(Request::Windows) {
+        Ok(Ok(Response::Windows(ws))) => ws,
+        _ => {
+            eprintln!("[altdock] force quit: could not list windows");
+            return;
+        }
+    };
+    let Some(pid) = windows.iter().find(|w| w.id == id).and_then(|w| w.pid) else {
         eprintln!("[altdock] force quit: no pid for window {id}");
         return;
     };
+
+    let shared = windows.iter().any(|w| w.id != id && w.pid == Some(pid));
+
+    if shared {
+        eprintln!(
+            "[altdock] force quit: pid {pid} also owns other windows, closing only window {id}"
+        );
+        send_action(Action::CloseWindow { id: Some(id) });
+        return;
+    }
+
     if let Err(e) = Command::new("kill")
         .args(["-KILL", &pid.to_string()])
         .spawn()
@@ -1251,10 +1269,10 @@ fn show_dock_menu(anchor: &Button, id: u64, app_id: &str) {
             add_to_desktop(id, &app_id, &title);
         }));
     }
-    menu_box.append(&make_menu_item("Remove from tiling", is_window_tiled(id), move || {
+    menu_box.append(&make_menu_item("Remove from Snap", is_window_tiled(id), move || {
         remove_from_tiling(id)
     }));
-    menu_box.append(&make_menu_item("Force quit", true, move || {
+    menu_box.append(&make_menu_item("Quit Application", true, move || {
         force_quit_window(id);
     }));
 
@@ -1276,6 +1294,7 @@ fn make_dock_btn(win: &NiriWindow) -> Button {
 
     let icon = Image::from_icon_name(&icon_name);
     icon.set_pixel_size(62);
+    icon.set_halign(gtk4::Align::Start);
 
     let label_text = if win.title.is_empty() {
         win.app_id.clone()
@@ -1324,8 +1343,34 @@ fn make_dock_btn(win: &NiriWindow) -> Button {
         focus_window_animated(id);
     });
 
+    let hint_ctrl = gtk4::DropControllerMotion::new();
+    {
+        let hint_btn = btn.downgrade();
+        hint_ctrl.connect_enter(move |_, _, _| {
+            if let Some(b) = hint_btn.upgrade() {
+                let dragged = DRAGGED_WINDOW.with(|d| d.get());
+                if dragged.is_some() && dragged != Some(id) {
+                    b.add_css_class("dockBtnHint");
+                }
+            }
+        });
+    }
+    {
+        let hint_btn = btn.downgrade();
+        hint_ctrl.connect_leave(move |_| {
+            if let Some(b) = hint_btn.upgrade() {
+                b.remove_css_class("dockBtnHint");
+            }
+        });
+    }
+    btn.add_controller(hint_ctrl);
+
+    let drop_btn = btn.downgrade();
     let drop_target = gtk4::DropTarget::new(gdk::FileList::static_type(), gdk::DragAction::COPY);
     drop_target.connect_drop(move |_, _, _, _| {
+        if let Some(b) = drop_btn.upgrade() {
+            b.remove_css_class("dockBtnHint");
+        }
         let Some(dragged) = DRAGGED_WINDOW.with(|d| d.take()) else {
             return false;
         };
@@ -1447,6 +1492,14 @@ fn apply_dock_btn_classes(btn: &Button, win: &NiriWindow, tiled: bool) {
 struct DockState {
     buttons: HashMap<u64, Button>,
     order: Vec<u64>,
+}
+
+fn clear_dock_hints(state: &Rc<RefCell<DockState>>) {
+    if let Ok(st) = state.try_borrow() {
+        for btn in st.buttons.values() {
+            btn.remove_css_class("dockBtnHint");
+        }
+    }
 }
 
 fn update_dockbox(
@@ -1621,6 +1674,7 @@ pub fn spawn_altdock(app: &Application, dockbox: GtkBox) -> ApplicationWindow {
     let pop_leave = dockbox_rc.clone();
     let win_size_setter = win.clone();
     let leave_tray_menu_layer = tray_menu_layer.clone();
+    let leave_dock_state = dock_state.clone();
     hover_ctrl.connect_leave(move |_| {
         pending_leavein.set(true);
         let pop = pop_leave.clone();
@@ -1628,6 +1682,7 @@ pub fn spawn_altdock(app: &Application, dockbox: GtkBox) -> ApplicationWindow {
         let pending_hide = Rc::clone(&pending_leavein);
         let dockbox_clone_anim = dockbox_clone_anim.clone();
         let tray_menu_layer = leave_tray_menu_layer.clone();
+        let dock_state = leave_dock_state.clone();
         glib::timeout_add_local(Duration::from_millis(500), move || {
             if pending_hide.get() {
                 dockbox_clone_anim.remove_css_class("dockcum");
@@ -1637,8 +1692,10 @@ pub fn spawn_altdock(app: &Application, dockbox: GtkBox) -> ApplicationWindow {
                 let win2 = win.clone();
                 let pending_hide2 = Rc::clone(&pending_hide);
                 let tray_menu_layer = tray_menu_layer.clone();
+                let dock_state = dock_state.clone();
                 glib::timeout_add_local(Duration::from_millis(300), move || {
                     if pending_hide2.get() {
+                        clear_dock_hints(&dock_state);
                         pop2.set_visible(false);
                         win2.set_visible(false);
                         win2.set_visible(true);

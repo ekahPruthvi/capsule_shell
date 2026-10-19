@@ -331,7 +331,7 @@ dependencies = [
 
 [[package]]
 name = "capsule"
-version = "1.5.33"
+version = "1.5.34"
 dependencies = [
  "async-channel",
  "chrono",
