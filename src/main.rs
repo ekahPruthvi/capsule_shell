@@ -29,6 +29,7 @@ use widgets::{
     battery::spawn_bat_widget, 
     stick::spawn_stick_widget, 
     appd::spawn_appd_widget,
+    git::spawn_git_widget,
     kill
 };
 use ctrl::{NetworkHub, NetworkState, spawn_ctrl_capsules};
@@ -43,11 +44,12 @@ struct WidgetConfig {
     bat:      bool,
     stick:    bool,
     appd: bool,
+    git:      bool,
 }
 
 impl Default for WidgetConfig {
     fn default() -> Self {
-        Self { cal: false, sys: false, shellout: String::new(), bat: false, stick: false, appd: false }
+        Self { cal: false, sys: false, shellout: String::new(), bat: false, stick: false, appd: false, git: false }
     }
 }
 
@@ -92,6 +94,7 @@ fn parse_widget_config(path: &str) -> Option<WidgetConfig> {
             "bat"   => cfg.bat   = val == "true",
             "stick" => cfg.stick = val == "true",
             "appd" => cfg.appd = val == "true",
+            "git"   => cfg.git   = val == "true",
             _       => {}
         }
     }
@@ -629,6 +632,31 @@ fn coping_with(app: &Application) {
     });
     clippy.add_controller(clip_hover);
 
+    // What is currently being dragged out of clippy, and the dustbin that shows while dragging.
+    thread_local! {
+        static CLIPPY_DRAG: RefCell<Vec<Button>>   = RefCell::new(vec![]);
+        static CLIPPY_BIN:  RefCell<Option<Button>> = RefCell::new(None);
+    }
+
+    fn clippy_drag_started(btns: Vec<Button>) {
+        CLIPPY_DRAG.with(|d| *d.borrow_mut() = btns);
+        CLIPPY_BIN.with(|b| {
+            if let Some(bin) = b.borrow().as_ref() {
+                bin.set_visible(true);
+            }
+        });
+    }
+
+    fn clippy_drag_finished() {
+        CLIPPY_DRAG.with(|d| d.borrow_mut().clear());
+        CLIPPY_BIN.with(|b| {
+            if let Some(bin) = b.borrow().as_ref() {
+                bin.set_visible(false);
+                bin.remove_css_class("binHover");
+            }
+        });
+    }
+
     fn icon_for_path(path: &std::path::Path) -> String {
         let ext = path
             .extension()
@@ -876,6 +904,7 @@ fn coping_with(app: &Application) {
 
         let items_for_drag_begin = items.clone();
         drag_src.connect_drag_begin(move |src, _drag| {
+            clippy_drag_started(items_for_drag_begin.borrow().iter().map(|i| i.btn.clone()).collect());
             let display = gtk4::gdk::Display::default().expect("No display found");
 
             match build_master_drag_icon(&display, &items_for_drag_begin.borrow()) {
@@ -896,17 +925,8 @@ fn coping_with(app: &Application) {
 
         });
 
-        let clippy_for_drag_end    = clippy.clone();
-        let items_box_for_drag_end = items_box.clone();
-        let items_for_drag_end     = items.clone();
-        let master_for_drag_end    = master.clone();
         drag_src.connect_drag_end(move |_, _drag, _delete_data| {
-            for item in items_for_drag_end.borrow_mut().drain(..) {
-                items_box_for_drag_end.remove(&item.btn);
-            }
-            if let Some(m) = master_for_drag_end.borrow_mut().take() {
-                clippy_for_drag_end.remove(&m);
-            }
+            clippy_drag_finished();
         });
         btn.add_controller(drag_src);
 
@@ -988,7 +1008,9 @@ fn coping_with(app: &Application) {
             Some(gtk4::gdk::ContentProvider::new_union(&[text_plain, text_provider, uri_provider]))
         });
 
+        let btn_for_drag_begin = btn.clone();
         drag_src.connect_drag_begin(move |src, _drag| {
+            clippy_drag_started(vec![btn_for_drag_begin.clone()]);
             let display = gtk4::gdk::Display::default().expect("No display found");
             let theme = gtk4::IconTheme::for_display(&display);
             let paintable = theme.lookup_icon(
@@ -1002,15 +1024,8 @@ fn coping_with(app: &Application) {
             src.set_icon(Some(&paintable), 24, 24);
         });
 
-        let btn_for_drag_end       = btn.clone();
-        let clippy_for_drag_end    = clippy.clone();
-        let items_box_for_drag_end = items_box.clone();
-        let items_for_drag_end     = items.clone();
-        let master_for_drag_end    = master.clone();
         drag_src.connect_drag_end(move |_, _drag, _delete_data| {
-            items_box_for_drag_end.remove(&btn_for_drag_end);
-            items_for_drag_end.borrow_mut().retain(|it| it.btn != btn_for_drag_end);
-            sync_clippy_master(&clippy_for_drag_end, &items_box_for_drag_end, &items_for_drag_end, &master_for_drag_end);
+            clippy_drag_finished();
         });
         btn.add_controller(drag_src);
 
@@ -1086,7 +1101,9 @@ fn coping_with(app: &Application) {
             Some(gtk4::gdk::ContentProvider::new_union(&[provider_utf8, provider_plain]))
         });
 
+        let btn_for_drag_begin = btn.clone();
         drag_src.connect_drag_begin(move |src, _drag| {
+            clippy_drag_started(vec![btn_for_drag_begin.clone()]);
             let display = gtk4::gdk::Display::default().expect("No display found");
             let theme = gtk4::IconTheme::for_display(&display);
             let paintable = theme.lookup_icon(
@@ -1100,15 +1117,8 @@ fn coping_with(app: &Application) {
             src.set_icon(Some(&paintable), 24, 24);
         });
 
-        let btn_for_drag_end       = btn.clone();
-        let clippy_for_drag_end    = clippy.clone();
-        let items_box_for_drag_end = items_box.clone();
-        let items_for_drag_end     = items.clone();
-        let master_for_drag_end    = master.clone();
         drag_src.connect_drag_end(move |_, _drag, _delete_data| {
-            items_box_for_drag_end.remove(&btn_for_drag_end);
-            items_for_drag_end.borrow_mut().retain(|it| it.btn != btn_for_drag_end);
-            sync_clippy_master(&clippy_for_drag_end, &items_box_for_drag_end, &items_for_drag_end, &master_for_drag_end);
+            clippy_drag_finished();
         });
         btn.add_controller(drag_src);
 
@@ -1212,7 +1222,9 @@ fn coping_with(app: &Application) {
         });
 
         let icon_name_drag = icon_name.clone();
+        let btn_for_drag_begin = btn.clone();
         drag_src.connect_drag_begin(move |src, _drag| {
+            clippy_drag_started(vec![btn_for_drag_begin.clone()]);
             let display = gtk4::gdk::Display::default().expect("No display found");
             let theme = gtk4::IconTheme::for_display(&display);
             let paintable = theme.lookup_icon(
@@ -1226,15 +1238,8 @@ fn coping_with(app: &Application) {
             src.set_icon(Some(&paintable), 24, 24 );
         });
 
-        let btn_for_drag_end       = btn.clone();
-        let clippy_for_drag_end    = clippy.clone();
-        let items_box_for_drag_end = items_box.clone();
-        let items_for_drag_end     = items.clone();
-        let master_for_drag_end    = master.clone();
         drag_src.connect_drag_end(move |_, _drag, _delete_data| {
-            items_box_for_drag_end.remove(&btn_for_drag_end);
-            items_for_drag_end.borrow_mut().retain(|it| it.btn != btn_for_drag_end);
-            sync_clippy_master(&clippy_for_drag_end, &items_box_for_drag_end, &items_for_drag_end, &master_for_drag_end);
+            clippy_drag_finished();
         });
         btn.add_controller(drag_src);
 
@@ -1335,6 +1340,55 @@ fn coping_with(app: &Application) {
         clippy.add_controller(drop_target);
     }
 
+    let bin_img = Image::from_icon_name("user-trash-symbolic");
+    bin_img.set_icon_size(gtk4::IconSize::Normal);
+    let clippy_bin = Button::builder()
+        .css_classes(["clippyBin"])
+        .child(&bin_img)
+        .visible(false)
+        .margin_end(10)
+        .build();
+    CLIPPY_BIN.with(|b| *b.borrow_mut() = Some(clippy_bin.clone()));
+
+    {
+        let drop_bin = gtk4::DropTarget::builder()
+            .actions(gtk4::gdk::DragAction::COPY | gtk4::gdk::DragAction::MOVE)
+            .build();
+        drop_bin.set_types(&[gtk4::gio::File::static_type(), glib::Type::STRING]);
+
+        let clippy_b    = clippy.clone();
+        let items_box_b = clippy_row.clone();
+        let items_b     = clippy_items.clone();
+        let master_b    = clippy_master.clone();
+        let bin_b       = clippy_bin.clone();
+        drop_bin.connect_drop(move |_, _value, _, _| {
+            let dragged = CLIPPY_DRAG.with(|d| std::mem::take(&mut *d.borrow_mut()));
+            if dragged.is_empty() {
+                return false; // something from outside clippy, ignore
+            }
+            for b in &dragged {
+                items_box_b.remove(b);
+                items_b.borrow_mut().retain(|it| it.btn != *b);
+            }
+            sync_clippy_master(&clippy_b, &items_box_b, &items_b, &master_b);
+            bin_b.set_visible(false);
+            bin_b.remove_css_class("binHover");
+            true
+        });
+
+        let bin_enter = clippy_bin.clone();
+        drop_bin.connect_enter(move |_, _, _| {
+            bin_enter.add_css_class("binHover");
+            gtk4::gdk::DragAction::MOVE
+        });
+        let bin_leave = clippy_bin.clone();
+        drop_bin.connect_leave(move |_| {
+            bin_leave.remove_css_class("binHover");
+        });
+
+        clippy_bin.add_controller(drop_bin);
+    }
+
     let c_tna = GtkBox::new(Orientation::Horizontal, 5);
     
     let dockbox = GtkBox::builder()
@@ -1371,6 +1425,7 @@ fn coping_with(app: &Application) {
 
     time_capsule.append(&cos);
     time_capsule.append(&badge_container);
+    time_capsule.append(&clippy_bin);
     time_capsule.append(&c_tna);
     time_capsule.append(&network);
     if has_battery {
@@ -1484,6 +1539,7 @@ fn coping_with(app: &Application) {
     let active_bat: Rc<RefCell<bool>> = Rc::new(RefCell::new(initial_cfg.bat));
     let active_stick: Rc<RefCell<bool>> = Rc::new(RefCell::new(initial_cfg.stick));
     let active_appd: Rc<RefCell<bool>> = Rc::new(RefCell::new(initial_cfg.appd));
+    let active_git: Rc<RefCell<bool>> = Rc::new(RefCell::new(initial_cfg.git));
 
     let cal_win: Rc<RefCell<Option<gtk4::Window>>> = Rc::new(RefCell::new(None));
     if initial_cfg.cal {
@@ -1505,6 +1561,10 @@ fn coping_with(app: &Application) {
     if initial_cfg.appd {
         *appd_win.borrow_mut() = Some(spawn_appd_widget(shellout_monitor.as_ref()));
     }
+    let git_win: Rc<RefCell<Option<gtk4::Window>>> = Rc::new(RefCell::new(None));
+    if initial_cfg.git {
+        *git_win.borrow_mut() = Some(spawn_git_widget(shellout_monitor.as_ref()));
+    }
 
     let probe_rx     = spawn_probe_watcher(probe_path.to_string(), Duration::from_secs(5));
     let probe_rx     = Rc::new(RefCell::new(probe_rx));
@@ -1513,6 +1573,7 @@ fn coping_with(app: &Application) {
     let active_bat_c = active_bat.clone();
     let active_stick_c = active_stick.clone();
     let active_appd_c = active_appd.clone();
+    let active_git_c = active_git.clone();
     let pp_monitor = shellout_monitor.clone();
 
     glib::timeout_add_local(Duration::from_millis(500), move || {
@@ -1565,6 +1626,16 @@ fn coping_with(app: &Application) {
                 let maybe = appd_win.borrow_mut().take();
                 if let Some(w) = maybe { kill(&w); }
                 *active_appd_c.borrow_mut() = false;
+            }
+
+            let git_active = *active_git_c.borrow();
+            if cfg.git && !git_active {
+                *git_win.borrow_mut() = Some(spawn_git_widget(pp_monitor.as_ref()));
+                *active_git_c.borrow_mut() = true;
+            } else if !cfg.git && git_active {
+                let maybe = git_win.borrow_mut().take();
+                if let Some(w) = maybe { kill(&w); }
+                *active_git_c.borrow_mut() = false;
             }
         }
         glib::ControlFlow::Continue

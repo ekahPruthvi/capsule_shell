@@ -7,6 +7,7 @@ pub mod position;
 pub mod battery;
 pub mod stick;
 pub mod appd;
+pub mod git;
 
 pub fn kill(win: &Window) {
     win.close();
