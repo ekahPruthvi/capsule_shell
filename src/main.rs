@@ -632,7 +632,6 @@ fn coping_with(app: &Application) {
     });
     clippy.add_controller(clip_hover);
 
-    // What is currently being dragged out of clippy, and the dustbin that shows while dragging.
     thread_local! {
         static CLIPPY_DRAG: RefCell<Vec<Button>>   = RefCell::new(vec![]);
         static CLIPPY_BIN:  RefCell<Option<Button>> = RefCell::new(None);
@@ -1340,8 +1339,8 @@ fn coping_with(app: &Application) {
         clippy.add_controller(drop_target);
     }
 
-    let bin_img = Image::from_icon_name("user-trash-symbolic");
-    bin_img.set_icon_size(gtk4::IconSize::Normal);
+    let bin_img = Image::from_file("/var/lib/cynager/icons/bin.svg");
+    bin_img.set_icon_size(gtk4::IconSize::Large);
     let clippy_bin = Button::builder()
         .css_classes(["clippyBin"])
         .child(&bin_img)

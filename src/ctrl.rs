@@ -2204,13 +2204,15 @@ pub fn spawn_ctrl_capsules(
         );
 
         scroll.connect_scroll(move |_, _dx, dy| {
-            let step = if dy < 0.0 { "5%-" } else { "5%+" };
+            let sign = if dy < 0.0 { "-" } else { "+" };
+            let step_str = format!("5%{}", sign);
+
             let _ = std::process::Command::new("wpctl")
-                .args(["set-volume", "-l", "1.0", "@DEFAULT_AUDIO_SINK@", step])
+                .args(["set-volume", "-l", "1.0", "@DEFAULT_AUDIO_SINK@", &step_str])
                 .spawn();
 
             if let Some(state) = sound_cache.borrow_mut().as_mut() {
-                let delta = if dy < 0.0 { 5 } else { -5 };
+                let delta = if dy < 0.0 { -5 } else { 5 };
                 state.volume = (state.volume as i32 + delta).clamp(0, 100) as u32;
                 snd_label_rc.set_label(&format!("{}%", state.volume));
                 snd_icon_rc.set_from_file(Some(sound_icon(state)));
