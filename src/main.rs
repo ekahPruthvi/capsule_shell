@@ -428,7 +428,7 @@ fn coping_with(app: &Application) {
 
     let cos= Button::new();
     let cos_logo = Image::from_file("/var/lib/cynager/icons/cos.svg");
-    cos_logo.set_icon_size(gtk4::IconSize::Large);
+    cos_logo.set_pixel_size(26);
     cos.set_child(Some(&cos_logo));
     cos.set_css_classes(&["cosIcon"]);
     cos.set_margin_end(15);

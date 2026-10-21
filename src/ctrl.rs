@@ -575,7 +575,7 @@ fn build_app_row(
     scroll.connect_scroll(move |_, _dx, dy| {
         let cur  = volume_cell_for_scroll.get() as i32;
         let step = APP_TILE_SCROLL_STEP as i32;
-        let delta = if dy < 0.0 { step } else { -step };
+        let delta = if dy < 0.0 { -step } else { step };
         let new_vol = (cur + delta).clamp(0, 100) as u32;
 
         if new_vol != cur as u32 {
