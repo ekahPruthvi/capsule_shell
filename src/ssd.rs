@@ -27,6 +27,50 @@ enum SsdEvent {
 const DRAG_THRESHOLD: f64 = 4.0;
 const MIN_RESIZE: i32 = 100;
 
+const PROBE_PATH: &str = "/var/lib/cynager/info.probe";
+
+fn forces_csd(app_id: Option<&str>) -> bool {
+    let Some(id) = app_id else { return false; };
+    let Ok(src) = std::fs::read_to_string(PROBE_PATH) else { return false; };
+    let doc = match infoprober::parse(&src) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("[ssd] info.probe: {e}");
+            return false;
+        }
+    };
+
+    doc.get("set", "nocsd")
+        .and_then(|v| v.as_map())
+        .map_or(false, |apps| {
+            apps.iter()
+                .any(|e| e.key.eq_ignore_ascii_case(id) && e.value.as_bool() == Some(true))
+        })
+}
+
+#[allow(dead_code)]
+pub fn nocsd_add(app_id: &str) -> std::io::Result<()> {
+    use infoprober::{Entry, Value};
+    let bad = |e: String| std::io::Error::new(std::io::ErrorKind::InvalidData, e);
+
+    let src = std::fs::read_to_string(PROBE_PATH)?;
+    let mut doc = infoprober::parse(&src).map_err(|e| bad(e.to_string()))?;
+
+    let set = doc.section_or_insert("set");
+    if set.get("nocsd").and_then(|v| v.as_map()).is_none() {
+        set.set("nocsd", Vec::<Entry>::new());
+    }
+    if let Some(Value::Map(apps)) = set.get_mut("nocsd") {
+        match apps.iter_mut().find(|e| e.key.eq_ignore_ascii_case(app_id)) {
+            Some(e) => e.value = "true".into(),
+            None => apps.push(Entry::new(app_id.to_string(), "true")),
+        }
+    }
+
+    doc.validate().map_err(|e| bad(e.to_string()))?;
+    std::fs::write(PROBE_PATH, doc.render())
+}
+
 pub fn spawn_shelly_side_decorations(app: &gtk4::Application) {
     let (tx, rx) = mpsc::channel::<SsdEvent>();
     let rx = Rc::new(RefCell::new(rx));
@@ -730,6 +774,10 @@ fn query_focused_geo() -> Option<FocusedGeo> {
             return None;
         }
     };
+
+    if forces_csd(w.app_id.as_deref()) {
+        return None;
+    }
 
     let is_floating = w.is_floating;
 

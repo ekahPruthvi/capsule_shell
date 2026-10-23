@@ -331,7 +331,7 @@ dependencies = [
 
 [[package]]
 name = "capsule"
-version = "1.5.42"
+version = "1.5.44"
 dependencies = [
  "async-channel",
  "chrono",
@@ -339,6 +339,7 @@ dependencies = [
  "gdk4",
  "gtk4",
  "gtk4-layer-shell",
+ "infoprober",
  "inotify",
  "libc",
  "libpulse-binding",
@@ -1727,6 +1728,12 @@ dependencies = [
  "unit-prefix",
  "web-time",
 ]
+
+[[package]]
+name = "infoprober"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e93b7305d4a27801bdea8c040e31f799c119eda7ac91c8ee6a4dd3fc01b70825"
 
 [[package]]
 name = "inotify"

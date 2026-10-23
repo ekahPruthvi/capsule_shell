@@ -720,17 +720,17 @@ fn tray_item_tooltip(item: &StatusNotifierItem) -> String {
 struct TrayMenuLayer {
     container: GtkBox,
     open_address: RefCell<Option<String>>,
-    hidden_anchor: RefCell<Option<Button>>,
+    popover: RefCell<Option<GtkBox>>,
 }
 
 impl TrayMenuLayer {
     fn new() -> Rc<Self> {
-        let container = GtkBox::new(gtk4::Orientation::Vertical, 0);
+        let container = GtkBox::new(gtk4::Orientation::Horizontal, 0);
         container.add_css_class("trayMenuLayer");
         Rc::new(Self {
             container,
             open_address: RefCell::new(None),
-            hidden_anchor: RefCell::new(None),
+            popover: RefCell::new(None),
         })
     }
 
@@ -739,9 +739,11 @@ impl TrayMenuLayer {
             self.container.remove(&child);
         }
         *self.open_address.borrow_mut() = None;
-        let anchor = self.hidden_anchor.borrow_mut().take();
-        if let Some(btn) = anchor {
-            btn.set_visible(true);
+        let popover = self.popover.borrow_mut().take();
+        if let Some(pop) = popover {
+            if let Some(parent) = pop.parent().and_then(|p| p.downcast::<GtkBox>().ok()) {
+                parent.remove(&pop);
+            }
         }
     }
 
@@ -898,11 +900,16 @@ fn show_tray_menu(
     menu_box.add_controller(close_gesture);
 
     popover.append(&menu_box);
-    layer.container.append(&popover);
+    popover.set_valign(gtk4::Align::Start);
     popover.set_visible(true);
 
-    anchor.set_visible(false);
-    *layer.hidden_anchor.borrow_mut() = Some(anchor.clone());
+    // Keep the icon visible and place the menu directly to its right,
+    // inside the tray row.
+    match anchor.parent().and_then(|p| p.downcast::<GtkBox>().ok()) {
+        Some(tray_box) => tray_box.insert_child_after(&popover, Some(anchor)),
+        None => layer.container.append(&popover),
+    }
+    *layer.popover.borrow_mut() = Some(popover);
     *layer.open_address.borrow_mut() = Some(address.to_string());
 }
 
