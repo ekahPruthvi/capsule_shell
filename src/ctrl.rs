@@ -1590,7 +1590,9 @@ pub fn spawn_ctrl_capsules(
 
     {
         net_settings_btn.connect_clicked(move |_| {
-            let _ = std::process::Command::new("nm-connection-editor").spawn();
+            if let Err(e) = std::process::Command::new("calibrate").arg("--tab=net").spawn() {
+                eprintln!("[ctrl] Failed to open network settings: {}", e);
+            }
         });
     }
 
@@ -1713,7 +1715,9 @@ pub fn spawn_ctrl_capsules(
 
     {
         sound_settings_btn.connect_clicked(move |_| {
-            let _ = std::process::Command::new("pavucontrol").spawn();
+            if let Err(e) = std::process::Command::new("calibrate").arg("--tab=sound").spawn() {
+                eprintln!("[ctrl] Failed to open sound settings: {}", e);
+            }
         });
     }
 

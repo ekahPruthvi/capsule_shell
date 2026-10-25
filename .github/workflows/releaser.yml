@@ -12,7 +12,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Build Rust Binary in Arch Docker
         run: |
@@ -26,8 +26,6 @@ jobs:
           tar -czvf capsule-x86_64.tar.gz -C target/release/ capsule
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: capsule-x86_64.tar.gz
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
