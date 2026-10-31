@@ -1243,6 +1243,76 @@ fn logout_session() {
         .expect("Failed to logout");
 }
 
+fn launch_calibrate_with_ready(
+    btn:     &Button,
+    icon:    &Image,
+    spinner: &Image,
+    args:    &[&str],
+    close:   Rc<dyn Fn()>,
+) {
+    use std::process::{Command, Stdio};
+
+    let mut child = match Command::new("calibrate")
+        .args(args)
+        .stdout(Stdio::piped())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(err) => {
+            eprintln!("[ctrl] failed to launch calibrate {:?}: {}", args, err);
+            return;
+        }
+    };
+
+    btn.set_sensitive(false);
+    icon.set_visible(false);
+    spinner.set_visible(true);
+
+    let (tx, rx) = std::sync::mpsc::channel::<()>();
+    let stdout = child.stdout.take();
+    std::thread::spawn(move || {
+        let mut sent = false;
+        if let Some(out) = stdout {
+            for line in BufReader::new(out).lines() {
+                let Ok(line) = line else { break };
+                if !sent && line.trim() == "ready" {
+                    let _ = tx.send(());
+                    sent = true;
+                }
+            }
+        }
+        let _ = child.wait();
+    });
+
+    let icon    = icon.clone();
+    let spinner = spinner.clone();
+    let btn     = btn.clone();
+    let started = std::time::Instant::now();
+
+    glib::timeout_add_local(Duration::from_millis(50), move || {
+        let (done, should_close) = match rx.try_recv() {
+            Ok(()) => (true, true),
+            Err(TryRecvError::Empty) => {
+                let timed_out = started.elapsed() > Duration::from_secs(10);
+                (timed_out, timed_out)
+            }
+            Err(TryRecvError::Disconnected) => (true, false),
+        };
+
+        if !done {
+            return glib::ControlFlow::Continue;
+        }
+
+        icon.set_visible(true);
+        spinner.set_visible(false);
+        btn.set_sensitive(true);
+        if should_close {
+            close();
+        }
+        glib::ControlFlow::Break
+    });
+}
+
 pub fn spawn_ctrl_capsules(
     app:          &Application,
     overlay_open: Rc<RefCell<bool>>,
@@ -1457,8 +1527,15 @@ pub fn spawn_ctrl_capsules(
 
     let net_settings_icon = Image::from_file("/var/lib/cynager/icons/cog.svg");
     net_settings_icon.set_icon_size(gtk4::IconSize::Normal);
+    let net_settings_spinner = Image::from_file("/var/lib/cynager/icons/spinner.svg");
+    net_settings_spinner.set_pixel_size(16);
+    net_settings_spinner.set_css_classes(&["spinner"]);
+    net_settings_spinner.set_visible(false);
+    let net_settings_box = GtkBox::new(Orientation::Horizontal, 0);
+    net_settings_box.append(&net_settings_icon);
+    net_settings_box.append(&net_settings_spinner);
     let net_settings_btn = Button::builder()
-        .child(&net_settings_icon)
+        .child(&net_settings_box)
         .css_classes(["netPanelBtn"])
         .tooltip_text("Network settings")
         .build();
@@ -1588,13 +1665,6 @@ pub fn spawn_ctrl_capsules(
         });
     }
 
-    {
-        net_settings_btn.connect_clicked(move |_| {
-            if let Err(e) = std::process::Command::new("calibrate").arg("--tab=net").spawn() {
-                eprintln!("[ctrl] Failed to open network settings: {}", e);
-            }
-        });
-    }
 
     let net_last_shown = Rc::new(RefCell::new(initial_state));
 
@@ -1707,19 +1777,19 @@ pub fn spawn_ctrl_capsules(
 
     let sound_settings_icon = Image::from_file("/var/lib/cynager/icons/cog.svg");
     sound_settings_icon.set_icon_size(gtk4::IconSize::Normal);
+    let sound_settings_spinner = Image::from_file("/var/lib/cynager/icons/spinner.svg");
+    sound_settings_spinner.set_pixel_size(16);
+    sound_settings_spinner.set_css_classes(&["spinner"]);
+    sound_settings_spinner.set_visible(false);
+    let sound_settings_box = GtkBox::new(Orientation::Horizontal, 0);
+    sound_settings_box.append(&sound_settings_icon);
+    sound_settings_box.append(&sound_settings_spinner);
     let sound_settings_btn = Button::builder()
-        .child(&sound_settings_icon)
+        .child(&sound_settings_box)
         .css_classes(["netPanelBtn"])
         .tooltip_text("Sound settings")
         .build();
 
-    {
-        sound_settings_btn.connect_clicked(move |_| {
-            if let Err(e) = std::process::Command::new("calibrate").arg("--tab=sound").spawn() {
-                eprintln!("[ctrl] Failed to open sound settings: {}", e);
-            }
-        });
-    }
 
     let sound_dummy_fill = GtkBox::new(Orientation::Horizontal, 0);
     sound_dummy_fill.set_hexpand(true);
@@ -2084,69 +2154,30 @@ pub fn spawn_ctrl_capsules(
         });
     }
 
-        {
+    {
+        let close = close.clone();
+        let icon = setticon.clone();
+        let spin = spinner.clone();
         setting.connect_clicked(move |btn| {
-            use std::process::{Command, Stdio};
+            launch_calibrate_with_ready(btn, &icon, &spin, &[], close.clone());
+        });
+    }
 
-            let mut child = match Command::new("calibrate")
-                .stdout(Stdio::piped())
-                .spawn()
-            {
-                Ok(c) => c,
-                Err(err) => {
-                    eprintln!("[ctrl] failed to launch calibrate: {}", err);
-                    return;
-                }
-            };
+    {
+        let close = close.clone();
+        let icon = net_settings_icon.clone();
+        let spin = net_settings_spinner.clone();
+        net_settings_btn.connect_clicked(move |btn| {
+            launch_calibrate_with_ready(btn, &icon, &spin, &["--tab=net"], close.clone());
+        });
+    }
 
-            btn.set_sensitive(false);
-            setticon.set_visible(false);
-            spinner.set_visible(true);
-
-            let (tx, rx) = std::sync::mpsc::channel::<()>();
-            let stdout = child.stdout.take();
-            std::thread::spawn(move || {
-                let mut sent = false;
-                if let Some(out) = stdout {
-                    for line in BufReader::new(out).lines() {
-                        let Ok(line) = line else { break };
-                        if !sent && line.trim() == "ready" {
-                            let _ = tx.send(());
-                            sent = true;
-                        }
-                    }
-                }
-                let _ = child.wait();
-            });
-
-            let close = close.clone();
-            let spinner = spinner.clone();
-            let seticon = setticon.clone();
-            let btn = btn.clone();
-            let started = std::time::Instant::now();
-
-            glib::timeout_add_local(Duration::from_millis(50), move || {
-                let (done, should_close) = match rx.try_recv() {
-                    Ok(()) => (true, true),
-                    Err(TryRecvError::Empty) => {
-                        let timed_out = started.elapsed() > Duration::from_secs(10);
-                        (timed_out, timed_out)
-                    }
-                    Err(TryRecvError::Disconnected) => (true, false),
-                };
-
-                if !done {
-                    return glib::ControlFlow::Continue;
-                }
-
-                seticon.set_visible(true);
-                spinner.set_visible(false);
-                btn.set_sensitive(true);
-                if should_close {
-                    close();
-                }
-                glib::ControlFlow::Break
-            });
+    {
+        let close = close.clone();
+        let icon = sound_settings_icon.clone();
+        let spin = sound_settings_spinner.clone();
+        sound_settings_btn.connect_clicked(move |btn| {
+            launch_calibrate_with_ready(btn, &icon, &spin, &["--tab=sound"], close.clone());
         });
     }
 

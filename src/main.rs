@@ -15,7 +15,6 @@ use std::cell::{Cell, RefCell};
 
 mod notifications;
 mod osd;
-mod ssd;
 mod widgets;
 mod ctrl;
 mod altdock;
@@ -1765,8 +1764,6 @@ fn coping_with(app: &Application) {
 
         glib::ControlFlow::Continue
     });
-
-    ssd::spawn_shelly_side_decorations(app);
 }
 
 struct UpdateOutcome {
@@ -1861,7 +1858,7 @@ fn main() {
     } else if args.len() > 1 && (args[1] == "--desktop" || args[1] == "-D") {
         exit(desktopstat::nlq());
     } else if args.len() > 1 && (args[1] == "--help" || args[1] == "-H") {
-        exit(1); // have to finish tis later
+        exit(1);
     }
 
     let app = Application::new(Some("ekah.scu.cynideshell"), Default::default());
