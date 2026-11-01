@@ -1857,8 +1857,24 @@ fn main() {
         exit(run_update());
     } else if args.len() > 1 && (args[1] == "--desktop" || args[1] == "-D") {
         exit(desktopstat::nlq());
+    } else if args.len() > 1 && (args[1] == "--snapped" || args[1] == "-f") {
+        exit(altdock::cli_list_snapped());
+    } else if args.len() > 1 && (args[1] == "--unsnap" || args[1] == "-u") {
+        match args.get(2) {
+            Some(name) => exit(altdock::cli_unsnap(name)),
+            None => {
+                eprintln!("usage: capsule -u <app name>");
+                exit(2);
+            }
+        }
     } else if args.len() > 1 && (args[1] == "--help" || args[1] == "-H") {
-        exit(1);
+        println!("usage: capsule [option]");
+        println!("  -V, --version        print version");
+        println!("  -U, --update         self-update");
+        println!("  -D, --desktop        desktop mode");
+        println!("  -f, --snapped        list snapped (tiled) apps");
+        println!("  -u, --unsnap <app>   unsnap an app, restoring its size and position");
+        exit(0);
     }
 
     let app = Application::new(Some("ekah.scu.cynideshell"), Default::default());

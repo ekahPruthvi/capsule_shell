@@ -171,11 +171,144 @@ fn send_action(action: Action) {
 
 thread_local! {
     static DRAGGED_WINDOW: Cell<Option<u64>> = const { Cell::new(None) };
-    static SPLIT_ORIGINS: RefCell<HashMap<u64, Option<u64>>> = RefCell::new(HashMap::new());
     static DESKTOP_SHOWN_BY_DRAG: Cell<bool> = const { Cell::new(false) };
-    static FOCUS_MODE: RefCell<HashMap<u64, (Option<u64>, bool)>> = RefCell::new(HashMap::new());
     static FOCUS_SHARED: RefCell<std::collections::HashSet<u64>> =
         RefCell::new(std::collections::HashSet::new());
+}
+
+#[derive(Debug, Clone)]
+struct SnapRecord {
+    origin_ws: Option<u64>,
+    was_floating: bool,
+    focus_mode: bool,
+    width: i32,
+    height: i32,
+    x: Option<f64>,
+    y: Option<f64>,
+    col: Option<usize>,
+}
+
+impl SnapRecord {
+    fn capture(w: &niri_ipc::Window, focus_mode: bool) -> Self {
+        SnapRecord {
+            origin_ws: w.workspace_id,
+            was_floating: w.is_floating,
+            focus_mode,
+            width: w.layout.window_size.0,
+            height: w.layout.window_size.1,
+            x: w.layout.tile_pos_in_workspace_view.map(|p| p.0),
+            y: w.layout.tile_pos_in_workspace_view.map(|p| p.1),
+            col: w.layout.pos_in_scrolling_layout.map(|p| p.0),
+        }
+    }
+
+    fn to_json(&self) -> Value {
+        serde_json::json!({
+            "origin_ws": self.origin_ws,
+            "was_floating": self.was_floating,
+            "focus_mode": self.focus_mode,
+            "width": self.width,
+            "height": self.height,
+            "x": self.x,
+            "y": self.y,
+            "col": self.col,
+        })
+    }
+
+    fn from_json(v: &Value) -> Option<Self> {
+        Some(SnapRecord {
+            origin_ws: v.get("origin_ws").and_then(|x| x.as_u64()),
+            was_floating: v.get("was_floating")?.as_bool()?,
+            focus_mode: v.get("focus_mode").and_then(|x| x.as_bool()).unwrap_or(false),
+            width: v.get("width").and_then(|x| x.as_i64()).unwrap_or(0) as i32,
+            height: v.get("height").and_then(|x| x.as_i64()).unwrap_or(0) as i32,
+            x: v.get("x").and_then(|x| x.as_f64()),
+            y: v.get("y").and_then(|x| x.as_f64()),
+            col: v.get("col").and_then(|x| x.as_u64()).map(|c| c as usize),
+        })
+    }
+}
+
+fn snap_file() -> std::path::PathBuf {
+    let dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
+    std::path::PathBuf::from(dir).join("capsule-snap.json")
+}
+
+fn snap_load() -> HashMap<u64, SnapRecord> {
+    let Ok(text) = std::fs::read_to_string(snap_file()) else {
+        return HashMap::new();
+    };
+    let Ok(Value::Object(obj)) = serde_json::from_str::<Value>(&text) else {
+        return HashMap::new();
+    };
+    obj.iter()
+        .filter_map(|(k, v)| Some((k.parse::<u64>().ok()?, SnapRecord::from_json(v)?)))
+        .collect()
+}
+
+fn snap_save(map: &HashMap<u64, SnapRecord>) {
+    let obj: serde_json::Map<String, Value> = map
+        .iter()
+        .map(|(id, r)| (id.to_string(), r.to_json()))
+        .collect();
+    let path = snap_file();
+    let tmp = path.with_extension("json.tmp");
+    if std::fs::write(&tmp, Value::Object(obj).to_string()).is_ok() {
+        let _ = std::fs::rename(&tmp, &path);
+    }
+}
+
+fn snap_get(id: u64) -> Option<SnapRecord> {
+    snap_load().remove(&id)
+}
+
+fn snap_is_focus_mode(id: u64) -> bool {
+    snap_get(id).map(|r| r.focus_mode).unwrap_or(false)
+}
+
+fn snap_put(id: u64, rec: SnapRecord, overwrite: bool) {
+    let mut map = snap_load();
+    if overwrite || !map.contains_key(&id) {
+        map.insert(id, rec);
+        snap_save(&map);
+    }
+}
+
+fn snap_take(id: u64) -> Option<SnapRecord> {
+    let mut map = snap_load();
+    let rec = map.remove(&id);
+    if rec.is_some() {
+        snap_save(&map);
+    }
+    rec
+}
+
+fn snap_take_split(id: u64) -> Option<SnapRecord> {
+    let mut map = snap_load();
+    if map.get(&id).map(|r| !r.focus_mode).unwrap_or(false) {
+        let rec = map.remove(&id);
+        snap_save(&map);
+        rec
+    } else {
+        None
+    }
+}
+
+fn snap_prune(live: &[u64]) {
+    let mut map = snap_load();
+    let before = map.len();
+    map.retain(|id, _| live.contains(id));
+    if map.len() != before {
+        snap_save(&map);
+    }
+}
+
+fn snap_focus_ids() -> Vec<u64> {
+    snap_load()
+        .into_iter()
+        .filter(|(_, r)| r.focus_mode)
+        .map(|(id, _)| id)
+        .collect()
 }
 
 fn toggle_show_desktop() {
@@ -211,7 +344,7 @@ fn tile_pair_in_new_workspace(target: u64, dragged: u64) {
     };
 
     let is_tiled = |w: &niri_ipc::Window| {
-        FOCUS_MODE.with(|m| m.borrow().contains_key(&w.id))
+        snap_is_focus_mode(w.id)
             || (!w.is_floating
                 && windows
                     .iter()
@@ -230,11 +363,7 @@ fn tile_pair_in_new_workspace(target: u64, dragged: u64) {
             .and_then(|id| workspaces.iter().find(|ws| ws.id == id));
         if let Some(ws) = anchor_ws {
             if mover.workspace_id != anchor.workspace_id {
-                SPLIT_ORIGINS.with(|m| {
-                    m.borrow_mut()
-                        .entry(mover.id)
-                        .or_insert(mover.workspace_id);
-                });
+                snap_put(mover.id, SnapRecord::capture(mover, false), false);
                 send_action_checked(
                     "focus-workspace",
                     Action::FocusWorkspace {
@@ -248,7 +377,7 @@ fn tile_pair_in_new_workspace(target: u64, dragged: u64) {
             } else if mover.is_floating {
                 send_action(Action::MoveWindowToTiling { id: Some(mover.id) });
             }
-            if FOCUS_MODE.with(|m| m.borrow().contains_key(&anchor.id)) {
+            if snap_is_focus_mode(anchor.id) {
                 send_action_checked(
                     "set-window-width",
                     Action::SetWindowWidth {
@@ -264,7 +393,7 @@ fn tile_pair_in_new_workspace(target: u64, dragged: u64) {
                     change: SizeChange::SetProportion(50.0),
                 },
             );
-            if FOCUS_MODE.with(|m| m.borrow().contains_key(&anchor.id)) {
+            if snap_is_focus_mode(anchor.id) {
                 FOCUS_SHARED.with(|f| f.borrow_mut().insert(anchor.id));
             }
             send_action(Action::FocusWindow { id: mover.id });
@@ -292,11 +421,8 @@ fn tile_pair_in_new_workspace(target: u64, dragged: u64) {
         target, dragged, new_ws, new_ws_idx
     );
 
-    SPLIT_ORIGINS.with(|m| {
-        let mut m = m.borrow_mut();
-        m.entry(wt.id).or_insert(wt.workspace_id);
-        m.entry(wd.id).or_insert(wd.workspace_id);
-    });
+    snap_put(wt.id, SnapRecord::capture(wt, false), false);
+    snap_put(wd.id, SnapRecord::capture(wd, false), false);
 
     send_action_checked(
         "focus-workspace",
@@ -341,8 +467,7 @@ fn restore_split(id: u64) {
 
     let mut focus_ws: Option<u64> = None;
     for w in windows.iter().filter(|w| w.workspace_id == Some(current_ws)) {
-        let origin = SPLIT_ORIGINS.with(|m| m.borrow_mut().remove(&w.id));
-        let Some(Some(origin_ws)) = origin else {
+        let Some(origin_ws) = snap_take_split(w.id).and_then(|r| r.origin_ws) else {
             continue;
         };
         if !workspaces.iter().any(|ws| ws.id == origin_ws) {
@@ -919,9 +1044,6 @@ fn show_tray_menu(
     popover.append(&menu_box);
     popover.set_valign(gtk4::Align::Start);
     popover.set_visible(true);
-
-    // Keep the icon visible and place the menu directly to its right,
-    // inside the tray row.
     match anchor.parent().and_then(|p| p.downcast::<GtkBox>().ok()) {
         Some(tray_box) => tray_box.insert_child_after(&popover, Some(anchor)),
         None => layer.container.append(&popover),
@@ -1201,7 +1323,7 @@ fn is_window_tiled(id: u64) -> bool {
     let Some(me) = windows.iter().find(|w| w.id == id) else {
         return false;
     };
-    if FOCUS_MODE.with(|m| m.borrow().contains_key(&id)) {
+    if snap_is_focus_mode(id) {
         return true;
     }
     if me.is_floating {
@@ -1228,6 +1350,26 @@ fn snap_to_focus_mode(id: u64) {
     let Some(win) = windows.iter().find(|w| w.id == id) else {
         return;
     };
+
+    let alone = !windows
+        .iter()
+        .any(|o| o.id != id && o.workspace_id == win.workspace_id);
+    if alone {
+        snap_put(id, SnapRecord::capture(win, true), true);
+        if win.is_floating {
+            send_action(Action::MoveWindowToTiling { id: Some(id) });
+        }
+        send_action_checked(
+            "set-window-width",
+            Action::SetWindowWidth {
+                id: Some(id),
+                change: SizeChange::SetProportion(100.0),
+            },
+        );
+        send_action(Action::FocusWindow { id });
+        return;
+    }
+
     let Some(cur_ws) = win
         .workspace_id
         .and_then(|wid| workspaces.iter().find(|ws| ws.id == wid))
@@ -1243,10 +1385,7 @@ fn snap_to_focus_mode(id: u64) {
         return;
     };
 
-    FOCUS_MODE.with(|m| {
-        m.borrow_mut()
-            .insert(id, (win.workspace_id, win.is_floating));
-    });
+    snap_put(id, SnapRecord::capture(win, true), true);
 
     send_action_checked(
         "focus-workspace",
@@ -1287,7 +1426,7 @@ fn is_alone_on_workspace_live(id: u64) -> bool {
 fn restore_focus_widths(windows: &[NiriWindow]) {
     let shared: Vec<u64> = FOCUS_SHARED.with(|f| f.borrow().iter().copied().collect());
     for id in shared {
-        if !FOCUS_MODE.with(|m| m.borrow().contains_key(&id)) {
+        if !snap_is_focus_mode(id) {
             FOCUS_SHARED.with(|f| f.borrow_mut().remove(&id));
             continue;
         }
@@ -1311,63 +1450,181 @@ fn restore_focus_widths(windows: &[NiriWindow]) {
     }
 }
 
-fn restore_from_focus_mode(id: u64) -> bool {
-    let Some((origin_ws, was_floating)) = FOCUS_MODE.with(|m| m.borrow_mut().remove(&id)) else {
-        return false;
-    };
-    FOCUS_SHARED.with(|f| f.borrow_mut().remove(&id));
+fn restore_snapped(id: u64, rec: &SnapRecord) {
+    let me = Socket::connect().ok().and_then(|mut sock| {
+        match sock.send(Request::Windows) {
+            Ok(Ok(Response::Windows(ws))) => ws.into_iter().find(|w| w.id == id),
+            _ => None,
+        }
+    });
 
-    if let Some(origin_ws) = origin_ws {
-        if let Ok(mut sock) = Socket::connect() {
-            if let Ok(Ok(Response::Workspaces(workspaces))) = sock.send(Request::Workspaces) {
-                if let Some(ws) = workspaces.iter().find(|w| w.id == origin_ws) {
-                    move_window_to_ws(id, ws.id, ws.idx);
-                    send_action_checked(
-                        "focus-workspace",
-                        Action::FocusWorkspace {
-                            reference: WorkspaceReferenceArg::Index(ws.idx),
-                        },
-                    );
-                } else {
-                    eprintln!("[altdock] original workspace {origin_ws} no longer exists");
+    if let Some(origin_ws) = rec.origin_ws {
+        let already_there = me.as_ref().and_then(|w| w.workspace_id) == Some(origin_ws);
+        if !already_there {
+            if let Ok(mut sock) = Socket::connect() {
+                if let Ok(Ok(Response::Workspaces(workspaces))) = sock.send(Request::Workspaces) {
+                    if let Some(ws) = workspaces.iter().find(|w| w.id == origin_ws) {
+                        move_window_to_ws(id, ws.id, ws.idx);
+                        if rec.focus_mode {
+                            send_action_checked(
+                                "focus-workspace",
+                                Action::FocusWorkspace {
+                                    reference: WorkspaceReferenceArg::Index(ws.idx),
+                                },
+                            );
+                        }
+                    } else {
+                        eprintln!("[altdock] original workspace {origin_ws} no longer exists");
+                    }
                 }
             }
         }
     }
 
-    if was_floating {
+    if rec.was_floating {
         send_action_checked(
             "move-window-to-floating",
             Action::MoveWindowToFloating { id: Some(id) },
         );
+        std::thread::sleep(Duration::from_millis(50));
+        if rec.width > 0 {
+            send_action_checked(
+                "set-window-width",
+                Action::SetWindowWidth {
+                    id: Some(id),
+                    change: SizeChange::SetFixed(rec.width),
+                },
+            );
+        }
+        if rec.height > 0 {
+            send_action_checked(
+                "set-window-height",
+                Action::SetWindowHeight {
+                    id: Some(id),
+                    change: SizeChange::SetFixed(rec.height),
+                },
+            );
+        }
+        if let (Some(x), Some(y)) = (rec.x, rec.y) {
+            send_action_checked(
+                "move-floating-window",
+                Action::MoveFloatingWindow {
+                    id: Some(id),
+                    x: PositionChange::SetFixed(x),
+                    y: PositionChange::SetFixed(y),
+                },
+            );
+        }
+    } else {
+        if rec.width > 0 {
+            send_action_checked(
+                "set-window-width",
+                Action::SetWindowWidth {
+                    id: Some(id),
+                    change: SizeChange::SetFixed(rec.width),
+                },
+            );
+        }
+        if let Some(col) = rec.col {
+            send_action(Action::FocusWindow { id });
+            send_action_checked(
+                "move-column-to-index",
+                Action::MoveColumnToIndex { index: col },
+            );
+        }
     }
     send_action(Action::FocusWindow { id });
-    true
 }
 
 fn remove_from_tiling(id: u64) {
-    if restore_from_focus_mode(id) {
+    if let Some(rec) = snap_take(id) {
+        FOCUS_SHARED.with(|f| f.borrow_mut().remove(&id));
+        restore_snapped(id, &rec);
         return;
     }
-    let origin = SPLIT_ORIGINS.with(|m| m.borrow_mut().remove(&id));
-
-    if let Some(Some(origin_ws)) = origin {
-        if let Ok(mut sock) = Socket::connect() {
-            if let Ok(Ok(Response::Workspaces(workspaces))) = sock.send(Request::Workspaces) {
-                if let Some(ws) = workspaces.iter().find(|w| w.id == origin_ws) {
-                    move_window_to_ws(id, ws.id, ws.idx);
-                } else {
-                    eprintln!("[altdock] original workspace {origin_ws} no longer exists");
-                }
-            }
-        }
-    }
-
     send_action_checked(
         "move-window-to-floating",
         Action::MoveWindowToFloating { id: Some(id) },
     );
     send_action(Action::FocusWindow { id });
+}
+
+fn cli_snapped_windows() -> Option<Vec<(niri_ipc::Window, &'static str)>> {
+    let mut sock = Socket::connect().ok()?;
+    let windows = match sock.send(Request::Windows) {
+        Ok(Ok(Response::Windows(w))) => w,
+        _ => return None,
+    };
+    let live: Vec<u64> = windows.iter().map(|w| w.id).collect();
+    snap_prune(&live);
+    let records = snap_load();
+
+    let mut out = Vec::new();
+    for w in &windows {
+        let kind = match records.get(&w.id) {
+            Some(r) if r.focus_mode => "focus",
+            Some(_) => "split",
+            None => {
+                let has_sibling = !w.is_floating
+                    && windows
+                        .iter()
+                        .any(|o| o.id != w.id && !o.is_floating && o.workspace_id == w.workspace_id);
+                if has_sibling { "tiled" } else { continue }
+            }
+        };
+        out.push((w.clone(), kind));
+    }
+    Some(out)
+}
+
+pub fn cli_list_snapped() -> i32 {
+    let Some(list) = cli_snapped_windows() else {
+        eprintln!("capsule: could not talk to niri");
+        return 1;
+    };
+    for (w, kind) in list {
+        println!(
+            "{}\t{}\t{}\t{}",
+            w.id,
+            w.app_id.as_deref().unwrap_or("-"),
+            kind,
+            w.title.as_deref().unwrap_or("")
+        );
+    }
+    0
+}
+
+pub fn cli_unsnap(name: &str) -> i32 {
+    let Some(list) = cli_snapped_windows() else {
+        eprintln!("capsule: could not talk to niri");
+        return 1;
+    };
+    let needle = name.to_lowercase();
+    let app = |w: &niri_ipc::Window| w.app_id.clone().unwrap_or_default().to_lowercase();
+    let title = |w: &niri_ipc::Window| w.title.clone().unwrap_or_default().to_lowercase();
+
+    let mut matches: Vec<&niri_ipc::Window> =
+        list.iter().map(|(w, _)| w).filter(|w| app(w) == needle).collect();
+    if matches.is_empty() {
+        matches = list
+            .iter()
+            .map(|(w, _)| w)
+            .filter(|w| app(w).contains(&needle) || title(w).contains(&needle))
+            .collect();
+    }
+    if matches.is_empty() {
+        eprintln!("capsule: no snapped app matching '{name}'");
+        return 1;
+    }
+    for w in matches {
+        println!(
+            "unsnapping {} ({})",
+            w.app_id.as_deref().unwrap_or("-"),
+            w.id
+        );
+        remove_from_tiling(w.id);
+    }
+    0
 }
 
 fn make_menu_item(label: &str, enabled: bool, on_click: impl Fn() + 'static) -> Button {
@@ -1499,11 +1756,35 @@ fn make_dock_btn(win: &NiriWindow) -> Button {
     let click_prev_handler = prev_preview_handler.clone();
     let click_hover_ctrl = hover_ctrl.clone();
     let click_pending = pending.clone();
-    btn.connect_clicked(move |_| {
+    let last_click: Rc<Cell<Option<std::time::Instant>>> = Rc::new(Cell::new(None));
+    btn.connect_clicked(move |b| {
         click_pending.set(false);
         if let Some(handler_id) = click_prev_handler.borrow_mut().take() {
             click_hover_ctrl.disconnect(handler_id);
         }
+
+        // Double-click: toggle Snap to Focus Mode / Remove from Snap.
+        let dbl_ms = b
+            .settings()
+            .gtk_double_click_time()
+            .max(200) as u128;
+        let now = std::time::Instant::now();
+        let is_double = last_click
+            .get()
+            .map(|t| now.duration_since(t).as_millis() <= dbl_ms)
+            .unwrap_or(false);
+        if is_double {
+            last_click.set(None);
+            glib::idle_add_local_once(move || {
+                if is_window_tiled(id) {
+                    remove_from_tiling(id);
+                } else {
+                    snap_to_focus_mode(id);
+                }
+            });
+            return;
+        }
+        last_click.set(Some(now));
 
         focus_window_animated(id);
     });
@@ -1627,9 +1908,10 @@ fn tiled_window_ids(windows: &[NiriWindow]) -> Vec<u64> {
         .collect();
 
     if !windows.is_empty() {
-        FOCUS_MODE.with(|f| f.borrow_mut().retain(|id, _| windows.iter().any(|w| w.id == *id)));
+        let live: Vec<u64> = windows.iter().map(|w| w.id).collect();
+        snap_prune(&live);
     }
-    let focus_ids: Vec<u64> = FOCUS_MODE.with(|f| f.borrow().keys().copied().collect());
+    let focus_ids: Vec<u64> = snap_focus_ids();
     if !windows.is_empty() {
         restore_focus_widths(windows);
     }

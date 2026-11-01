@@ -1,6 +1,6 @@
 [package]
 name = "capsule"
-version = "1.5.50"
+version = "1.5.51"
 edition = "2024"
 authors = ["ekahPruthvi <ekahpdp@gmail.com>"]
 description = "cynageos shell"
