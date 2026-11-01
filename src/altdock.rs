@@ -105,8 +105,25 @@ fn get_niri_windows_map() -> HashMap<u64, NiriWindow> {
     map
 }
 
+fn is_minimized(id: u64) -> bool {
+    Command::new("cos-ssd")
+        .arg("-C")
+        .output()
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout).lines().any(|l| {
+                l.split_whitespace()
+                    .next()
+                    .and_then(|s| s.parse::<u64>().ok())
+                    == Some(id)
+            })
+        })
+        .unwrap_or(false)
+}
+
 fn focus_window(id: u64) {
-    
+    if is_minimized(id) {
+        let _ = Command::new("cos-ssd").args(["-m", &id.to_string()]).status();
+    }
     let _ = Command::new("niri")
         .args(["msg", "action", "focus-window", "--id", &id.to_string()])
         .spawn();
