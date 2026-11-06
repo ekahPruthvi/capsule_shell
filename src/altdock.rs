@@ -4,7 +4,7 @@ use gtk4::{
     Application, ApplicationWindow, Box as GtkBox, Button, DragSource,
     GestureClick, Image, Popover, Separator, prelude::*,
 };
-use gtk4_layer_shell::{Edge, Layer, LayerShell};
+use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::io::BufRead;
@@ -591,7 +591,11 @@ fn nudge_window(id: u64, offset_y: f64, on_done: impl Fn() + 'static) {
 }
 
 fn focus_window_animated(id: u64) {
-    let Some(orig_id) = get_focused_window_id() else {
+    focus_window_animated_from(get_focused_window_id(), id);
+}
+
+fn focus_window_animated_from(orig: Option<u64>, id: u64) {
+    let Some(orig_id) = orig else {
         focus_window(id);
         return;
     };
@@ -1763,7 +1767,6 @@ fn make_dock_btn(win: &NiriWindow) -> Button {
             click_hover_ctrl.disconnect(handler_id);
         }
 
-        // Double-click: toggle Snap to Focus Mode / Remove from Snap.
         let dbl_ms = b
             .settings()
             .gtk_double_click_time()
@@ -1958,6 +1961,165 @@ fn clear_dock_hints(state: &Rc<RefCell<DockState>>) {
     }
 }
 
+thread_local! {
+    static SWITCH_ACTIVE: Cell<bool> = const { Cell::new(false) };
+    static SWITCH_SEL: Cell<Option<u64>> = const { Cell::new(None) };
+    static SWITCH_ORIG: Cell<Option<u64>> = const { Cell::new(None) };
+}
+
+fn switch_active() -> bool {
+    SWITCH_ACTIVE.with(|a| a.get())
+}
+
+fn clear_switch_sel(state: &Rc<RefCell<DockState>>) {
+    if let Ok(st) = state.try_borrow() {
+        for btn in st.buttons.values() {
+            btn.remove_css_class("dockBtnSelected");
+        }
+    }
+}
+
+thread_local! {
+    static FOCUS_HISTORY: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) };
+}
+
+fn record_focus(windows: &[NiriWindow]) {
+    FOCUS_HISTORY.with(|h| {
+        let mut h = h.borrow_mut();
+        h.retain(|id| windows.iter().any(|w| w.id == *id));
+        if let Some(f) = windows.iter().find(|w| w.is_focused) {
+            h.retain(|&id| id != f.id);
+            h.insert(0, f.id);
+        }
+    });
+}
+
+fn switcher_order(dock_order: &[u64], orig: Option<u64>) -> Vec<u64> {
+    let mut out: Vec<u64> = Vec::new();
+    if let Some(o) = orig {
+        if dock_order.contains(&o) {
+            out.push(o);
+        }
+    }
+    FOCUS_HISTORY.with(|h| {
+        for &id in h.borrow().iter() {
+            if dock_order.contains(&id) && !out.contains(&id) {
+                out.push(id);
+            }
+        }
+    });
+    for &id in dock_order {
+        if !out.contains(&id) {
+            out.push(id);
+        }
+    }
+    out
+}
+
+fn switcher_select(state: &Rc<RefCell<DockState>>, step: isize) {
+    let Ok(st) = state.try_borrow() else { return };
+    if st.order.is_empty() {
+        return;
+    }
+    let orig = SWITCH_ORIG.with(|o| o.get());
+    let list = switcher_order(&st.order, orig);
+    let len = list.len() as isize;
+    let cur = match SWITCH_SEL.with(|s| s.get()) {
+        Some(sel) => list.iter().position(|&x| x == sel).map(|i| i as isize),
+        None if orig.is_some() && list.first().copied() == orig => Some(0),
+        None => None,
+    };
+    let next = match cur {
+        Some(i) => (i + step).rem_euclid(len),
+        None if step > 0 => 0,
+        None => len - 1,
+    };
+    let id = list[next as usize];
+    for (bid, btn) in st.buttons.iter() {
+        if *bid == id {
+            btn.add_css_class("dockBtnSelected");
+        } else {
+            btn.remove_css_class("dockBtnSelected");
+        }
+    }
+    SWITCH_SEL.with(|s| s.set(Some(id)));
+}
+
+thread_local! {
+    static DOCK_HOME_MON: RefCell<Option<gdk::Monitor>> = const { RefCell::new(None) };
+}
+
+fn focused_output_name() -> Option<String> {
+    let mut sock = Socket::connect().ok()?;
+    match sock.send(Request::FocusedOutput) {
+        Ok(Ok(Response::FocusedOutput(Some(o)))) => Some(o.name),
+        _ => None,
+    }
+}
+
+fn monitor_by_connector(name: &str) -> Option<gdk::Monitor> {
+    let display = gdk::Display::default()?;
+    let model = display.monitors();
+    (0..model.n_items())
+        .filter_map(|i| model.item(i))
+        .filter_map(|o| o.downcast::<gdk::Monitor>().ok())
+        .find(|m| m.connector().as_deref() == Some(name))
+}
+
+fn move_dock_to_focused_output(win: &ApplicationWindow) {
+    let Some(name) = focused_output_name() else { return };
+    let Some(target) = monitor_by_connector(&name) else { return };
+    let current = LayerShell::monitor(win);
+    if current.as_ref() == Some(&target) {
+        return;
+    }
+    DOCK_HOME_MON.with(|m| {
+        let mut m = m.borrow_mut();
+        if m.is_none() {
+            *m = current;
+        }
+    });
+    win.set_monitor(Some(&target));
+}
+
+fn restore_dock_monitor(win: &ApplicationWindow) {
+    if switch_active() {
+        return;
+    }
+    if let Some(home) = DOCK_HOME_MON.with(|m| m.borrow_mut().take()) {
+        win.set_monitor(Some(&home));
+    }
+}
+
+fn start_focus_watchdog(win: ApplicationWindow, finish: Rc<dyn Fn(bool)>) {
+    let waited = Cell::new(0u32);
+    glib::timeout_add_local(Duration::from_millis(40), move || {
+        if !switch_active() || win.is_active() {
+            return glib::ControlFlow::Break;
+        }
+        waited.set(waited.get() + 1);
+        if waited.get() > 50 {
+            finish(false);
+            return glib::ControlFlow::Break;
+        }
+        glib::ControlFlow::Continue
+    });
+}
+
+fn is_switch_modifier(key: gdk::Key) -> bool {
+    matches!(
+        key,
+        gdk::Key::Alt_L
+            | gdk::Key::Alt_R
+            | gdk::Key::Meta_L
+            | gdk::Key::Meta_R
+            | gdk::Key::Super_L
+            | gdk::Key::Super_R
+            | gdk::Key::Control_L
+            | gdk::Key::Control_R
+    )
+}
+
 fn update_dockbox(
     dockbox: &GtkBox,
     tray_box: &GtkBox,
@@ -2058,6 +2220,7 @@ pub fn spawn_altdock(app: &Application, dockbox: GtkBox) -> ApplicationWindow {
     let tray_menu_layer = TrayMenuLayer::new();
 
     let initial = windows_sorted(&get_niri_windows_map());
+    record_focus(&initial);
     update_dockbox(
         &dockbox_rc,
         &tray_box,
@@ -2084,6 +2247,7 @@ pub fn spawn_altdock(app: &Application, dockbox: GtkBox) -> ApplicationWindow {
             drop(rx);
 
             if let Some(windows) = latest {
+                record_focus(&windows);
                 update_dockbox(
                     &dockbox_rc,
                     &tray_box,
@@ -2126,54 +2290,176 @@ pub fn spawn_altdock(app: &Application, dockbox: GtkBox) -> ApplicationWindow {
     let hover_ctrl = gtk4::EventControllerMotion::new();
     let pending: Rc<Cell<bool>> = Rc::new(Cell::new(false));
 
-    let pending_leavein = Rc::clone(&pending);
-    let pop_leave = dockbox_rc.clone();
-    let win_size_setter = win.clone();
-    let leave_tray_menu_layer = tray_menu_layer.clone();
-    let leave_dock_state = dock_state.clone();
-    hover_ctrl.connect_leave(move |_| {
-        pending_leavein.set(true);
-        let pop = pop_leave.clone();
-        let win = win_size_setter.clone();
-        let pending_hide = Rc::clone(&pending_leavein);
-        let dockbox_clone_anim = dockbox_clone_anim.clone();
-        let tray_menu_layer = leave_tray_menu_layer.clone();
-        let dock_state = leave_dock_state.clone();
-        glib::timeout_add_local(Duration::from_millis(500), move || {
-            if pending_hide.get() {
-                dockbox_clone_anim.remove_css_class("dockcum");
-                dockbox_clone_anim.add_css_class("dockleave");
+    let show_dock: Rc<dyn Fn()> = {
+        let pending = pending.clone();
+        let win = win.clone();
+        let dockbox = dockbox_rc.clone();
+        Rc::new(move || {
+            pending.set(false);
+            win.remove_css_class("dockleave");
+            win.add_css_class("dockcum");
+            dockbox.remove_css_class("dockleave");
+            dockbox.set_visible(true);
+            dockbox.add_css_class("dockcum");
+        })
+    };
 
-                let pop2 = pop.clone();
-                let win2 = win.clone();
-                let pending_hide2 = Rc::clone(&pending_hide);
-                let tray_menu_layer = tray_menu_layer.clone();
-                let dock_state = dock_state.clone();
-                glib::timeout_add_local(Duration::from_millis(300), move || {
-                    if pending_hide2.get() {
-                        clear_dock_hints(&dock_state);
-                        pop2.set_visible(false);
-                        win2.set_visible(false);
-                        win2.set_visible(true);
-                        tray_menu_layer.close();
-                        close_dock_menu();
-                    }
-                    glib::ControlFlow::Break
-                });
-            }
-            glib::ControlFlow::Break
-        });
-    });
+    let hide_dock: Rc<dyn Fn(u64)> = {
+        let pending = pending.clone();
+        let win = win.clone();
+        let dockbox_rc = dockbox_rc.clone();
+        let dockbox_anim = dockbox_clone_anim.clone();
+        let tray_menu_layer = tray_menu_layer.clone();
+        let dock_state = dock_state.clone();
+        Rc::new(move |delay_ms| {
+            pending.set(true);
+            let pop = dockbox_rc.clone();
+            let win = win.clone();
+            let pending_hide = pending.clone();
+            let dockbox_anim = dockbox_anim.clone();
+            let tray_menu_layer = tray_menu_layer.clone();
+            let dock_state = dock_state.clone();
+            glib::timeout_add_local(Duration::from_millis(delay_ms), move || {
+                if switch_active() {
+                    return glib::ControlFlow::Break;
+                }
+                if pending_hide.get() {
+                    dockbox_anim.remove_css_class("dockcum");
+                    dockbox_anim.add_css_class("dockleave");
 
-    let pendingg = Rc::clone(&pending);
-    let pop_enter = win.clone();
-    hover_ctrl.connect_enter(move |_, _, _| {
-        pendingg.set(false);
-        pop_enter.remove_css_class("dockleave");
-        pop_enter.add_css_class("dockcum");
-    });
+                    let pop2 = pop.clone();
+                    let win2 = win.clone();
+                    let pending_hide2 = pending_hide.clone();
+                    let tray_menu_layer = tray_menu_layer.clone();
+                    let dock_state = dock_state.clone();
+                    glib::timeout_add_local(Duration::from_millis(300), move || {
+                        if pending_hide2.get() && !switch_active() {
+                            clear_dock_hints(&dock_state);
+                            pop2.set_visible(false);
+                            win2.set_visible(false);
+                            win2.set_visible(true);
+                            tray_menu_layer.close();
+                            close_dock_menu();
+                        }
+                        glib::ControlFlow::Break
+                    });
+                }
+                glib::ControlFlow::Break
+            });
+        })
+    };
 
+    {
+        let hide_dock = hide_dock.clone();
+        hover_ctrl.connect_leave(move |_| hide_dock(500));
+    }
+    {
+        let show_dock = show_dock.clone();
+        hover_ctrl.connect_enter(move |_, _, _| show_dock());
+    }
     win.add_controller(hover_ctrl);
+
+    let end_switch: Rc<dyn Fn(bool)> = {
+        let win = win.clone();
+        let dock_state = dock_state.clone();
+        let hide_dock = hide_dock.clone();
+        Rc::new(move |commit| {
+            if !SWITCH_ACTIVE.with(|a| a.replace(false)) {
+                return;
+            }
+            let sel = SWITCH_SEL.with(|s| s.take());
+            let orig = SWITCH_ORIG.with(|o| o.take());
+            clear_switch_sel(&dock_state);
+            win.set_keyboard_mode(KeyboardMode::None);
+            if commit {
+                if let Some(id) = sel {
+                    let exists = dock_state
+                        .try_borrow()
+                        .map(|st| st.buttons.contains_key(&id))
+                        .unwrap_or(false);
+                    if exists {
+                        glib::timeout_add_local_once(Duration::from_millis(60), move || {
+                            focus_window_animated_from(orig, id);
+                        });
+                    }
+                }
+            }
+            hide_dock(0);
+            let win = win.clone();
+            glib::timeout_add_local_once(Duration::from_millis(700), move || {
+                restore_dock_monitor(&win);
+            });
+        })
+    };
+
+    let switch_step: Rc<dyn Fn(isize)> = {
+        let win = win.clone();
+        let dock_state = dock_state.clone();
+        let show_dock = show_dock.clone();
+        let end_switch = end_switch.clone();
+        Rc::new(move |step| {
+            if !SWITCH_ACTIVE.with(|a| a.replace(true)) {
+                SWITCH_SEL.with(|s| s.set(None));
+                SWITCH_ORIG.with(|o| o.set(get_focused_window_id()));
+                move_dock_to_focused_output(&win);
+                win.set_keyboard_mode(KeyboardMode::Exclusive);
+                show_dock();
+                start_focus_watchdog(win.clone(), end_switch.clone());
+            }
+            switcher_select(&dock_state, step);
+            if SWITCH_SEL.with(|s| s.get()).is_none() {
+                end_switch(false);
+            }
+        })
+    };
+
+    {
+        let step = switch_step.clone();
+        glib::unix_signal_add_local(libc::SIGUSR2, move || {
+            step(1);
+            glib::ControlFlow::Continue
+        });
+    }
+    {
+        let step = switch_step.clone();
+        glib::unix_signal_add_local(libc::SIGWINCH, move || {
+            step(-1);
+            glib::ControlFlow::Continue
+        });
+    }
+
+    let key_ctrl = gtk4::EventControllerKey::new();
+    key_ctrl.set_propagation_phase(gtk4::PropagationPhase::Capture);
+    {
+        let step = switch_step.clone();
+        let end_switch = end_switch.clone();
+        key_ctrl.connect_key_pressed(move |_, key, _, state| {
+            if !switch_active() {
+                return glib::Propagation::Proceed;
+            }
+            match key {
+                gdk::Key::Tab => {
+                    let back = state.contains(gdk::ModifierType::SHIFT_MASK);
+                    step(if back { -1 } else { 1 });
+                }
+                gdk::Key::ISO_Left_Tab | gdk::Key::Left | gdk::Key::Up => step(-1),
+                gdk::Key::Right | gdk::Key::Down => step(1),
+                gdk::Key::Escape => end_switch(false),
+                gdk::Key::Return | gdk::Key::KP_Enter => end_switch(true),
+                _ => {}
+            }
+            glib::Propagation::Stop
+        });
+    }
+    {
+        let end_switch = end_switch.clone();
+        key_ctrl.connect_key_released(move |_, key, _, _| {
+            if switch_active() && is_switch_modifier(key) {
+                end_switch(true);
+            }
+        });
+    }
+    win.add_controller(key_ctrl);
 
     let drag_motion = gtk4::DropControllerMotion::new();
     drag_motion.connect_leave(|_| {
