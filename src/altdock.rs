@@ -33,6 +33,18 @@ pub struct NiriWindow {
     pub workspace_id: Option<u64>,
     pub is_focused: bool,
     pub is_floating: bool,
+    pub col: Option<usize>,
+    pub tile: Option<usize>,
+}
+
+fn parse_scroll_pos(layout: &Value) -> (Option<usize>, Option<usize>) {
+    let Some(arr) = layout.get("pos_in_scrolling_layout").and_then(|p| p.as_array()) else {
+        return (None, None);
+    };
+    (
+        arr.first().and_then(|v| v.as_u64()).map(|v| v as usize),
+        arr.get(1).and_then(|v| v.as_u64()).map(|v| v as usize),
+    )
 }
 
 fn parse_window(v: &Value) -> Option<NiriWindow> {
@@ -57,6 +69,11 @@ fn parse_window(v: &Value) -> Option<NiriWindow> {
         .and_then(|f| f.as_bool())
         .unwrap_or(false);
 
+    let (col, tile) = v
+        .get("layout")
+        .map(parse_scroll_pos)
+        .unwrap_or((None, None));
+
     Some(NiriWindow {
         id,
         title,
@@ -64,6 +81,8 @@ fn parse_window(v: &Value) -> Option<NiriWindow> {
         workspace_id,
         is_focused,
         is_floating,
+        col,
+        tile,
     })
 }
 
@@ -73,6 +92,17 @@ fn windows_sorted(map: &HashMap<u64, NiriWindow>) -> Vec<NiriWindow> {
         a.workspace_id
             .unwrap_or(0)
             .cmp(&b.workspace_id.unwrap_or(0))
+            .then(a.is_floating.cmp(&b.is_floating))
+            .then(
+                a.col
+                    .unwrap_or(usize::MAX)
+                    .cmp(&b.col.unwrap_or(usize::MAX)),
+            )
+            .then(
+                a.tile
+                    .unwrap_or(usize::MAX)
+                    .cmp(&b.tile.unwrap_or(usize::MAX)),
+            )
             .then(a.id.cmp(&b.id))
     });
     list
@@ -320,6 +350,14 @@ fn toggle_show_desktop() {
     }
 }
 
+fn move_column_to(id: u64, index: usize) {
+    send_action(Action::FocusWindow { id });
+    send_action_checked(
+        "move-column-to-index",
+        Action::MoveColumnToIndex { index },
+    );
+}
+
 fn tile_pair_in_new_workspace(target: u64, dragged: u64) {
     if target == dragged {
         return;
@@ -342,6 +380,18 @@ fn tile_pair_in_new_workspace(target: u64, dragged: u64) {
     ) else {
         return;
     };
+
+    if !wt.is_floating && !wd.is_floating && wt.workspace_id == wd.workspace_id {
+        if let (Some((t_col, _)), Some((d_col, _))) = (
+            wt.layout.pos_in_scrolling_layout,
+            wd.layout.pos_in_scrolling_layout,
+        ) {
+            if t_col != d_col {
+                move_column_to(dragged, t_col);
+            }
+            return;
+        }
+    }
 
     let is_tiled = |w: &niri_ipc::Window| {
         snap_is_focus_mode(w.id)
@@ -683,6 +733,25 @@ pub fn spawn_niri_watcher() -> std::sync::mpsc::Receiver<Vec<NiriWindow>> {
                     if let Some(id) = obj.get("id").and_then(|v| v.as_u64()) {
                         windows.remove(&id);
                         changed = true;
+                    }
+                } else if let Some(obj) = val.get("WindowLayoutsChanged") {
+                    if let Some(changes) = obj.get("changes").and_then(|c| c.as_array()) {
+                        for ch in changes {
+                            let Some(pair) = ch.as_array() else { continue };
+                            let (Some(id), Some(layout)) =
+                                (pair.first().and_then(|v| v.as_u64()), pair.get(1))
+                            else {
+                                continue;
+                            };
+                            if let Some(w) = windows.get_mut(&id) {
+                                let (col, tile) = parse_scroll_pos(layout);
+                                if w.col != col || w.tile != tile {
+                                    w.col = col;
+                                    w.tile = tile;
+                                    changed = true;
+                                }
+                            }
+                        }
                     }
                 } else if let Some(obj) = val.get("WindowFocusChanged") {
                     let focused_id = obj.get("id").and_then(|v| v.as_u64());
@@ -1851,19 +1920,20 @@ fn make_dock_btn(win: &NiriWindow) -> Button {
     });
     btn.add_controller(menu_gesture);
 
-    if let Some(desktop_path) = desktop_for_app_id(&win.app_id) {
+    {
+        let desktop_path = desktop_for_app_id(&win.app_id);
         let drag_source = DragSource::new();
         drag_source.set_actions(gdk::DragAction::COPY);
 
-        let prepare_path = desktop_path.clone();
         drag_source.connect_prepare(move |_src, _x, _y| {
-            let uri = glib::filename_to_uri(&prepare_path, None).ok()?;
-            let payload = format!("{uri}\r\n");
+            let payload = match &desktop_path {
+                Some(path) => format!("{}\r\n", glib::filename_to_uri(path, None).ok()?),
+                None => "\r\n".to_string(),
+            };
             let bytes = glib::Bytes::from_owned(payload.into_bytes());
             Some(gdk::ContentProvider::for_bytes("text/uri-list", &bytes))
         });
 
-        
         let drag_icon = icon.clone();
 
         if let Some(settings) = gtk4::Settings::default() {
