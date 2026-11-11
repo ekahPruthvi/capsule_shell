@@ -11,13 +11,12 @@ use std::rc::Rc;
 use std::process::exit;
 use libc;
 use niri_ipc::{socket::Socket, Action, PositionChange, Request, Response, WorkspaceReferenceArg};
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 
 mod notifications;
 mod osd;
 mod widgets;
 mod ctrl;
-mod altdock;
 mod desktopstat;
 
 use self_update::cargo_crate_version;
@@ -32,7 +31,6 @@ use widgets::{
     kill
 };
 use ctrl::{NetworkHub, NetworkState, spawn_ctrl_capsules};
-use altdock::spawn_altdock;
 use desktopstat::HideBus;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1389,35 +1387,6 @@ fn coping_with(app: &Application) {
 
     let c_tna = GtkBox::new(Orientation::Horizontal, 5);
     
-    let dockbox = GtkBox::builder()
-        .orientation(Orientation::Horizontal)
-        .spacing(10)
-        .halign(gtk4::Align::Center)
-        .valign(gtk4::Align::Start)
-        .visible(false)
-        .build();
-    dockbox.add_css_class("dockBox");
-    let dockbox_anim = dockbox.clone();
-
-    let dockerhover = GtkBox::new(Orientation::Horizontal, 0);
-    dockerhover.set_size_request(200, 5);
-    dockerhover.set_hexpand(true);
-    dockerhover.set_halign(gtk4::Align::Center);
-    dockerhover.append(
-        &Label::builder()
-            .css_classes(["dummytxt"])
-            .label("Dont mess the css gng")
-            .build()
-    );  
-
-    let dock = GtkBox::new(Orientation::Vertical, 5);
-    dock.append(&dockerhover);
-    dock.append(&dockbox_anim);
-
-    let dock_win = spawn_altdock(app, dockbox);
-    dock_win.set_child(Some(&dock));
-    pin_to_monitor(&dock_win, mon);
-
     c_tna.append(&clippy);
     c_tna.append(&time_and_actions);
 
@@ -1429,31 +1398,6 @@ fn coping_with(app: &Application) {
     if has_battery {
         time_capsule.append(&battery);
     }
-
-    let hover_ctrl = gtk4::EventControllerMotion::new();
-    let pending: Rc<Cell<bool>> = Rc::new(Cell::new(false));
-
-    let pending_enter = Rc::clone(&pending);
-    hover_ctrl.connect_enter(move |_, _, _| {
-        pending_enter.set(true);
-        let dockbox_anim = dockbox_anim.clone();
-        let pending_timeout = Rc::clone(&pending_enter);
-        glib::timeout_add_local(Duration::from_millis(300), move || {
-            if pending_timeout.get() {
-                dockbox_anim.remove_css_class("dockleave");
-                dockbox_anim.set_visible(true);
-                dockbox_anim.add_css_class("dockcum");
-            }
-            glib::ControlFlow::Break
-        });
-    });
-    
-    let pending_leave = Rc::clone(&pending);
-    hover_ctrl.connect_leave(move |_| {
-        pending_leave.set(false);
-    });
-
-    dockerhover.add_controller(hover_ctrl);
 
     time_window.set_child(Some(&time_capsule));
 
@@ -1857,23 +1801,11 @@ fn main() {
         exit(run_update());
     } else if args.len() > 1 && (args[1] == "--desktop" || args[1] == "-D") {
         exit(desktopstat::nlq());
-    } else if args.len() > 1 && (args[1] == "--snapped" || args[1] == "-f") {
-        exit(altdock::cli_list_snapped());
-    } else if args.len() > 1 && (args[1] == "--unsnap" || args[1] == "-u") {
-        match args.get(2) {
-            Some(name) => exit(altdock::cli_unsnap(name)),
-            None => {
-                eprintln!("usage: capsule -u <app name>");
-                exit(2);
-            }
-        }
     } else if args.len() > 1 && (args[1] == "--help" || args[1] == "-H") {
         println!("usage: capsule [option]");
         println!("  -V, --version        print version");
         println!("  -U, --update         self-update");
         println!("  -D, --desktop        desktop mode");
-        println!("  -f, --snapped        list snapped (tiled) apps");
-        println!("  -u, --unsnap <app>   unsnap an app, restoring its size and position");
         exit(0);
     }
 
