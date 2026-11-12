@@ -1873,6 +1873,7 @@ pub fn spawn_ctrl_capsules(
         let app_rows = app_rows.clone();
         let app_placeholder = app_placeholder.clone();
 
+        let mut rows_rendered = false;
         glib::timeout_add_local(Duration::from_millis(120), move || {
             let latest = {
                 let rx = device_rx.borrow();
@@ -1883,11 +1884,15 @@ pub fn spawn_ctrl_capsules(
                 latest
             };
 
+            let mut state_changed = false;
             if let Some(state) = latest {
-                *device_cache.borrow_mut() = Some(state);
+                let mut cache = device_cache.borrow_mut();
+                state_changed = cache.as_ref() != Some(&state);
+                *cache = Some(state);
             }
 
-            if *overlay_open.borrow() && *sound_expanded.borrow() {
+            let should_render = *overlay_open.borrow() && *sound_expanded.borrow();
+            if should_render && (state_changed || !rows_rendered) {
                 if let Some((devices, apps)) = device_cache.borrow().as_ref() {
                     update_output_rows(
                         &output_list_rc,
@@ -1897,7 +1902,10 @@ pub fn spawn_ctrl_capsules(
                         devices,
                     );
                     update_app_rows(&apps_list_rc, &app_rows, &app_placeholder, apps);
+                    rows_rendered = true;
                 }
+            } else if !should_render {
+                rows_rendered = false;
             }
 
             glib::ControlFlow::Continue
@@ -1918,6 +1926,7 @@ pub fn spawn_ctrl_capsules(
         let volume_icon_rc = volume_icon_rc.clone();
         let mic_icon_rc = mic_icon_rc.clone();
 
+        let mut last_rendered: Option<SoundState> = None;
         glib::timeout_add_local(Duration::from_millis(120), move || {
             let rx = sound_rx.borrow();
             let mut latest: Option<SoundState> = None;
@@ -1930,33 +1939,40 @@ pub fn spawn_ctrl_capsules(
             }
 
             if *overlay_open.borrow() {
-                if let Some(state) = sound_cache_poll.borrow().as_ref() {
-                    snd_icon_rc.set_from_file(Some(sound_icon(state)));
-                    snd_label_rc.set_label(&format!("{}%", state.volume));
-                    snd_body_rc.set_label(&state.sink);
-                    volume_icon_rc.set_from_file(Some(sound_icon(&state)));
-                    mic_icon_rc.set_from_file(Some(if state.mic_muted {
-                        "/var/lib/cynager/icons/micmute.svg"
-                    } else {
-                        "/var/lib/cynager/icons/micon.svg"
-                    }));
+                let cached = sound_cache_poll.borrow().clone();
+                if let Some(state) = cached {
+                    if last_rendered.as_ref() != Some(&state) {
+                        snd_icon_rc.set_from_file(Some(sound_icon(&state)));
+                        snd_label_rc.set_label(&format!("{}%", state.volume));
+                        snd_body_rc.set_label(&state.sink);
+                        volume_icon_rc.set_from_file(Some(sound_icon(&state)));
+                        mic_icon_rc.set_from_file(Some(if state.mic_muted {
+                            "/var/lib/cynager/icons/micmute.svg"
+                        } else {
+                            "/var/lib/cynager/icons/micon.svg"
+                        }));
 
-                    let want_active = !state.muted;
-                    if mute_toggle_rc.is_active() != want_active {
-                        mute_toggle_rc.block_signal(&mute_toggle_handler);
-                        mute_toggle_rc.set_active(want_active);
-                        mute_toggle_rc.set_state(want_active);
-                        mute_toggle_rc.unblock_signal(&mute_toggle_handler);
-                    }
+                        let want_active = !state.muted;
+                        if mute_toggle_rc.is_active() != want_active {
+                            mute_toggle_rc.block_signal(&mute_toggle_handler);
+                            mute_toggle_rc.set_active(want_active);
+                            mute_toggle_rc.set_state(want_active);
+                            mute_toggle_rc.unblock_signal(&mute_toggle_handler);
+                        }
 
-                    let mic_want_active = !state.mic_muted;
-                    if mic_toggle_rc.is_active() != mic_want_active {
-                        mic_toggle_rc.block_signal(&mic_toggle_handler);
-                        mic_toggle_rc.set_active(mic_want_active);
-                        mic_toggle_rc.set_state(mic_want_active);
-                        mic_toggle_rc.unblock_signal(&mic_toggle_handler);
+                        let mic_want_active = !state.mic_muted;
+                        if mic_toggle_rc.is_active() != mic_want_active {
+                            mic_toggle_rc.block_signal(&mic_toggle_handler);
+                            mic_toggle_rc.set_active(mic_want_active);
+                            mic_toggle_rc.set_state(mic_want_active);
+                            mic_toggle_rc.unblock_signal(&mic_toggle_handler);
+                        }
+
+                        last_rendered = Some(state);
                     }
                 }
+            } else {
+                last_rendered = None;
             }
             glib::ControlFlow::Continue
         });

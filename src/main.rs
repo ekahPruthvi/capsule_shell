@@ -230,26 +230,30 @@ fn animate_float_window(
     to_x:    f64, to_y:    f64,
     on_done: impl Fn() + 'static,
 ) {
-    const STEPS: u32 = 12;
-    const TICK_MS: u64 = 16; // ~60 fps
-    let step = Rc::new(RefCell::new(0u32));
+    
+    const STEPS: u32 = 18;
+    const TICK_MS: u64 = 16;
+    let mut step = 0u32;
+
     glib::timeout_add_local(Duration::from_millis(TICK_MS), move || {
-        let s = *step.borrow();
-        if s >= STEPS {
-            on_done();
-            return glib::ControlFlow::Break;
-        }
-        let progress = s as f64 / STEPS as f64;
-        let t = 1.0 - (1.0 - progress).powi(3);
-        let x = from_x + (to_x - from_x) * t;
-        let y = from_y + (to_y - from_y) * t;
+        step += 1;
+        let progress = (step as f64 / STEPS as f64).min(1.0);
+        let eased = progress * progress * (3.0 - 2.0 * progress);
+        let x = from_x + (to_x - from_x) * eased;
+        let y = from_y + (to_y - from_y) * eased;
+
         send_action(Action::MoveFloatingWindow {
             id: Some(win_id),
-            x:  PositionChange::SetFixed(x),
-            y:  PositionChange::SetFixed(y),
+            x: PositionChange::SetFixed(x),
+            y: PositionChange::SetFixed(y),
         });
-        *step.borrow_mut() += 1;
-        glib::ControlFlow::Continue
+
+        if step >= STEPS {
+            on_done();
+            glib::ControlFlow::Break
+        } else {
+            glib::ControlFlow::Continue
+        }
     });
 }
 
