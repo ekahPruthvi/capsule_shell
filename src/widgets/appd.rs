@@ -123,18 +123,15 @@ fn build_app_grid(grid: &Grid, apps: Vec<Applications>) {
         item.set_child(Some(&icon));
 
         let popover = gtk4::Popover::new();
-        popover.set_css_classes(&["appdMenu"]);
         popover.set_position(gtk4::PositionType::Right);
         popover.set_parent(&item);
         
         popover.set_has_arrow(false);
         popover.set_autohide(true);
 
-        let popover_box = GtkBox::new(Orientation::Vertical, 0);
         let remove_btn = Button::with_label("Remove from Desktop");
         remove_btn.set_css_classes(&["appdBtn"]);
-        popover_box.append(&remove_btn);
-        popover.set_child(Some(&popover_box));
+        popover.set_child(Some(&remove_btn));
 
         {
             let app_path = app.path.clone();

@@ -26,7 +26,7 @@ totalContributions weeks { contributionDays { contributionCount contributionLeve
 
 #[derive(Clone, Debug)]
 struct Day {
-    count: u32,
+    _count: u32,
     level: u8,
 }
 
@@ -111,7 +111,7 @@ fn parse_response(v: &serde_json::Value) -> Result<GitState, String> {
                 .map(|days| {
                     days.iter()
                         .map(|d| Day {
-                            count: d["contributionCount"].as_u64().unwrap_or(0) as u32,
+                            _count: d["contributionCount"].as_u64().unwrap_or(0) as u32,
                             level: level_from(d["contributionLevel"].as_str().unwrap_or("NONE")),
                         })
                         .collect()
@@ -213,7 +213,7 @@ fn make_heatmap(state: Rc<RefCell<GitState>>) -> DrawingArea {
                 weeks.iter().skip(skip).cloned().collect()
             }
             _ => (0..WEEKS_SHOWN)
-                .map(|_| (0..7).map(|_| Day { count: 0, level: 0 }).collect())
+                .map(|_| (0..7).map(|_| Day { _count: 0, level: 0 }).collect())
                 .collect(),
         };
 
