@@ -214,6 +214,28 @@ fn parse_pactl_volume_pct(line: &str) -> u32 {
     0
 }
 
+#[derive(Default)]
+struct SinkAcc {
+    name:  String,
+    desc:  String,
+    vol:   u32,
+    muted: bool,
+}
+
+fn finish_sink(acc: SinkAcc, default_sink: &str, devices: &mut Vec<OutputDevice>) {
+    if acc.name.is_empty() {
+        return;
+    }
+    let label = if acc.desc.is_empty() { acc.name.clone() } else { acc.desc };
+    devices.push(OutputDevice {
+        is_default: acc.name == default_sink,
+        id: acc.name,
+        label,
+        volume: acc.vol,
+        muted: acc.muted,
+    });
+}
+
 fn get_output_devices() -> Vec<OutputDevice> {
     let default_sink = std::process::Command::new("pactl")
         .args(["get-default-sink"])
@@ -229,51 +251,62 @@ fn get_output_devices() -> Vec<OutputDevice> {
     let text = String::from_utf8_lossy(&out.stdout).to_string();
 
     let mut devices = Vec::new();
-    let mut name  = String::new();
-    let mut desc  = String::new();
-    let mut vol: u32 = 0;
-    let mut muted = false;
-    let mut in_block = false;
-
-    macro_rules! flush {
-        () => {
-            if !name.is_empty() {
-                let label = if desc.is_empty() { name.clone() } else { desc.clone() };
-                devices.push(OutputDevice {
-                    is_default: name == default_sink,
-                    id: name.clone(),
-                    label,
-                    volume: vol,
-                    muted,
-                });
-            }
-            name.clear();
-            desc.clear();
-            vol = 0;
-            muted = false;
-        };
-    }
+    let mut cur: Option<SinkAcc> = None;
 
     for line in text.lines() {
         if line.starts_with("Sink #") {
-            if in_block { flush!(); }
-            in_block = true;
+            if let Some(acc) = cur.take() {
+                finish_sink(acc, &default_sink, &mut devices);
+            }
+            cur = Some(SinkAcc::default());
             continue;
         }
+        let Some(acc) = cur.as_mut() else { continue };
         let t = line.trim();
         if let Some(v) = t.strip_prefix("Name:") {
-            name = v.trim().to_string();
+            acc.name = v.trim().to_string();
         } else if let Some(v) = t.strip_prefix("Description:") {
-            desc = v.trim().to_string();
+            acc.desc = v.trim().to_string();
         } else if t.starts_with("Mute:") {
-            muted = t.contains("yes");
+            acc.muted = t.contains("yes");
         } else if t.starts_with("Volume:") {
-            vol = parse_pactl_volume_pct(t);
+            acc.vol = parse_pactl_volume_pct(t);
         }
     }
-    if in_block { flush!(); }
+    if let Some(acc) = cur.take() {
+        finish_sink(acc, &default_sink, &mut devices);
+    }
 
     devices
+}
+
+#[derive(Default)]
+struct AppAcc {
+    id:         String,
+    vol:        u32,
+    muted:      bool,
+    app_name:   Option<String>,
+    media_name: Option<String>,
+    icon_name:  Option<String>,
+}
+
+fn finish_app(acc: AppAcc, apps: &mut Vec<AppPlayback>) {
+    if acc.id.is_empty() {
+        return;
+    }
+    let label = acc.app_name.clone()
+        .or_else(|| acc.media_name.clone())
+        .unwrap_or_else(|| format!("Stream {}", acc.id));
+    let icon = acc.icon_name.clone()
+        .or_else(|| acc.app_name.as_ref().map(|n| n.to_lowercase().replace(' ', "-")))
+        .unwrap_or_else(|| "audio-x-generic-symbolic".to_string());
+    apps.push(AppPlayback {
+        id: acc.id,
+        label,
+        volume: acc.vol,
+        muted: acc.muted,
+        icon_name: icon,
+    });
 }
 
 fn get_app_playbacks() -> Vec<AppPlayback> {
@@ -284,55 +317,33 @@ fn get_app_playbacks() -> Vec<AppPlayback> {
     let text = String::from_utf8_lossy(&out.stdout).to_string();
 
     let mut apps = Vec::new();
-    let mut id   = String::new();
-    let mut vol: u32 = 0;
-    let mut muted = false;
-    let mut app_name: Option<String>   = None;
-    let mut media_name: Option<String> = None;
-    let mut icon_name: Option<String>  = None;
-    let mut in_block = false;
-
-    macro_rules! flush {
-        () => {
-            if !id.is_empty() {
-                let label = app_name.clone()
-                    .or_else(|| media_name.clone())
-                    .unwrap_or_else(|| format!("Stream {}", id));
-                let icon = icon_name.clone()
-                    .or_else(|| app_name.clone().map(|n| n.to_lowercase().replace(' ', "-")))
-                    .unwrap_or_else(|| "audio-x-generic-symbolic".to_string());
-                apps.push(AppPlayback { id: id.clone(), label, volume: vol, muted, icon_name: icon });
-            }
-            id.clear();
-            vol = 0;
-            muted = false;
-            app_name = None;
-            media_name = None;
-            icon_name = None;
-        };
-    }
+    let mut cur: Option<AppAcc> = None;
 
     for line in text.lines() {
         if let Some(rest) = line.strip_prefix("Sink Input #") {
-            if in_block { flush!(); }
-            in_block = true;
-            id = rest.trim().to_string();
+            if let Some(acc) = cur.take() {
+                finish_app(acc, &mut apps);
+            }
+            cur = Some(AppAcc { id: rest.trim().to_string(), ..Default::default() });
             continue;
         }
+        let Some(acc) = cur.as_mut() else { continue };
         let t = line.trim();
         if t.starts_with("Mute:") {
-            muted = t.contains("yes");
+            acc.muted = t.contains("yes");
         } else if t.starts_with("Volume:") {
-            vol = parse_pactl_volume_pct(t);
+            acc.vol = parse_pactl_volume_pct(t);
         } else if let Some(v) = t.strip_prefix("application.name = ") {
-            app_name = Some(v.trim_matches('"').to_string());
+            acc.app_name = Some(v.trim_matches('"').to_string());
         } else if let Some(v) = t.strip_prefix("media.name = ") {
-            media_name = Some(v.trim_matches('"').to_string());
+            acc.media_name = Some(v.trim_matches('"').to_string());
         } else if let Some(v) = t.strip_prefix("application.icon_name = ") {
-            icon_name = Some(v.trim_matches('"').to_string());
+            acc.icon_name = Some(v.trim_matches('"').to_string());
         }
     }
-    if in_block { flush!(); }
+    if let Some(acc) = cur.take() {
+        finish_app(acc, &mut apps);
+    }
 
     apps
 }
@@ -392,13 +403,11 @@ pub fn spawn_sound_devices_watcher(
     rx
 }
 
-struct SliderRowHandles {
+struct OutputRowHandles {
     row:           gtk4::ListBoxRow,
-    scale:         gtk4::Scale,
-    handler:       glib::SignalHandlerId,
     value_lbl:     Label,
     name_lbl:      Label,
-    last_touch:    Rc<Cell<std::time::Instant>>,
+    volume:        Rc<Cell<u32>>,
     radio:         Option<gtk4::CheckButton>,
     radio_handler: Option<glib::SignalHandlerId>,
 }
@@ -410,27 +419,66 @@ struct RadioConfig {
 }
 
 struct AppTileHandles {
-    child:      gtk4::FlowBoxChild,
-    value_lbl:  Label,
-    name_lbl:   Label,
-    volume:     Rc<Cell<u32>>,
-    last_touch: Rc<Cell<std::time::Instant>>,
+    row:       gtk4::ListBoxRow,
+    value_lbl: Label,
+    name_lbl:  Label,
+    volume:    Rc<Cell<u32>>,
 }
 
-const APP_TILE_SCROLL_STEP: u32 = 5;
+struct SelSliderCtl {
+    root:       GtkBox,
+    scale:      gtk4::Scale,
+    handler:    glib::SignalHandlerId,
+    name_lbl:   Label,
+    value_lbl:  Label,
+    selected:   Rc<RefCell<Option<String>>>,
+    last_touch: Rc<Cell<std::time::Instant>>,
+    empty_text: &'static str,
+}
 
-fn build_sound_row(
+impl SelSliderCtl {
+    fn is_dragging(&self, id: &str) -> bool {
+        self.last_touch.get().elapsed() < SLIDER_TOUCH_GUARD
+            && self.selected.borrow().as_deref() == Some(id)
+    }
+
+    fn select(&self, id: &str, label: &str, volume: u32) {
+        let changed = self.selected.borrow().as_deref() != Some(id);
+        *self.selected.borrow_mut() = Some(id.to_string());
+        if self.name_lbl.label() != label {
+            self.name_lbl.set_label(label);
+        }
+        self.scale.set_sensitive(true);
+        if changed || self.last_touch.get().elapsed() >= SLIDER_TOUCH_GUARD {
+            if changed || self.scale.value().round() as u32 != volume {
+                self.scale.block_signal(&self.handler);
+                self.scale.set_value(volume as f64);
+                self.scale.unblock_signal(&self.handler);
+            }
+            self.value_lbl.set_label(&format!("{}%", volume));
+        }
+    }
+
+    fn clear(&self) {
+        *self.selected.borrow_mut() = None;
+        self.name_lbl.set_label(self.empty_text);
+        self.value_lbl.set_label("");
+        self.scale.block_signal(&self.handler);
+        self.scale.set_value(0.0);
+        self.scale.unblock_signal(&self.handler);
+        self.scale.set_sensitive(false);
+    }
+}
+
+fn build_output_row(
     id:         String,
     label_text: String,
     volume:     u32,
     is_default: bool,
-    on_change:  Rc<dyn Fn(&str, u32)>,
     radio_cfg:  Option<RadioConfig>,
-) -> SliderRowHandles {
-    let root = GtkBox::new(Orientation::Vertical, 4);
-    root.add_css_class("soundListRow");
-
-    let top = GtkBox::new(Orientation::Horizontal, 8);
+) -> OutputRowHandles {
+    let content = GtkBox::new(Orientation::Horizontal, 8);
+    content.add_css_class("appListRow");
 
     let mut radio: Option<gtk4::CheckButton> = None;
     let mut radio_handler: Option<glib::SignalHandlerId> = None;
@@ -460,7 +508,7 @@ fn build_sound_row(
             }
         });
 
-        top.append(&check);
+        content.append(&check);
         radio = Some(check);
         radio_handler = Some(handler_id);
     }
@@ -468,6 +516,8 @@ fn build_sound_row(
     let name_lbl = gtk4::Label::new(Some(&label_text));
     name_lbl.set_hexpand(true);
     name_lbl.set_halign(gtk4::Align::Start);
+    name_lbl.set_xalign(0.0);
+    name_lbl.set_ellipsize(gtk4::pango::EllipsizeMode::End);
     name_lbl.add_css_class("soundListName");
     if is_default {
         name_lbl.add_css_class("soundListDefault");
@@ -476,39 +526,22 @@ fn build_sound_row(
     let value_lbl = gtk4::Label::new(Some(&format!("{}%", volume)));
     value_lbl.add_css_class("soundListValue");
 
-    top.append(&name_lbl);
-    top.append(&value_lbl);
-
-    let adjustment = gtk4::Adjustment::new(volume as f64, 0.0, 100.0, 1.0, 5.0, 0.0);
-    let scale = gtk4::Scale::new(Orientation::Horizontal, Some(&adjustment));
-    scale.set_draw_value(false);
-    scale.set_hexpand(true);
-    scale.add_css_class("soundListSlider");
-
-    let last_touch = Rc::new(Cell::new(
-        std::time::Instant::now() - Duration::from_secs(10),
-    ));
-
-    let id_for_cb     = id.clone();
-    let last_touch_cb = last_touch.clone();
-    let value_lbl_cb  = value_lbl.clone();
-    let handler = scale.connect_value_changed(move |s| {
-        let v = s.value().round() as u32;
-        value_lbl_cb.set_label(&format!("{}%", v));
-        last_touch_cb.set(std::time::Instant::now());
-        on_change(&id_for_cb, v);
-    });
-
-    root.append(&top);
-    top.append(&scale);
+    content.append(&name_lbl);
+    content.append(&value_lbl);
 
     let row = gtk4::ListBoxRow::new();
-    row.set_selectable(false);
-    row.set_activatable(false);
-    row.set_child(Some(&root));
-    row.add_css_class("soundListRowWrap");
+    row.set_widget_name(&id);
+    row.set_child(Some(&content));
+    row.add_css_class("appListRowWrap");
 
-    SliderRowHandles { row, scale, handler, value_lbl, name_lbl, last_touch, radio, radio_handler }
+    OutputRowHandles {
+        row,
+        value_lbl,
+        name_lbl,
+        volume: Rc::new(Cell::new(volume.min(100))),
+        radio,
+        radio_handler,
+    }
 }
 
 fn build_app_row(
@@ -516,80 +549,139 @@ fn build_app_row(
     label_text: String,
     icon_name:  String,
     volume:     u32,
-    on_change:  Rc<dyn Fn(&str, u32)>,
 ) -> AppTileHandles {
-    let tile = GtkBox::new(Orientation::Horizontal, 4);
-    tile.add_css_class("appTile");
-    tile.set_halign(gtk4::Align::Fill);
-    tile.set_hexpand(true);
-    tile.set_vexpand(false);
-    tile.set_valign(gtk4::Align::Start);
-
-    let name_n_val = GtkBox::new(Orientation::Vertical, 6);
-    name_n_val.add_css_class("appTileTop");
-    name_n_val.set_halign(gtk4::Align::End);
-    name_n_val.set_hexpand(true);
+    let content = GtkBox::new(Orientation::Horizontal, 8);
+    content.add_css_class("appListRow");
 
     let icon = Image::from_icon_name(&icon_name);
-    icon.set_pixel_size(28);
+    icon.set_pixel_size(24);
     icon.add_css_class("appTileIcon");
 
-    let value_lbl = gtk4::Label::new(Some(&format!("{}%", volume)));
-    value_lbl.add_css_class("soundApptxt");
-    value_lbl.set_halign(gtk4::Align::End);
-    value_lbl.set_justify(gtk4::Justification::Right);
-
     let name_lbl = gtk4::Label::new(Some(&label_text));
-    name_lbl.add_css_class("soundApptxt");
-    name_lbl.set_halign(gtk4::Align::End);
-    name_lbl.set_justify(gtk4::Justification::Right);
-    name_lbl.set_wrap(true);
-    name_lbl.set_max_width_chars(100);
+    name_lbl.add_css_class("soundListName");
+    name_lbl.set_hexpand(true);
+    name_lbl.set_halign(gtk4::Align::Start);
+    name_lbl.set_xalign(0.0);
+    name_lbl.set_ellipsize(gtk4::pango::EllipsizeMode::End);
 
+    let value_lbl = gtk4::Label::new(Some(&format!("{}%", volume)));
+    value_lbl.add_css_class("soundListValue");
 
-    name_n_val.append(&name_lbl);
-    name_n_val.append(&value_lbl);
+    content.append(&icon);
+    content.append(&name_lbl);
+    content.append(&value_lbl);
 
-    tile.append(&icon);
-    tile.append(&name_n_val);
-    tile.set_tooltip_text(Some("Scroll to change volume"));
+    let row = gtk4::ListBoxRow::new();
+    row.set_widget_name(&id);
+    row.set_child(Some(&content));
+    row.add_css_class("appListRowWrap");
+    row.set_tooltip_text(Some("Select to adjust volume"));
 
-    let child = gtk4::FlowBoxChild::new();
-    child.set_child(Some(&tile));
-    child.set_focusable(false);
-    child.add_css_class("appTileRow");
+    AppTileHandles {
+        row,
+        value_lbl,
+        name_lbl,
+        volume: Rc::new(Cell::new(volume.min(100))),
+    }
+}
 
-    let volume_cell = Rc::new(Cell::new(volume.min(100)));
-    let last_touch  = Rc::new(Cell::new(
+fn build_selection_slider(
+    empty_text: &'static str,
+    on_local:   Rc<dyn Fn(&str, u32)>,
+    on_change:  Rc<dyn Fn(&str, u32)>,
+) -> Rc<SelSliderCtl> {
+    let root = GtkBox::new(Orientation::Vertical, 4);
+    root.add_css_class("appSliderBox");
+    root.set_valign(gtk4::Align::End);
+    root.set_vexpand(false);
+
+    let top = GtkBox::new(Orientation::Horizontal, 8);
+
+    let name_lbl = gtk4::Label::new(Some(empty_text));
+    name_lbl.add_css_class("soundListName");
+    name_lbl.set_hexpand(true);
+    name_lbl.set_halign(gtk4::Align::Start);
+    name_lbl.set_xalign(0.0);
+    name_lbl.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+
+    let value_lbl = gtk4::Label::new(None);
+    value_lbl.add_css_class("soundListValue");
+
+    top.append(&name_lbl);
+    top.append(&value_lbl);
+
+    let adjustment = gtk4::Adjustment::new(0.0, 0.0, 100.0, 1.0, 5.0, 0.0);
+    let scale = gtk4::Scale::new(Orientation::Horizontal, Some(&adjustment));
+    scale.set_draw_value(false);
+    scale.set_hexpand(true);
+    scale.set_sensitive(false);
+    scale.add_css_class("soundListSlider");
+    scale.set_margin_end(20);
+
+    let selected:   Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+    let last_touch = Rc::new(Cell::new(
         std::time::Instant::now() - Duration::from_secs(10),
     ));
 
-    let scroll = EventControllerScroll::new(
-        EventControllerScrollFlags::VERTICAL | EventControllerScrollFlags::DISCRETE,
-    );
+    let handler = {
+        let selected   = selected.clone();
+        let last_touch = last_touch.clone();
+        let value_lbl  = value_lbl.clone();
+        scale.connect_value_changed(move |s| {
+            let v = s.value().round() as u32;
+            value_lbl.set_label(&format!("{}%", v));
+            last_touch.set(std::time::Instant::now());
 
-    let id_for_scroll = id.clone();
-    let volume_cell_for_scroll = volume_cell.clone();
-    let last_touch_for_scroll = last_touch.clone();
-    let value_lbl_for_scroll = value_lbl.clone();
-    scroll.connect_scroll(move |_, _dx, dy| {
-        let cur  = volume_cell_for_scroll.get() as i32;
-        let step = APP_TILE_SCROLL_STEP as i32;
-        let delta = if dy < 0.0 { -step } else { step };
-        let new_vol = (cur + delta).clamp(0, 100) as u32;
+            let Some(id) = selected.borrow().clone() else { return };
+            on_local(&id, v);
+            on_change(&id, v);
+        })
+    };
 
-        if new_vol != cur as u32 {
-            volume_cell_for_scroll.set(new_vol);
-            value_lbl_for_scroll.set_label(&format!("{}%", new_vol));
-            last_touch_for_scroll.set(std::time::Instant::now());
-            on_change(&id_for_scroll, new_vol);
+    root.append(&top);
+    root.append(&scale);
+
+    Rc::new(SelSliderCtl { root, scale, handler, name_lbl, value_lbl, selected, last_touch, empty_text })
+}
+
+fn build_app_slider(rows: Rc<RefCell<HashMap<String, AppTileHandles>>>) -> Rc<SelSliderCtl> {
+    let on_local: Rc<dyn Fn(&str, u32)> = Rc::new(move |id: &str, v: u32| {
+        if let Ok(map) = rows.try_borrow() {
+            if let Some(h) = map.get(id) {
+                h.volume.set(v);
+                h.value_lbl.set_label(&format!("{}%", v));
+            }
         }
-
-        glib::Propagation::Stop
     });
-    child.add_controller(scroll);
+    let on_change: Rc<dyn Fn(&str, u32)> = Rc::new(|id: &str, v: u32| set_app_volume(id, v));
+    build_selection_slider("No app selected", on_local, on_change)
+}
 
-    AppTileHandles { child, value_lbl, name_lbl, volume: volume_cell, last_touch }
+fn build_output_slider(rows: Rc<RefCell<HashMap<String, OutputRowHandles>>>) -> Rc<SelSliderCtl> {
+    let on_local: Rc<dyn Fn(&str, u32)> = Rc::new(move |id: &str, v: u32| {
+        if let Ok(map) = rows.try_borrow() {
+            if let Some(h) = map.get(id) {
+                h.volume.set(v);
+                h.value_lbl.set_label(&format!("{}%", v));
+            }
+        }
+    });
+    let on_change: Rc<dyn Fn(&str, u32)> = Rc::new(|id: &str, v: u32| set_output_volume(id, v));
+    build_selection_slider("No device selected", on_local, on_change)
+}
+
+fn build_sound_page(scroll: &gtk4::ScrolledWindow, slider: &Rc<SelSliderCtl>) -> GtkBox {
+    scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
+    scroll.set_min_content_height(180);
+    scroll.set_propagate_natural_height(false);
+    scroll.set_vexpand(true);
+    scroll.add_css_class("netListScroll");
+
+    let page = GtkBox::new(Orientation::Vertical, 6);
+    page.set_vexpand(true);
+    page.append(scroll);
+    page.append(&slider.root);
+    page
 }
 
 fn ensure_placeholder(
@@ -615,35 +707,14 @@ fn clear_placeholder(list_rc: &Rc<gtk4::ListBox>, placeholder: &Rc<RefCell<Optio
     }
 }
 
-fn ensure_app_placeholder(
-    list_rc:     &Rc<gtk4::FlowBox>,
-    placeholder: &Rc<RefCell<Option<gtk4::FlowBoxChild>>>,
-    text:        &str,
-) {
-    if placeholder.borrow().is_none() {
-        let lbl = gtk4::Label::new(Some(text));
-        lbl.add_css_class("soundListEmpty");
-        let child = gtk4::FlowBoxChild::new();
-        child.set_child(Some(&lbl));
-        child.set_focusable(false);
-        list_rc.insert(&child, -1);
-        *placeholder.borrow_mut() = Some(child);
-    }
-}
-
-fn clear_app_placeholder(list_rc: &Rc<gtk4::FlowBox>, placeholder: &Rc<RefCell<Option<gtk4::FlowBoxChild>>>) {
-    if let Some(child) = placeholder.borrow_mut().take() {
-        list_rc.remove(&child);
-    }
-}
-
 const SLIDER_TOUCH_GUARD: Duration = Duration::from_millis(900);
 
 fn update_output_rows(
     list_rc:      &Rc<gtk4::ListBox>,
-    rows:         &Rc<RefCell<HashMap<String, SliderRowHandles>>>,
+    rows:         &Rc<RefCell<HashMap<String, OutputRowHandles>>>,
     placeholder:  &Rc<RefCell<Option<gtk4::ListBoxRow>>>,
     radio_group:  &Rc<RefCell<Option<gtk4::CheckButton>>>,
+    slider:       &Rc<SelSliderCtl>,
     devices:      &[OutputDevice],
 ) {
     let mut map = rows.borrow_mut();
@@ -654,6 +725,7 @@ fn update_output_rows(
             list_rc.remove(&handle.row);
         }
         *radio_group.borrow_mut() = None;
+        slider.clear();
         return;
     }
     clear_placeholder(list_rc, placeholder);
@@ -662,15 +734,9 @@ fn update_output_rows(
 
     for dev in devices {
         if let Some(handle) = map.get(&dev.id) {
-            let recently_touched = handle.last_touch.get().elapsed() < SLIDER_TOUCH_GUARD;
-            if !recently_touched {
-                let cur = handle.scale.value().round() as u32;
-                if cur != dev.volume {
-                    handle.scale.block_signal(&handle.handler);
-                    handle.scale.set_value(dev.volume as f64);
-                    handle.scale.unblock_signal(&handle.handler);
-                    handle.value_lbl.set_label(&format!("{}%", dev.volume));
-                }
+            if !slider.is_dragging(&dev.id) && handle.volume.get() != dev.volume {
+                handle.volume.set(dev.volume);
+                handle.value_lbl.set_label(&format!("{}%", dev.volume));
             }
             if dev.is_default {
                 handle.name_lbl.add_css_class("soundListDefault");
@@ -688,17 +754,15 @@ fn update_output_rows(
                 }
             }
         } else {
-            let on_change: Rc<dyn Fn(&str, u32)> = Rc::new(|id: &str, v: u32| set_output_volume(id, v));
             let radio_cfg = RadioConfig {
                 group_leader: radio_group.clone(),
                 on_select: Rc::new(|id: &str| set_default_sink(id)),
             };
-            let handle = build_sound_row(
+            let handle = build_output_row(
                 dev.id.clone(),
                 dev.label.clone(),
                 dev.volume,
                 dev.is_default,
-                on_change,
                 Some(radio_cfg),
             );
             list_rc.append(&handle.row);
@@ -712,31 +776,44 @@ fn update_output_rows(
             list_rc.remove(&handle.row);
         }
     }
+
+    let current = slider.selected.borrow().clone();
+    let target = match current {
+        Some(id) if map.contains_key(&id) => id,
+        _ => devices.iter().find(|d| d.is_default).unwrap_or(&devices[0]).id.clone(),
+    };
+    if let Some(h) = map.get(&target) {
+        if list_rc.selected_row().as_ref() != Some(&h.row) {
+            list_rc.select_row(Some(&h.row));
+        }
+        slider.select(&target, &h.name_lbl.label(), h.volume.get());
+    }
 }
 
 fn update_app_rows(
-    list_rc:     &Rc<gtk4::FlowBox>,
+    list_rc:     &Rc<gtk4::ListBox>,
     rows:        &Rc<RefCell<HashMap<String, AppTileHandles>>>,
-    placeholder: &Rc<RefCell<Option<gtk4::FlowBoxChild>>>,
+    placeholder: &Rc<RefCell<Option<gtk4::ListBoxRow>>>,
+    slider:      &Rc<SelSliderCtl>,
     apps:        &[AppPlayback],
 ) {
     let mut map = rows.borrow_mut();
 
     if apps.is_empty() {
-        ensure_app_placeholder(list_rc, placeholder, "No apps are playing audio");
+        ensure_placeholder(list_rc, placeholder, "No apps are playing audio");
         for (_, handle) in map.drain() {
-            list_rc.remove(&handle.child);
+            list_rc.remove(&handle.row);
         }
+        slider.clear();
         return;
     }
-    clear_app_placeholder(list_rc, placeholder);
+    clear_placeholder(list_rc, placeholder);
 
     let seen: std::collections::HashSet<String> = apps.iter().map(|a| a.id.clone()).collect();
 
     for app in apps {
         if let Some(handle) = map.get(&app.id) {
-            let recently_touched = handle.last_touch.get().elapsed() < SLIDER_TOUCH_GUARD;
-            if !recently_touched && handle.volume.get() != app.volume {
+            if !slider.is_dragging(&app.id) && handle.volume.get() != app.volume {
                 handle.volume.set(app.volume);
                 handle.value_lbl.set_label(&format!("{}%", app.volume));
             }
@@ -744,9 +821,8 @@ fn update_app_rows(
                 handle.name_lbl.set_label(&app.label);
             }
         } else {
-            let on_change: Rc<dyn Fn(&str, u32)> = Rc::new(|id: &str, v: u32| set_app_volume(id, v));
-            let handle = build_app_row(app.id.clone(), app.label.clone(), app.icon_name.clone(), app.volume, on_change);
-            list_rc.insert(&handle.child, -1);
+            let handle = build_app_row(app.id.clone(), app.label.clone(), app.icon_name.clone(), app.volume);
+            list_rc.append(&handle.row);
             map.insert(app.id.clone(), handle);
         }
     }
@@ -754,8 +830,20 @@ fn update_app_rows(
     let stale: Vec<String> = map.keys().filter(|k| !seen.contains(*k)).cloned().collect();
     for k in stale {
         if let Some(handle) = map.remove(&k) {
-            list_rc.remove(&handle.child);
+            list_rc.remove(&handle.row);
         }
+    }
+
+    let current = slider.selected.borrow().clone();
+    let target = match current {
+        Some(id) if map.contains_key(&id) => id,
+        _ => apps[0].id.clone(),
+    };
+    if let Some(h) = map.get(&target) {
+        if list_rc.selected_row().as_ref() != Some(&h.row) {
+            list_rc.select_row(Some(&h.row));
+        }
+        slider.select(&target, &h.name_lbl.label(), h.volume.get());
     }
 }
 
@@ -2128,49 +2216,75 @@ pub fn spawn_ctrl_capsules(
     sound_panel_actions.append(&sound_dummy_fill);
     sound_panel_actions.append(&sound_settings_btn);
 
+    let output_rows: Rc<RefCell<HashMap<String, OutputRowHandles>>> = Rc::new(RefCell::new(HashMap::new()));
+    let output_radio_group: Rc<RefCell<Option<gtk4::CheckButton>>> = Rc::new(RefCell::new(None));
+    let output_placeholder: Rc<RefCell<Option<gtk4::ListBoxRow>>> = Rc::new(RefCell::new(None));
+    let output_slider = build_output_slider(output_rows.clone());
+
     let output_list_box = gtk4::ListBox::new();
     output_list_box.add_css_class("ctrlpanelList");
-    output_list_box.set_selection_mode(gtk4::SelectionMode::None);
+    output_list_box.add_css_class("appsList");
+    output_list_box.set_selection_mode(gtk4::SelectionMode::Single);
+    output_list_box.set_activate_on_single_click(true);
     let output_list_rc = Rc::new(output_list_box);
-    let output_scroll = gtk4::ScrolledWindow::new();
-    output_scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
-    output_scroll.set_max_content_height(220);
-    output_scroll.set_propagate_natural_height(true);
-    output_scroll.set_child(Some(&*output_list_rc));
-    output_scroll.add_css_class("netListScroll");
 
-    let apps_list_box = gtk4::FlowBox::new();
+    {
+        let rows   = output_rows.clone();
+        let slider = output_slider.clone();
+        output_list_rc.connect_row_selected(move |_, row| {
+            let Some(row) = row else { return };
+            let id = row.widget_name().to_string();
+            if let Ok(map) = rows.try_borrow() {
+                if let Some(h) = map.get(&id) {
+                    slider.select(&id, &h.name_lbl.label(), h.volume.get());
+                }
+            }
+        });
+    }
+
+    let output_scroll = gtk4::ScrolledWindow::new();
+    output_scroll.set_child(Some(&*output_list_rc));
+    let output_panel = build_sound_page(&output_scroll, &output_slider);
+
+    let app_rows: Rc<RefCell<HashMap<String, AppTileHandles>>> = Rc::new(RefCell::new(HashMap::new()));
+    let app_placeholder: Rc<RefCell<Option<gtk4::ListBoxRow>>> = Rc::new(RefCell::new(None));
+    let app_slider = build_app_slider(app_rows.clone());
+
+    let apps_list_box = gtk4::ListBox::new();
     apps_list_box.add_css_class("ctrlpanelList");
-    apps_list_box.add_css_class("appsGrid");
-    apps_list_box.set_selection_mode(gtk4::SelectionMode::None);
-    apps_list_box.set_homogeneous(true);
-    apps_list_box.set_min_children_per_line(2);
-    apps_list_box.set_max_children_per_line(2);
-    apps_list_box.set_row_spacing(5);
-    apps_list_box.set_column_spacing(8);
+    apps_list_box.add_css_class("appsList");
+    apps_list_box.set_selection_mode(gtk4::SelectionMode::Single);
+    apps_list_box.set_activate_on_single_click(true);
     let apps_list_rc = Rc::new(apps_list_box);
+
+    {
+        let rows   = app_rows.clone();
+        let slider = app_slider.clone();
+        apps_list_rc.connect_row_selected(move |_, row| {
+            let Some(row) = row else { return };
+            let id = row.widget_name().to_string();
+            if let Ok(map) = rows.try_borrow() {
+                if let Some(h) = map.get(&id) {
+                    slider.select(&id, &h.name_lbl.label(), h.volume.get());
+                }
+            }
+        });
+    }
+
     let apps_scroll = gtk4::ScrolledWindow::new();
-    apps_scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
-    apps_scroll.set_max_content_height(220);
-    apps_scroll.set_propagate_natural_height(true);
     apps_scroll.set_child(Some(&*apps_list_rc));
-    apps_scroll.add_css_class("netListScroll");
+    let apps_panel = build_sound_page(&apps_scroll, &app_slider);
 
     let sound_stack = gtk4::Stack::new();
+    sound_stack.set_vexpand(true);
     sound_stack.set_transition_type(gtk4::StackTransitionType::SlideLeftRight);
     sound_stack.set_transition_duration(150);
-    sound_stack.add_titled(&apps_scroll, Some("apps"), "Applications");
-    sound_stack.add_titled(&output_scroll, Some("output"), "Output Devices");
+    sound_stack.add_titled(&apps_panel, Some("apps"), "Applications");
+    sound_stack.add_titled(&output_panel, Some("output"), "Output Devices");
 
     let sound_tabs = gtk4::StackSwitcher::new();
     sound_tabs.set_stack(Some(&sound_stack));
     sound_tabs.add_css_class("soundTabs");
-
-    let output_rows: Rc<RefCell<HashMap<String, SliderRowHandles>>> = Rc::new(RefCell::new(HashMap::new()));
-    let output_radio_group: Rc<RefCell<Option<gtk4::CheckButton>>> = Rc::new(RefCell::new(None));
-    let output_placeholder: Rc<RefCell<Option<gtk4::ListBoxRow>>> = Rc::new(RefCell::new(None));
-    let app_rows: Rc<RefCell<HashMap<String, AppTileHandles>>> = Rc::new(RefCell::new(HashMap::new()));
-    let app_placeholder: Rc<RefCell<Option<gtk4::FlowBoxChild>>> = Rc::new(RefCell::new(None));
 
     let sound_panel = GtkBox::new(Orientation::Vertical, 6);
     sound_panel.add_css_class("ctrlPanel");
@@ -2195,8 +2309,10 @@ pub fn spawn_ctrl_capsules(
         let output_rows = output_rows.clone();
         let output_radio_group = output_radio_group.clone();
         let output_placeholder = output_placeholder.clone();
+        let output_slider = output_slider.clone();
         let app_rows = app_rows.clone();
         let app_placeholder = app_placeholder.clone();
+        let app_slider = app_slider.clone();
 
         let mut rows_rendered = false;
         glib::timeout_add_local(Duration::from_millis(120), move || {
@@ -2224,9 +2340,10 @@ pub fn spawn_ctrl_capsules(
                         &output_rows,
                         &output_placeholder,
                         &output_radio_group,
+                        &output_slider,
                         devices,
                     );
-                    update_app_rows(&apps_list_rc, &app_rows, &app_placeholder, apps);
+                    update_app_rows(&apps_list_rc, &app_rows, &app_placeholder, &app_slider, apps);
                     rows_rendered = true;
                 }
             } else if !should_render {
@@ -2531,8 +2648,10 @@ pub fn spawn_ctrl_capsules(
         let output_rows = output_rows.clone();
         let output_radio_group = output_radio_group.clone();
         let output_placeholder = output_placeholder.clone();
+        let output_slider = output_slider.clone();
         let app_rows = app_rows.clone();
         let app_placeholder = app_placeholder.clone();
+        let app_slider = app_slider.clone();
         let device_cache = device_cache.clone();
 
         soundbtn.connect_clicked(move |_| {
@@ -2548,16 +2667,17 @@ pub fn spawn_ctrl_capsules(
                         &output_rows,
                         &output_placeholder,
                         &output_radio_group,
+                        &output_slider,
                         devices,
                     );
-                    update_app_rows(&apps_list_rc, &app_rows, &app_placeholder, apps);
+                    update_app_rows(&apps_list_rc, &app_rows, &app_placeholder, &app_slider, apps);
                 } else {
                     ensure_placeholder(
                         &output_list_rc,
                         &output_placeholder,
                         "Loading output devices…",
                     );
-                    ensure_app_placeholder(
+                    ensure_placeholder(
                         &apps_list_rc,
                         &app_placeholder,
                         "Loading audio apps…",
