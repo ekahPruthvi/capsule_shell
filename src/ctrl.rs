@@ -4,7 +4,7 @@ use gtk4::{
     Switch,
 };
 use gtk4::glib;
-use gtk4_layer_shell::{Edge, Layer, LayerShell};
+use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use std::{
     time::Duration, 
     cell::RefCell,
@@ -996,12 +996,280 @@ fn get_wifi_networks() -> Vec<(String, String, bool)> {
     return vec![]
 }
 
+fn active_wifi_device() -> Option<String> {
+    let out = std::process::Command::new("nmcli")
+        .args(["-t", "-f", "DEVICE,TYPE,STATE", "dev", "status"])
+        .output()
+        .ok()?;
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .find_map(|line| {
+            let mut parts = line.split(':');
+            let dev   = parts.next()?;
+            let typ   = parts.next()?;
+            let state = parts.next()?;
+            (typ == "wifi" && state == "connected").then(|| dev.to_string())
+        })
+}
+
+#[derive(Clone)]
+struct NetCtx {
+    list:     Rc<gtk4::ListBox>,
+    netbtn:   Button,
+    panel:    Rc<GtkBox>,
+    expanded: Rc<RefCell<bool>>,
+    refresh:  Button,
+}
+
+thread_local! {
+    static PW_DIALOG: RefCell<Option<gtk4::Window>> = RefCell::new(None);
+}
+
+fn nmcli_unescape(field: &str) -> String {
+    field.replace("\\:", ":")
+}
+
+fn is_saved_wifi(ssid: &str) -> bool {
+    let Ok(out) = std::process::Command::new("nmcli")
+        .args(["-t", "-f", "NAME,TYPE", "con", "show"])
+        .output() else { return false };
+    String::from_utf8_lossy(&out.stdout).lines().any(|line| {
+        line.rsplit_once(':')
+            .map(|(name, typ)| typ == "802-11-wireless" && nmcli_unescape(name) == ssid)
+            .unwrap_or(false)
+    })
+}
+
+fn wifi_is_secured(ssid: &str) -> bool {
+    let Ok(out) = std::process::Command::new("nmcli")
+        .args(["-t", "-f", "SSID,SECURITY", "dev", "wifi", "list"])
+        .output() else { return false };
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|line| line.rsplit_once(':'))
+        .find(|(name, _)| nmcli_unescape(name) == ssid)
+        .map(|(_, sec)| {
+            let sec = sec.trim();
+            !sec.is_empty() && sec != "--"
+        })
+        .unwrap_or(false)
+}
+
+fn rescan_after_connect(ctx: &NetCtx) {
+    let scan_rx = spawn_wifi_scan();
+    let ctx = ctx.clone();
+    glib::timeout_add_local(Duration::from_millis(80), move || {
+        match scan_rx.try_recv() {
+            Ok(networks) => {
+                render_network_rows(
+                    &ctx.list, networks, &ctx.netbtn,
+                    &ctx.panel, &ctx.expanded, &ctx.refresh,
+                );
+                ctx.refresh.remove_css_class("spinning");
+                glib::ControlFlow::Break
+            }
+            Err(TryRecvError::Empty) => glib::ControlFlow::Continue,
+            Err(TryRecvError::Disconnected) => {
+                ctx.refresh.remove_css_class("spinning");
+                glib::ControlFlow::Break
+            }
+        }
+    });
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum ConnectResult { Ok, NeedPassword, Failed }
+
+fn connect_wifi_async(ssid: String, password: Option<String>, done: impl Fn(ConnectResult) + 'static) {
+    let (tx, rx) = std::sync::mpsc::channel::<ConnectResult>();
+    std::thread::spawn(move || {
+        if let Some(dev) = active_wifi_device() {
+            let _ = std::process::Command::new("nmcli")
+                .args(["dev", "disconnect", &dev])
+                .status();
+        }
+        if let Some(pw) = &password {
+            let _ = std::process::Command::new("nmcli")
+                .args(["con", "delete", "id", &ssid])
+                .output();
+            let mut cmd = std::process::Command::new("nmcli");
+            cmd.args(["dev", "wifi", "connect", &ssid, "password", pw]);
+            let ok = cmd.output().map(|o| o.status.success()).unwrap_or(false);
+            if !ok {
+                let _ = std::process::Command::new("nmcli")
+                    .args(["con", "delete", "id", &ssid])
+                    .output();
+            }
+            let _ = tx.send(if ok { ConnectResult::Ok } else { ConnectResult::Failed });
+            return;
+        }
+
+        let res = match std::process::Command::new("nmcli")
+            .args(["dev", "wifi", "connect", &ssid])
+            .output()
+        {
+            Ok(o) if o.status.success() => ConnectResult::Ok,
+            Ok(o) => {
+                let msg = format!(
+                    "{}{}",
+                    String::from_utf8_lossy(&o.stdout),
+                    String::from_utf8_lossy(&o.stderr),
+                );
+                if msg.contains("Secrets were required")
+                    || msg.contains("Passwords or encryption keys are required")
+                {
+                    ConnectResult::NeedPassword
+                } else {
+                    ConnectResult::Failed
+                }
+            }
+            Err(_) => ConnectResult::Failed,
+        };
+        let _ = tx.send(res);
+    });
+
+    glib::timeout_add_local(Duration::from_millis(150), move || {
+        match rx.try_recv() {
+            Err(TryRecvError::Empty) => glib::ControlFlow::Continue,
+            Ok(res) => { done(res); glib::ControlFlow::Break }
+            Err(TryRecvError::Disconnected) => { done(ConnectResult::Failed); glib::ControlFlow::Break }
+        }
+    });
+}
+
+fn show_wifi_password_dialog(ssid: &str, ctx: &NetCtx) {
+    PW_DIALOG.with(|d| {
+        if let Some(old) = d.borrow_mut().take() { old.close(); }
+    });
+
+    let win = gtk4::Window::builder()
+        .title("Connect to network")
+        .resizable(false)
+        .css_classes(["netPwDialog"])
+        .build();
+    win.init_layer_shell();
+    win.set_namespace(Some("NetPasswordDialog"));
+    win.set_layer(Layer::Overlay);
+    win.set_keyboard_mode(KeyboardMode::Exclusive);
+
+    let title = Label::new(Some(&format!("Connect to {}", ssid)));
+    title.add_css_class("netPwTitle");
+    title.set_halign(gtk4::Align::Start);
+
+    let entry = gtk4::Entry::builder()
+        .visibility(false)
+        .input_purpose(gtk4::InputPurpose::Password)
+        .placeholder_text("Password")
+        .width_chars(28)
+        .css_classes(["netPwEntry"])
+        .build();
+
+    let err_lbl = Label::new(None);
+    err_lbl.add_css_class("netPwError");
+    err_lbl.set_halign(gtk4::Align::Start);
+    err_lbl.set_visible(false);
+
+    let cancel_btn  = Button::builder().label("Cancel").css_classes(["netPwBtn"]).build();
+    let connect_btn = Button::builder().label("Connect").css_classes(["netPwBtn", "netPwConnect"]).build();
+
+    let btn_row = GtkBox::new(Orientation::Horizontal, 8);
+    btn_row.set_halign(gtk4::Align::End);
+    btn_row.append(&cancel_btn);
+    btn_row.append(&connect_btn);
+
+    let content = GtkBox::new(Orientation::Vertical, 10);
+    content.set_margin_top(16);
+    content.set_margin_bottom(16);
+    content.set_margin_start(16);
+    content.set_margin_end(16);
+    content.append(&title);
+    content.append(&entry);
+    content.append(&err_lbl);
+    content.append(&btn_row);
+    win.set_child(Some(&content));
+
+    let submit: Rc<dyn Fn()> = {
+        let win         = win.clone();
+        let entry       = entry.clone();
+        let err_lbl     = err_lbl.clone();
+        let connect_btn = connect_btn.clone();
+        let ctx         = ctx.clone();
+        let ssid        = ssid.to_string();
+        Rc::new(move || {
+            if !entry.is_sensitive() { return; }
+            let pw = entry.text().to_string();
+            if pw.is_empty() {
+                err_lbl.set_label("Enter a password");
+                err_lbl.set_visible(true);
+                return;
+            }
+            err_lbl.set_visible(false);
+            entry.set_sensitive(false);
+            connect_btn.set_sensitive(false);
+            connect_btn.set_label("Connecting…");
+            ctx.refresh.add_css_class("spinning");
+
+            let win         = win.clone();
+            let entry       = entry.clone();
+            let err_lbl     = err_lbl.clone();
+            let connect_btn = connect_btn.clone();
+            let ctx         = ctx.clone();
+            connect_wifi_async(ssid.clone(), Some(pw), move |res| {
+                if res == ConnectResult::Ok {
+                    win.close();
+                    rescan_after_connect(&ctx);
+                } else {
+                    ctx.refresh.remove_css_class("spinning");
+                    err_lbl.set_label("Couldn't connect. Wrong password? Try again.");
+                    err_lbl.set_visible(true);
+                    entry.set_sensitive(true);
+                    connect_btn.set_sensitive(true);
+                    connect_btn.set_label("Connect");
+                    entry.grab_focus();
+                    entry.select_region(0, -1);
+                }
+            });
+        })
+    };
+
+    {
+        let submit = submit.clone();
+        connect_btn.connect_clicked(move |_| submit());
+    }
+    {
+        let submit = submit.clone();
+        entry.connect_activate(move |_| submit());
+    }
+    {
+        let win = win.clone();
+        cancel_btn.connect_clicked(move |_| win.close());
+    }
+    {
+        let win_k = win.clone();
+        let keys = gtk4::EventControllerKey::new();
+        keys.connect_key_pressed(move |_, key, _, _| {
+            if key == gtk4::gdk::Key::Escape {
+                win_k.close();
+                glib::Propagation::Stop
+            } else {
+                glib::Propagation::Proceed
+            }
+        });
+        win.add_controller(keys);
+    }
+
+    PW_DIALOG.with(|d| *d.borrow_mut() = Some(win.clone()));
+    win.present();
+    entry.grab_focus();
+}
+
 fn render_network_rows(
     net_list_rc:  &Rc<gtk4::ListBox>,
     networks:     Vec<(String, String, bool)>,
     netbtn:       &Button,
     net_panel:    &Rc<GtkBox>,
     net_expanded: &Rc<RefCell<bool>>,
+    refresh_btn:  &Button,
 ) {
     while let Some(child) = net_list_rc.first_child() {
         net_list_rc.remove(&child);
@@ -1013,6 +1281,14 @@ fn render_network_rows(
         net_list_rc.append(&row);
         return;
     }
+
+    let ctx = NetCtx {
+        list:     net_list_rc.clone(),
+        netbtn:   netbtn.clone(),
+        panel:    net_panel.clone(),
+        expanded: net_expanded.clone(),
+        refresh:  refresh_btn.clone(),
+    };
 
     for (ssid, bars, active) in networks {
         let row_box = GtkBox::new(Orientation::Horizontal, 10);
@@ -1039,22 +1315,44 @@ fn render_network_rows(
             .css_classes(["netListRowBtn"])
             .build();
 
-        let ssid_clone         = ssid.clone();
-        let netbtn_click       = netbtn.clone();
-        let net_panel_click    = net_panel.clone();
-        let net_expanded_click = net_expanded.clone();
+        let ssid_clone = ssid.clone();
+        let ctx_click  = ctx.clone();
 
         row_btn.connect_clicked(move |_| {
-            let _ = std::process::Command::new("nmcli")
-                .args(["dev", "wifi", "connect", &ssid_clone])
-                .spawn();
-            netbtn_click.remove_css_class("netBtnExpanded");
-            net_panel_click.add_css_class("closeBox");
-            *net_expanded_click.borrow_mut() = false;
-            let net_panel_close = net_panel_click.clone();
-            glib::timeout_add_local_once(Duration::from_millis(200), move || {
-                net_panel_close.remove_css_class("closeBox");
-                net_panel_close.set_visible(false);
+            if ctx_click.refresh.has_css_class("spinning") || active { return; }
+            ctx_click.refresh.add_css_class("spinning");
+
+            let (tx, rx) = std::sync::mpsc::channel::<bool>();
+            let ssid_check = ssid_clone.clone();
+            std::thread::spawn(move || {
+                let need_password = !is_saved_wifi(&ssid_check) && wifi_is_secured(&ssid_check);
+                let _ = tx.send(need_password);
+            });
+
+            let ctx   = ctx_click.clone();
+            let ssid  = ssid_clone.clone();
+            glib::timeout_add_local(Duration::from_millis(100), move || {
+                match rx.try_recv() {
+                    Err(TryRecvError::Empty) => glib::ControlFlow::Continue,
+                    Ok(true) => {
+                        ctx.refresh.remove_css_class("spinning");
+                        show_wifi_password_dialog(&ssid, &ctx);
+                        glib::ControlFlow::Break
+                    }
+                    _ => {
+                        let ctx_done  = ctx.clone();
+                        let ssid_done = ssid.clone();
+                        connect_wifi_async(ssid.clone(), None, move |res| {
+                            if res == ConnectResult::NeedPassword {
+                                ctx_done.refresh.remove_css_class("spinning");
+                                show_wifi_password_dialog(&ssid_done, &ctx_done);
+                            } else {
+                                rescan_after_connect(&ctx_done);
+                            }
+                        });
+                        glib::ControlFlow::Break
+                    }
+                }
             });
         });
         net_list_rc.append(&row_btn);
@@ -1472,6 +1770,7 @@ pub fn spawn_ctrl_capsules(
     let user_expanded = Rc::new(RefCell::new(false));
 
     let initial_state = net_hub.get();
+    let net_last_state_for_eth = initial_state.clone();
     let (init_icon, init_label, init_body) = network_icon_and_tip(initial_state.clone());
 
     let net_icon  = Image::from_file(init_icon);
@@ -1514,6 +1813,20 @@ pub fn spawn_ctrl_capsules(
         .margin_start(10)
         .build();
 
+    let eth_icon = Image::from_file("/var/lib/cynager/icons/ethernet.svg");
+    eth_icon.set_icon_size(gtk4::IconSize::Normal);
+    eth_icon.add_css_class("netPanelEth");
+    eth_icon.set_valign(gtk4::Align::Center);
+    eth_icon.set_margin_start(6);
+    match &net_last_state_for_eth {
+        NetworkState::EthernetConnected(iface) => {
+            eth_icon.set_tooltip_text(Some(&format!("Ethernet: ({})", iface)));
+            eth_icon.set_visible(true);
+        }
+        _ => eth_icon.set_visible(false),
+    }
+    let eth_icon_rc = Rc::new(eth_icon);
+
     let dummy_fill = GtkBox::new(Orientation::Horizontal, 0);
     dummy_fill.set_hexpand(true);
 
@@ -1543,6 +1856,7 @@ pub fn spawn_ctrl_capsules(
     let net_panel_actions = GtkBox::new(Orientation::Horizontal, 8);
     net_panel_actions.add_css_class("netPanelActions");
     net_panel_actions.append(&wifi_toggle_btn);
+    net_panel_actions.append(&*eth_icon_rc);
     net_panel_actions.append(&dummy_fill);
     net_panel_actions.append(&refresh_btn);
     net_panel_actions.append(&net_settings_btn);
@@ -1571,6 +1885,7 @@ pub fn spawn_ctrl_capsules(
     let scan_and_render = {
         let net_list_rc = net_list_rc.clone();
         let netbtn_inner = netbtn.clone();
+        let refresh_btn_inner = refresh_btn.clone();
         let net_panel_inner = net_panel_rc.clone();
         let net_expanded_inner = net_expanded.clone();
         move |on_done: Option<Rc<dyn Fn()>>| {
@@ -1584,6 +1899,7 @@ pub fn spawn_ctrl_capsules(
             let rx = spawn_wifi_scan();
             let net_list_rc = net_list_rc.clone();
             let netbtn_inner = netbtn_inner.clone();
+            let refresh_btn_inner = refresh_btn_inner.clone();
             let net_panel_inner = net_panel_inner.clone();
             let net_expanded_inner = net_expanded_inner.clone();
 
@@ -1596,6 +1912,7 @@ pub fn spawn_ctrl_capsules(
                             &netbtn_inner,
                             &net_panel_inner,
                             &net_expanded_inner,
+                            &refresh_btn_inner,
                         );
                         if let Some(cb) = &on_done { cb(); }
                         glib::ControlFlow::Break
@@ -1674,6 +1991,7 @@ pub fn spawn_ctrl_capsules(
         let net_body_rc  = net_body_rc.clone();
         let net_hub      = net_hub.clone();
         let net_last_shown = net_last_shown.clone();
+        let eth_icon_rc  = eth_icon_rc.clone();
 
         glib::timeout_add_local(Duration::from_millis(500), move || {
             let state = net_hub.get();
@@ -1683,6 +2001,13 @@ pub fn spawn_ctrl_capsules(
                 net_icon_rc.set_from_file(Some(icon_name));
                 net_label_rc.set_label(&label_text);
                 net_body_rc.set_label(&label_body);
+                match &state {
+                    NetworkState::EthernetConnected(iface) => {
+                        eth_icon_rc.set_tooltip_text(Some(&format!("Ethernet: ({})", iface)));
+                        eth_icon_rc.set_visible(true);
+                    }
+                    _ => eth_icon_rc.set_visible(false),
+                }
                 *last = state;
             }
             glib::ControlFlow::Continue
