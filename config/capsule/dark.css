@@ -1,8 +1,20 @@
 /* // dark theme // */
+:root {
+    --accent-blue: #ffffff;
+    --accent-blue: #ffffff;
+    --accent-teal: #ffffff;
+    --accent-green: #ffffff;
+    --accent-yellow: #ffffff;
+    --accent-orange: #ffffff;
+    --accent-red: #ffffff;
+    --accent-pink: #ffffff;
+    --accent-purple: #ffffff;
+    --accent-slate: #ffffff;
+}
 
 .cosIcon {
     all: unset;
-    padding: 5px;
+    padding: 8px;
     border-radius: 20px;
     border: none;
     background-image: 
@@ -25,6 +37,10 @@
     animation: orb-pulse 3s infinite ease-in-out;
 }
 
+.cosIcon:active {
+    transform: scale(1);
+}
+
 @keyframes orb-pulse {
     0%, 100% { 
         transform: scale(0.9);
@@ -35,17 +51,19 @@
 }
 
 .timeCapsule {
-    --shineline: rgb(135, 135, 135);
-    --bg: rgba(0, 0, 0, 0.559);
+    background-color: rgba(34, 34, 34, 0.559);
+    border: 1px solid transparent;
+    background-image: linear-gradient(rgb(29, 29, 29), rgb(29, 29, 29)),
+                        linear-gradient(0deg, rgb(9, 9, 9), rgba(94, 94, 94, 0.686));
+    background-origin: border-box;
+    background-clip: padding-box, border-box;
     padding: 6px;
-    background-color: var(--bg);
-    border: 1px solid rgba(166, 166, 166, 0.216);
     border-radius: 22px;
 }
 
 .notiCapsule {
     background-color: rgba(34, 34, 34, 0.559);
-    border: 2px solid transparent;
+    border: 1px solid transparent;
     background-image: linear-gradient(rgb(29, 29, 29), rgb(29, 29, 29)),
                         linear-gradient(0deg, rgb(9, 9, 9), rgba(94, 94, 94, 0.686));
     background-origin: border-box;
@@ -92,7 +110,7 @@
     font-weight: 500;
 }
 
-.tNa:hover {
+/* .tNa:hover {
     background-color: rgba(255, 255, 255, 0.155);
     background-image: linear-gradient(
         120deg, 
@@ -102,7 +120,7 @@
     );
     background-size: 200% 100%;
     animation: shine 1.5s infinite linear;
-}
+} */
 
 @keyframes shine {
     0% {
@@ -113,10 +131,10 @@
     }
 }
 
-.tNa:active {
+/* .tNa:active {
     background-color: rgba(255, 255, 255, 0.268);
     box-shadow: inset 0px 2px 1px rgba(0, 0, 0, 0.355), inset 0px -2px 10px rgba(0, 0, 0, 0.245);
-}
+} */
 
 .clippy {
     background-color: rgba(255, 255, 255, 0.048);
@@ -205,7 +223,7 @@
 .osdBox {
     padding: 10px;
     background-color: rgba(34, 34, 34, 0.559);
-    border: 2px solid transparent;
+    border: 1px solid transparent;
     background-image: linear-gradient(rgb(29, 29, 29), rgb(29, 29, 29)),
                         linear-gradient(0deg, rgb(9, 9, 9), rgba(94, 94, 94, 0.686));
     background-origin: border-box;
@@ -299,7 +317,7 @@
     padding: 10px;
     background-color: rgba(0, 0, 0, 0.788);
     border: 1px solid rgba(0, 0, 0, 0.184);
-    border-radius: 20px;
+    border-radius: 25px;
     box-shadow: rgba(0, 0, 0, 0.24) 0px 3px 8px;
     opacity: 0.6;
     transition: opacity, background-color 400ms cubic-bezier(0.4, 0.0, 0.2, 1);
@@ -310,13 +328,20 @@
     background-color: rgb(21, 21, 21);
 }
 
+.notiHeaderTitle {
+    font-family: Cantarell;
+    font-size: 16px;
+    font-weight: 300;
+    color: rgb(210, 210, 210);
+}
+
 .notiIcon {
     padding: 2px;
 }
 
 .notificationAllLabelSummary {
     font-family: Cantarell;
-    font-size: 26px;
+    font-size: 12px;
     font-weight: 200;
     color: rgb(210, 210, 210);
 }
@@ -324,12 +349,12 @@
 .notificationAllLabelBody {
     font-family: Cantarell;
     font-size: 12px;
-    font-weight: 700;
+    font-weight: 500;
     color: rgb(210, 210, 210);
 }
 
 .appName{
-    font-size: 26px;
+    font-size: 18px;
     font-weight: 800;
     color: rgba(255, 255, 255, 0.178);
 }
@@ -353,47 +378,74 @@
     transition: all 200ms ease-in-out;
 }
 
-scrollbar {
-    background-color: transparent;
-    background-image: none;
-    border: none;
-}
-
-.notiScroller trough {
+.notiScroller scrollbar {
+    all: unset;
     background-color: rgba(0, 0, 0, 0.294);
+    min-width: 8px; 
+    min-height: 8px;
     border-radius: 50px 50px 0 0;
     margin-left: 100px;
     margin-right: 100px;
 }
 
-.notiScroller trough:hover {
-    background-color: rgba(0, 0, 0, 0.546);
+.notiScroller scrollbar trough {
+    background-color: rgba(1, 1, 1, 0);
+}
+
+.notiScroller scrollbar trough:hover {
+    background-color: rgba(0, 0, 0, 0);
 }
 
 .notiScroller range {
     background-color: transparent;
 }
 
-.notiScroller slider {
+.notiScroller scrollbar slider {
+    all: unset;
     background-color: transparent;
     border: 2px solid transparent;
 }
 
-.notiScroller slider:hover {
+.notiScroller scrollbar slider:hover {
     background-color: transparent;
+}
+
+.noscroller {
+    all: unset;
+    border-radius: 20px;
+}
+
+.noscroller trough {
+    background-color: transparent;
+}
+.noscroller trough:hover {
+    background-color: transparent;
+}
+
+scrollbar {
+    background-color: transparent;
+    background-image: none;
+    border: none;
 }
 
 .clearBtn {
     all: unset;
-    padding: 10px;
-    border-radius: 50px;
+    padding: 7px;
+    border-radius: 20px;
     background-color: rgba(0, 0, 0, 0);
     opacity: 0.3;
     transition: opacity, background-color 400ms cubic-bezier(0.4, 0.0, 0.2, 1);
 }
 
 .clearBtn:hover {
-    background-color: crimson;
+    background: linear-gradient(#fff2, #0001),  #ff7c7c;
+    box-shadow:
+        1px 1px 2px -1px #fff inset,
+        0 2px 1px #00000010,
+        0 4px 2px #00000010,
+        0 8px 4px #00000010,
+        0 16px 8px #00000010,
+        0 32px 16px #00000010;
     opacity: 1;
 }
 
@@ -429,8 +481,13 @@ scrollbar {
 
 .widgetBox {
     padding: 10px;
-    background-color: rgba(255, 0, 0, 0);
-    border-radius: 30px;
+    background-color: rgba(34, 34, 34, 0.559);
+    border: 2px solid transparent;
+    background-image: linear-gradient(#ceccc7, #ceccc7),
+                        linear-gradient(0deg, #888683, #fbfaf9);
+    background-origin: border-box;
+    background-clip: padding-box, border-box;
+    border-radius: 40px;
     transition: background-color 400ms cubic-bezier(0.4, 0.0, 0.2, 1);
 }
 
@@ -495,9 +552,9 @@ calendar.view > header {
 }
 
 calendar.view > header > button {
-    background-color: #ffffff18;
+    background-color: #ffffff00;
     border-radius: 100px;
-    border: none;
+    border: 1px solid rgba(0, 0, 0, 0.215);
     color: #333;
     margin: 6px;
 }
@@ -518,50 +575,65 @@ calendar.view header stack.month {
 
 calendar.view > grid > label.day-name {
     font-weight: 600;
-    color: #a0a0a0;
+    color: #464242;
 }
 
 calendar.view > grid > label.day-name:hover {
-    color: white;
+    color: rgb(8, 8, 8);
 }
 
 calendar.view > grid > label.week-number {
-    color: #ffffff;
+    color: #2b2b2b;
     font-style: italic;
 }
 
 calendar.view > grid > label.day-number {
-    color: #ffffffa6;
+    color: #2b2b2b;
     background: transparent;
+    padding: 5px;
 }
 
 calendar.view > grid > label.day-number:hover {
-    color: white;
+    color: #2b2b2b;
 }
 
 calendar.view > grid > label.other-month {
-    color: #ffffff5d;
+    color: #00000038;
     opacity: 0.6;
 }
 
 calendar.view > grid > label.today {
-    background-color: #00000056;
+    background-color: #f95b00fe;
     border-radius: 50px;
+    border: none;
     font-weight: 900;
     color: #ffffff;
 }
 
 calendar.view > grid > label:selected {
-    background-color: #00000034;
     border-radius: 50px;
     font-weight: 500;
-    color: #ffffff;
+    color: #000000;
 }
 
 /* .batring {
     
     border: 1px solid rgba(112, 112, 112, 0.274);
 } */
+
+.clippyBin { background: transparent; border-radius: 999px; opacity: 0.2;}
+.clippyBin.binHover { 
+    background-color: crimson;
+    color: #ffffff;
+    font-size: 16px;
+    font-weight: 600;
+    padding: 0px 28px;
+    border: none;
+    border-radius: 8px;
+    outline: none;
+    transition: all 0.1s ease-in-out;
+    box-shadow: 0 0 0 rgba(255, 77, 77, 0); 
+}
 
 .outerBat {
     padding: 15px;
@@ -573,6 +645,22 @@ calendar.view > grid > label:selected {
     background-clip: padding-box, border-box;
     border-radius: 40px;
     /* box-shadow:  inset 0px -5px 20px rgba(255, 255, 255, 0.239); */
+}
+
+.outerGit {
+    padding: 15px;
+    background-color: rgba(34, 34, 34, 0.559);
+    border: 2px solid transparent;
+    background-image: linear-gradient(rgb(29, 29, 29), rgb(29, 29, 29)),
+                        linear-gradient(0deg, rgb(9, 9, 9), rgba(94, 94, 94, 0.686));
+    background-origin: border-box;
+    background-clip: padding-box, border-box;
+    border-radius: 40px;
+}
+
+.gitSub {
+    color: rgba(255, 255, 255, 0.49);
+    font-weight: 500;
 }
 
 .outerAppd {
@@ -589,33 +677,36 @@ calendar.view > grid > label:selected {
 }
 
 .appdMenu {
-    padding: 2px;
-    border: 2px solid transparent;
-    background-image: 
-        linear-gradient(rgb(6, 6, 6), rgb(6, 6, 6)),
-        linear-gradient(0deg, rgb(9, 9, 9), rgba(61, 61, 61, 0.686));
-    background-origin: border-box;
-    background-clip: padding-box, border-box;
-    border-radius: 50px;
-    /* box-shadow:  inset 0px -5px 20px rgba(255, 255, 255, 0.239); */
+    all: unset;
+    padding: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.048);
+    background-color: #1f1f1f;
+    border-radius: 40px;
     transition: all 0.5s ease;
 }
 
 .appdBtn {
     all: unset;
+    min-width: 160px;
+    border-radius: 15px;
+    border: none;
     padding: 10px;
-    border-radius: 50px;
-    transition: all 400ms cubic-bezier(0.4, 0.0, 0.2, 1);
-    font-weight: 300;
-    font-size: 16px;
+
+    background: linear-gradient(#fff2, #0001),  #ff7c7c;
+    box-shadow:
+        1px 1px 2px -1px #fff inset,
+        0 2px 1px #00000010,
+        0 4px 2px #00000010,
+        0 8px 4px #00000010,
+        0 16px 8px #00000010,
+        0 32px 16px #00000010;
+    color: black;
+    transition:
+        all 200ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .appdBtn:hover {
-    background-color: #ffffff1a;
-}
-
-.appdBtn:active {
-    transform: scale(0.5);
+    background: linear-gradient(#fff2, #0001),  #e76e6e;
 }
 
 .batLabel {
@@ -628,6 +719,10 @@ calendar.view > grid > label:selected {
     color: white;
     font-size: 20px;
     font-weight: 100;
+}
+
+.widget-cell-frame {
+    border: 1px solid rgba(255, 255, 255, 0.119);
 }
 
 .outerSys {
@@ -734,7 +829,7 @@ calendar.view > grid > label:selected {
 
 .ssdBar {
     background-color: rgba(255, 255, 255, 0.043);
-    border-radius: 13px 2px 2px 2px ;
+    border-radius: 12px 2px 2px 2px ;
     transition: background-color 400ms cubic-bezier(0.4, 0.0, 0.2, 1);
 }
 
@@ -747,6 +842,23 @@ calendar.view > grid > label:selected {
     min-width: 20px;
     min-height: 5px;
     background-color: transparent;
+}
+
+.ssdDragGhost { 
+    background-color: alpha(rgb(0, 0, 0), 0.35);
+    border: 2px dashed rgba(255, 255, 255, 0.133); 
+    border-radius: 15px; 
+}
+
+.ssdCard { 
+    background-color: alpha(rgb(0, 0, 0), 0.35); border-radius: 15px; border: 1px solid alpha(white, 0.15); }
+.ssdCardRestore { min-width: 22px; min-height: 22px; padding: 0; margin: 4px; border-radius: 8px; }
+.ssdDragGhostCard { border: 1px solid alpha(white, 0.15); }
+
+.ssdDragGhostIcon {
+    padding: 10px;
+    background-color: rgba(255, 255, 255, 0.07);
+    border-radius: 10px;
 }
 
 .ssdBtn:hover {
@@ -763,12 +875,11 @@ calendar.view > grid > label:selected {
 }
 
 .ssdClose {
-    border-radius: 13px 0px 0px 2px;
+    border-radius: 12px 0px 0px 2px;
 }
 
 .ssdClose:hover {
     background-color: #FE5F55;
-    border-radius: 13px 0px 0px 2px;
 }
 
 .ssdClose:active {
@@ -823,9 +934,106 @@ calendar.view > grid > label:selected {
     min-width: 150px;
     padding: 10px 20px 10px 10px;
     border-radius: 52px;
-    border: 2px solid transparent;
-    background-image: linear-gradient(rgb(6, 6, 6), rgb(6, 6, 6)),
-                        linear-gradient(0deg, rgb(9, 9, 9), rgba(61, 61, 61, 0.686));
+    border: 1px solid transparent;
+    background-image: 
+        linear-gradient(rgb(33, 33, 33), rgb(33, 33, 33)),
+        linear-gradient(0deg, rgb(0, 0, 0), rgba(255, 255, 255, 0.255));
+    background-origin: border-box;
+    background-clip: padding-box, border-box;
+    box-shadow: rgba(0, 0, 0, 0.24) 0px 3px 8px;
+
+    transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.appTile {
+    min-width: 150px;
+    padding: 10px;
+    border-radius: 20px;
+    background-color: #f6f2f20b;
+    transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1); 
+}
+
+.appTile:hover {
+    background-color: rgba(255, 255, 255, 0.056);
+}
+
+/* .appsList row:selected { background: alpha(white, 0.25); } */
+
+.soundListSlider {
+    all: unset;
+    min-height: 5px;
+    padding: 10px;
+    border-radius: 60px;
+}
+
+.soundListSlider trough {
+    background-color: #e0e0e03c;
+    border-radius: 20px;
+    min-height: 10px;
+    min-width: 4px;
+}
+
+.soundListSlider trough highlight {
+    background: linear-gradient(#fff2, #0001),  #8fff72;
+    box-shadow:
+        1px 1px 2px -1px #fff inset,
+        0 2px 1px #00000010,
+        0 4px 2px #00000010,
+        0 8px 4px #00000010,
+        0 16px 8px #00000010,
+        0 32px 16px #00000010;
+    border-radius: 20px;
+}
+
+.soundListSlider slider {
+    min-width: 34px;
+    min-height: 5px;
+    background: linear-gradient(#fff2, #0001),  #ceffc2a8;
+    box-shadow:
+        1px 1px 2px -1px #fff inset,
+        0 2px 1px #00000010,
+        0 4px 2px #00000010,
+        0 8px 4px #00000010,
+        0 16px 8px #00000010,
+        0 32px 16px #00000010;
+    border-radius: 40px;
+    margin: -12px -20px;
+}
+
+scale slider:active {
+    transform: scale(1.09);
+    animation: jigglhehe 0.5s 1 linear;
+}
+
+
+.soundApptxt {
+    font-size: 16px;
+    font-weight: 300;
+}
+
+.ctrlExpanded {
+    all: unset;
+    min-width: 150px;
+    padding: 10px 20px 10px 10px;
+    border-radius: 20px;
+    border: 1px solid transparent;
+    background-image: linear-gradient(rgb(23, 23, 23), rgb(23, 23, 23)),
+                        linear-gradient(0deg, rgb(0, 0, 0), rgba(61, 61, 61, 0.686));
+    background-origin: border-box;
+    background-clip: padding-box, border-box;
+    box-shadow: rgba(0, 0, 0, 0.24) 0px 3px 8px;
+
+    transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.ctrlExpandedS {
+    all: unset;
+    min-width: 40px;
+    padding: 10px;
+    border-radius: 25px;
+    border: 1px solid transparent;
+    background-image: linear-gradient(crimson, crimson),
+                        linear-gradient(0deg, rgb(122, 5, 28), rgb(255, 55, 95));
     background-origin: border-box;
     background-clip: padding-box, border-box;
     box-shadow: rgba(0, 0, 0, 0.24) 0px 3px 8px;
@@ -837,9 +1045,11 @@ calendar.view > grid > label:selected {
     all: unset;
     min-width: 40px;
     padding: 10px;
-    border-radius: 25px;border: 2px solid transparent;
-    background-image: linear-gradient(rgb(6, 6, 6), rgb(6, 6, 6)),
-                        linear-gradient(0deg, rgb(9, 9, 9), rgba(61, 61, 61, 0.686));
+    border-radius: 25px;
+    border: 1px solid transparent;
+    background-image: 
+        linear-gradient(rgb(33, 33, 33),rgb(33, 33, 33)),
+        linear-gradient(0deg, rgb(0, 0, 0), rgba(255, 255, 255, 0.255));
     background-origin: border-box;
     background-clip: padding-box, border-box;
     box-shadow: rgba(0, 0, 0, 0.24) 0px 3px 8px;
@@ -938,9 +1148,31 @@ calendar.view > grid > label:selected {
     color: rgb(255, 255, 255);
 }
 
+.NetPasswordDialog {
+    all: unset;
+    min-width: 40px;
+    padding: 20px;
+    border-radius: 50px;
+    border: 2px solid transparent;
+    background-image: linear-gradient(rgb(33, 33, 33), rgb(33, 33, 33)),
+                        linear-gradient(0deg, rgb(9, 9, 9), rgba(61, 61, 61, 0.686));
+    background-origin: border-box;
+    background-clip: padding-box, border-box;
+    box-shadow: rgba(0, 0, 0, 0.24) 0px 3px 8px;
+
+    transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.netPwEntry {
+    all: unset;
+    padding: 10px;
+    background-color: rgba(255, 255, 255, 0.037);
+    border-radius: 15px;
+}
+
 .ctrlBackdrop {
     all: unset;
-    /* background-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.839), transparent 100%); */
+    background: linear-gradient(to bottom, #040404cd, transparent);
 }
 
 .notiPopup {
@@ -951,13 +1183,13 @@ calendar.view > grid > label:selected {
     margin: 10px;
 }
 
-.netPanel {
+.ctrlPanel {
     all: unset;
     min-width: 40px;
     padding: 20px;
     border-radius: 50px;
     border: 2px solid transparent;
-    background-image: linear-gradient(rgb(6, 6, 6), rgb(6, 6, 6)),
+    background-image: linear-gradient(rgb(33, 33, 33), rgb(33, 33, 33)),
                         linear-gradient(0deg, rgb(9, 9, 9), rgba(61, 61, 61, 0.686));
     background-origin: border-box;
     background-clip: padding-box, border-box;
@@ -966,10 +1198,11 @@ calendar.view > grid > label:selected {
     transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.netList {
+.ctrlpanelList {
     all: unset;
     background-color: transparent;
     border-radius: 5px;
+    padding: 10px;
 }
 
 .closeBox {
@@ -994,7 +1227,21 @@ calendar.view > grid > label:selected {
 .netListScroll{
     all: unset;
     border-radius: 10px;
-    background-color: #1f1f1f;
+    background-color: #1f1f1f00;
+}
+
+.netListScroll scrollbar,
+.netListScroll scrollbar > range > trough,
+.netListScroll scrollbar > range > trough > slider {
+    opacity: 0;
+    min-width: 0;
+    min-height: 0;
+    margin: 0;
+    padding: 0;
+    border: none;
+    background: none;
+    box-shadow: none;
+    outline: none;
 }
 
 row,
@@ -1002,6 +1249,7 @@ row:hover,
 row:selected,
 row:focus,
 row:active {
+    padding: 5px;
     background: none;
     background-color: transparent;
     border: none;
@@ -1015,8 +1263,8 @@ row > * {
 }
 
 row:hover {
-    background-color: transparent;
-    padding: 10px;
+    background-color: rgba(253, 253, 253, 0.079);
+    border-radius: 50px;
 }
 
 row:focus {
@@ -1035,10 +1283,43 @@ row:focus {
     all: unset;
     padding: 10px;
     border-radius: 50px;
+    transition: all 0.2s ease;
 }
 
 .netPanelBtn:hover {
     transform: scale(1.09);
+    transform: rotate(180deg);
+}
+
+stackswitcher {
+    all: unset;
+    padding: 6px;
+    background-color: transparent;
+}
+
+stackswitcher button {
+    all: unset;
+    color: #d8dee9;
+    border-radius: 50px;
+    padding: 10px;
+    background-color: transparent;
+    
+    transition: background-color 200ms ease-in-out, 
+                color 200ms ease-in-out, 
+                transform 150ms cubic-bezier(0.25, 1, 0.5, 1);
+}
+ 
+stackswitcher button:checked {
+    background-color: #222222;
+    border-radius: 50px;
+    color: #eceff4;
+    font-weight: bold;
+    transform: scale(1.03);
+}
+
+stackswitcher button:active {
+    transform: scale(0.96);
+    transition: transform 50ms ease-out;
 }
 
 .spinning {
@@ -1096,14 +1377,13 @@ switch {
     all: unset;
     font-weight: bold;
     border-radius: 50px;
-    border: 2px solid rgba(255, 255, 255, 0.852);
-    background-color: #000000;
+    background-color: #979797fe;
     box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
     transition: all 0.2s ease;
 }
 
 switch:checked {
-    background-color: #000000;
+    background-color: #979797fe;
 }
 
 switch > slider {
@@ -1122,7 +1402,7 @@ switch:hover > slider {
 
 
 switch:disabled {
-    background-color: #000000;
+    background-color: #00000002;
     border-color: rgba(255, 255, 255, 0.852);
     opacity: 0.6;
 }
@@ -1138,7 +1418,7 @@ switch:disabled > slider {
     padding: 20px;
     border-radius: 50px;
     border: 2px solid transparent;
-    background-image: linear-gradient(rgb(6, 6, 6), rgb(6, 6, 6)),
+    background-image: linear-gradient(rgb(9, 9, 9), rgb(9, 9, 9)),
                         linear-gradient(0deg, rgb(9, 9, 9), rgba(61, 61, 61, 0.686));
     background-origin: border-box;
     background-clip: padding-box, border-box;
@@ -1147,6 +1427,7 @@ switch:disabled > slider {
 
 .dockBtn {
     all: unset;
+    border-radius: 20px;
     padding: 10px;
     transition: all 400ms cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -1180,6 +1461,10 @@ switch:disabled > slider {
     transition: all 2ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+.trayMenuItem:disabled {
+    opacity: 0.5;
+}
+
 .trayMenuItem:hover {
     background-color: #5151511e;
 }
@@ -1196,14 +1481,33 @@ switch:disabled > slider {
     transform: scale(0.5);
 }
 
+.dockBtn.dockBtnSelected {
+    background: rgba(255, 255, 255, 0.18);
+}
+
 .dockBtnActive {
-    border-radius: 20px;
     background-color: rgba(255, 255, 255, 0.076);
+}
+
+.dockBtnHint {
+    min-width: 100px;
+    border: 1px dashed rgba(255, 255, 255, 0.134);
+    margin: 0 5px 0 5px;
+}
+
+.dockBtnTiled {
+    border: 1px dashed rgba(255, 255, 255, 0.134);
 }
 
 @keyframes dockcum {
     0% {
         transform: translateY(-200px);
+    }
+    50% {
+        transform: translateY(10px); 
+    }
+    80% {
+        transform: translateY(-5px);
     }
     100% {
         transform: translateY(0);
@@ -1220,14 +1524,111 @@ switch:disabled > slider {
 }
 
 .dockcum {
-    animation: dockcum 0.4s cubic-bezier(0.53, 0, 0.58, 1.5);
+    animation: dockcum 0.8s cubic-bezier(0.53, 0, 0.58, 1.5);
 }
 
 .dockleave {
-    animation: dockleave 0.4s cubic-bezier(0.53, 0, 0.58, 1.5);
+    animation: dockleave 0.3s cubic-bezier(0.53, 0, 0.58, 1.5);
 }
 
 .dummytxt {
+    all: unset;
     font-size: 5px;
     color: transparent;
 }
+
+.netListScroll slider {
+    background-color: transparent;
+    border: 2px solid transparent;
+}
+
+.netListScroll slider:hover {
+    background-color: transparent;
+}
+
+
+.cynverListName {
+    font-size: 26px;
+    font-style: italic;
+    font-weight: 600;
+}
+
+.spinner {
+  border-radius: 50px; 
+  animation: spin 0.3s linear infinite; 
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.ssdSideBtn {
+    all: unset;
+}
+
+.ssdSideBar {
+    background-image: linear-gradient(135deg, transparent 50%, transparent 50%);
+    background-color: transparent;
+    box-shadow: none;
+    border-radius: 6px;
+    min-width: 24px;
+    min-height: 24px;
+}
+
+.ssdSideBar:hover {
+    background-image: linear-gradient(135deg, transparent 50%, #007bff 50%);
+    border: none; 
+}
+
+.ssdSideBar:active {
+    background-image: linear-gradient(135deg, transparent 50%, transparent 50%);
+}
+
+.powerScale {
+    all: unset;
+    min-height: 52px;
+    padding: 10px;
+    background: rgba(0, 0, 0, 0.51);
+    border-radius: 60px;
+}
+
+.powerScale trough {
+    border-radius: 50px;
+    background: linear-gradient(to right, rgba(237, 169, 59, 0.33), rgba(241, 30, 15, 0.492));
+    min-height: 50px;
+}
+
+.powerScale slider {
+    background-color: rgba(34, 34, 34, 0.559);
+    border: 1px solid transparent;
+    background-image: linear-gradient(rgb(29, 29, 29), rgb(29, 29, 29)),
+                        linear-gradient(0deg, rgb(9, 9, 9), rgba(94, 94, 94, 0.686));
+    background-origin: border-box;
+    background-clip: padding-box, border-box;
+    border-radius: 25px;
+    min-width: 80px;
+    min-height: 50px;
+    box-shadow: 0 0 4px rgba(0,0,0,0.4);
+}
+
+
+.powerbtns {
+    all:unset;
+    background: rgba(0, 0, 0, 0);
+    padding: 20px;
+    border-radius: 50px;
+    margin: 10px;
+    transition: background 0.2s ease, transform 0.2s ease;
+    font-size: 16px;
+    font-weight: 500;
+}
+
+.powerbtns:hover {
+    background: rgba(228, 228, 228, 0.1);
+}
+

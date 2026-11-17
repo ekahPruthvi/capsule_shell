@@ -1237,6 +1237,7 @@ fn show_wifi_password_dialog(ssid: &str, ctx: &NetCtx) {
         .build();
     win.init_layer_shell();
     win.set_namespace(Some("NetPasswordDialog"));
+    win.set_css_classes(&["NetPasswordDialog"]);
     win.set_layer(Layer::Overlay);
     win.set_keyboard_mode(KeyboardMode::Exclusive);
 
@@ -1698,6 +1699,7 @@ fn launch_calibrate_with_ready(
         glib::ControlFlow::Break
     });
 }
+
 
 pub fn spawn_ctrl_capsules(
     app:          &Application,
