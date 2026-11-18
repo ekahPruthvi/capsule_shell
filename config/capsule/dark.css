@@ -22,8 +22,8 @@
         radial-gradient(circle at center, rgba(135, 206, 250, 0) 0%, rgba(30, 144, 255, 0) 30%, transparent 70%),
         radial-gradient(circle at center, rgba(0, 0, 139, 0) 0%, rgba(0, 0, 0, 0) 100%);
 
-    transition: all 400ms cubic-bezier(0.4, 0, 0.2, 1);
     box-shadow: 0 0 0 rgba(30, 144, 255, 0);
+    transition: all 400ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .cosIcon:hover {
@@ -34,11 +34,12 @@
 
     /* background-color: #002fff; */
     /* border: 2px #002fff; */
-    animation: orb-pulse 3s infinite ease-in-out;
+    animation: orb-pulse 1s infinite ease-in-out;
 }
 
 .cosIcon:active {
-    transform: scale(1);
+    animation: none;
+    transform: scale(0.5);
 }
 
 @keyframes orb-pulse {
@@ -1005,6 +1006,12 @@ scale slider:active {
     animation: jigglhehe 0.5s 1 linear;
 }
 
+.appSliderBox {
+    border-radius: 20px;
+    padding: 10px;
+    background-color: rgba(255, 255, 255, 0.027);
+}
+
 
 .soundApptxt {
     font-size: 16px;
@@ -1198,6 +1205,42 @@ scale slider:active {
     transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+.netPwBtn {
+    all: unset;
+    min-width: 50px;
+    padding: 10px;
+    border-radius: 10px;
+    border: none;
+
+    background: linear-gradient(#fff2, #0001),  #ff7c7c;
+    box-shadow:
+        1px 1px 2px -1px #fff inset,
+        0 2px 1px #00000010,
+        0 4px 2px #00000010,
+        0 8px 4px #00000010,
+        0 16px 8px #00000010,
+        0 32px 16px #00000010;
+    color: black;
+    transition:
+        all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.netPwBtn:hover {
+    background: linear-gradient(#fff2, #0001),  #e76e6e;
+}
+
+.netPwBtn:active {
+    transform: scale(0.9);
+}
+
+.netPwConnect {
+    background: linear-gradient(#fff2, #0001),  #d8ff7c;
+}
+
+.netPwConnect:hover {
+    background: linear-gradient(#fff2, #0001),  #f0ffcb;
+}
+
 .ctrlpanelList {
     all: unset;
     background-color: transparent;
@@ -1227,7 +1270,7 @@ scale slider:active {
 .netListScroll{
     all: unset;
     border-radius: 10px;
-    background-color: #1f1f1f00;
+    /* background-color: rgba(255, 255, 255, 0.027); */
 }
 
 .netListScroll scrollbar,
@@ -1256,6 +1299,7 @@ row:active {
     border-radius: 0;
     box-shadow: none;
     outline: none;
+    transition: all 50ms ease;
 }
 
 row > * {
@@ -1263,8 +1307,12 @@ row > * {
 }
 
 row:hover {
-    background-color: rgba(253, 253, 253, 0.079);
+    /* background-color: rgba(253, 253, 253, 0.079); */
     border-radius: 50px;
+}
+
+row:active {
+    transform: scale(0.99);
 }
 
 row:focus {
@@ -1293,8 +1341,9 @@ row:focus {
 
 stackswitcher {
     all: unset;
-    padding: 6px;
-    background-color: transparent;
+    padding: 6px 10px 6px 10px;
+    border-radius: 50px;
+    background-color: rgba(9, 9, 9, 0.179);
 }
 
 stackswitcher button {
@@ -1310,8 +1359,7 @@ stackswitcher button {
 }
  
 stackswitcher button:checked {
-    background-color: #222222;
-    border-radius: 50px;
+    background-color: #ffffff0d;
     color: #eceff4;
     font-weight: bold;
     transform: scale(1.03);

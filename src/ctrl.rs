@@ -198,6 +198,8 @@ pub struct AppPlayback {
     pub volume:    u32,
     pub muted:     bool,
     pub icon_name: String,
+    pub binary:    Option<String>,
+    pub app_id:    Option<String>,
 }
 
 fn parse_pactl_volume_pct(line: &str) -> u32 {
@@ -288,6 +290,8 @@ struct AppAcc {
     app_name:   Option<String>,
     media_name: Option<String>,
     icon_name:  Option<String>,
+    binary:     Option<String>,
+    app_id:     Option<String>,
 }
 
 fn finish_app(acc: AppAcc, apps: &mut Vec<AppPlayback>) {
@@ -306,6 +310,8 @@ fn finish_app(acc: AppAcc, apps: &mut Vec<AppPlayback>) {
         volume: acc.vol,
         muted: acc.muted,
         icon_name: icon,
+        binary: acc.binary,
+        app_id: acc.app_id,
     });
 }
 
@@ -339,6 +345,10 @@ fn get_app_playbacks() -> Vec<AppPlayback> {
             acc.media_name = Some(v.trim_matches('"').to_string());
         } else if let Some(v) = t.strip_prefix("application.icon_name = ") {
             acc.icon_name = Some(v.trim_matches('"').to_string());
+        } else if let Some(v) = t.strip_prefix("application.id = ") {
+            acc.app_id = Some(v.trim_matches('"').to_string());
+        } else if let Some(v) = t.strip_prefix("application.process.binary = ") {
+            acc.binary = Some(v.trim_matches('"').to_string());
         }
     }
     if let Some(acc) = cur.take() {
@@ -423,6 +433,110 @@ struct AppTileHandles {
     value_lbl: Label,
     name_lbl:  Label,
     volume:    Rc<Cell<u32>>,
+    media:     Rc<MediaControls>,
+}
+
+// ---------- per-app media controls (MPRIS via playerctl) ----------
+
+struct MediaControls {
+    root:     GtkBox,
+    play_btn: Button,
+    binary:   Option<String>,
+}
+
+fn media_norm(s: &str) -> String {
+    s.to_lowercase().replace([' ', '-', '_'], "")
+}
+
+/// Finds the MPRIS player that belongs to a sink-input, matching by the
+/// application's name / process binary (e.g. "Firefox" -> "firefox.instance123").
+fn find_mpris_player(app_label: &str, binary: Option<&str>) -> Option<String> {
+    let out = std::process::Command::new("playerctl").arg("-l").output().ok()?;
+    let mut keys = vec![media_norm(app_label)];
+    if let Some(b) = binary { keys.push(media_norm(b)); }
+    keys.retain(|k| !k.is_empty());
+
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty())
+        .find(|player| {
+            let base = media_norm(player.split(".instance").next().unwrap_or(player));
+            !base.is_empty()
+                && keys.iter().any(|k| base.contains(k.as_str()) || k.contains(base.as_str()))
+        })
+}
+
+fn mpris_is_playing(player: &str) -> bool {
+    std::process::Command::new("playerctl")
+        .args(["-p", player, "status"])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "Playing")
+        .unwrap_or(false)
+}
+
+/// Optionally runs a playerctl action (play-pause / next / previous) for the
+/// app's player, then updates the controls: hidden if the app has no MPRIS
+/// player, otherwise visible with the play/pause icon matching its state.
+fn media_sync(
+    ctl:    &Rc<MediaControls>,
+    label:  String,
+    action: Option<&'static str>,
+) {
+    let (tx, rx) = std::sync::mpsc::channel::<Option<bool>>();
+    let binary = ctl.binary.clone();
+    std::thread::spawn(move || {
+        let Some(player) = find_mpris_player(&label, binary.as_deref()) else {
+            let _ = tx.send(None);
+            return;
+        };
+
+        match action {
+            Some(act) => {
+                let before = mpris_is_playing(&player);
+                let _ = std::process::Command::new("playerctl")
+                    .args(["-p", &player, act])
+                    .status();
+                // Players (browsers especially) update their MPRIS status
+                // late, so flip the icon right away instead of reading a
+                // stale state, then confirm with the real status below.
+                let guess = if act == "play-pause" { !before } else { true };
+                let _ = tx.send(Some(guess));
+
+                // Poll until the player's real status settles (up to ~2.5s)
+                // instead of trusting one possibly-stale read.
+                let mut now = before;
+                for _ in 0..10 {
+                    std::thread::sleep(Duration::from_millis(250));
+                    now = mpris_is_playing(&player);
+                    if act != "play-pause" || now != before { break; }
+                }
+                let _ = tx.send(Some(now));
+            }
+            None => {
+                let _ = tx.send(Some(mpris_is_playing(&player)));
+            }
+        }
+    });
+
+    let ctl = ctl.clone();
+    glib::timeout_add_local(Duration::from_millis(50), move || {
+        loop {
+            match rx.try_recv() {
+                Ok(Some(playing)) => {
+                    ctl.root.set_visible(true);
+                    ctl.play_btn.set_icon_name(if playing {
+                        "media-playback-pause-symbolic"
+                    } else {
+                        "media-playback-start-symbolic"
+                    });
+                }
+                Ok(None) => ctl.root.set_visible(false),
+                Err(TryRecvError::Empty) => return glib::ControlFlow::Continue,
+                Err(TryRecvError::Disconnected) => return glib::ControlFlow::Break,
+            }
+        }
+    });
 }
 
 struct SelSliderCtl {
@@ -549,12 +663,29 @@ fn build_app_row(
     label_text: String,
     icon_name:  String,
     volume:     u32,
+    binary:     Option<String>,
+    app_id:     Option<String>,
 ) -> AppTileHandles {
     let content = GtkBox::new(Orientation::Horizontal, 8);
     content.add_css_class("appListRow");
 
-    let icon = Image::from_icon_name(&icon_name);
-    icon.set_pixel_size(24);
+    let resolved_icon = {
+        let theme = gtk4::gdk::Display::default().map(|d| gtk4::IconTheme::for_display(&d));
+        let mut candidates: Vec<String> = vec![icon_name.clone()];
+        if let Some(a) = &app_id {
+            candidates.push(a.clone());
+            if let Some(last) = a.rsplit('.').next() { candidates.push(last.to_lowercase()); }
+        }
+        if let Some(b) = &binary { candidates.push(b.clone()); }
+        candidates.push(label_text.to_lowercase().replace(' ', "-"));
+        candidates
+            .into_iter()
+            .filter(|c| !c.is_empty())
+            .find(|c| theme.as_ref().map(|t| t.has_icon(c)).unwrap_or(true))
+            .unwrap_or_else(|| "image-missing".to_string())
+    };
+    let icon = Image::from_icon_name(&resolved_icon);
+    icon.set_pixel_size(56);
     icon.add_css_class("appTileIcon");
 
     let name_lbl = gtk4::Label::new(Some(&label_text));
@@ -567,8 +698,43 @@ fn build_app_row(
     let value_lbl = gtk4::Label::new(Some(&format!("{}%", volume)));
     value_lbl.add_css_class("soundListValue");
 
+    let make_btn = |icon: &str, tip: &str| {
+        let b = Button::from_icon_name(icon);
+        b.add_css_class("appMediaBtn");
+        b.add_css_class("flat");
+        b.set_valign(gtk4::Align::Center);
+        b.set_tooltip_text(Some(tip));
+        b
+    };
+    let prev_btn = make_btn("media-skip-backward-symbolic", "Previous");
+    let play_btn = make_btn("media-playback-start-symbolic", "Play / Pause");
+    let next_btn = make_btn("media-skip-forward-symbolic", "Next");
+
+    let media_box = GtkBox::new(Orientation::Horizontal, 2);
+    media_box.add_css_class("appMediaBox");
+    media_box.set_valign(gtk4::Align::Center);
+    media_box.append(&prev_btn);
+    media_box.append(&play_btn);
+    media_box.append(&next_btn);
+    media_box.set_visible(false); // shown once an MPRIS player is found for this app
+
+    let media = Rc::new(MediaControls { root: media_box.clone(), play_btn: play_btn.clone(), binary });
+
+    for (btn, action) in [
+        (&prev_btn, "previous"),
+        (&play_btn, "play-pause"),
+        (&next_btn, "next"),
+    ] {
+        let media = media.clone();
+        let name_lbl = name_lbl.clone();
+        btn.connect_clicked(move |_| {
+            media_sync(&media, name_lbl.label().to_string(), Some(action));
+        });
+    }
+
     content.append(&icon);
     content.append(&name_lbl);
+    content.append(&media_box);
     content.append(&value_lbl);
 
     let row = gtk4::ListBoxRow::new();
@@ -577,11 +743,31 @@ fn build_app_row(
     row.add_css_class("appListRowWrap");
     row.set_tooltip_text(Some("Select to adjust volume"));
 
+    media_sync(&media, label_text, None);
+
+    // Keep the icon in sync when playback is toggled elsewhere (media keys,
+    // the app itself): pactl events don't fire for play/pause, so poll.
+    {
+        let row_weak = row.downgrade();
+        let media    = media.clone();
+        let name_lbl = name_lbl.clone();
+        glib::timeout_add_local(Duration::from_millis(1500), move || {
+            let Some(row) = row_weak.upgrade() else {
+                return glib::ControlFlow::Break;
+            };
+            if row.is_mapped() {
+                media_sync(&media, name_lbl.label().to_string(), None);
+            }
+            glib::ControlFlow::Continue
+        });
+    }
+
     AppTileHandles {
         row,
         value_lbl,
         name_lbl,
         volume: Rc::new(Cell::new(volume.min(100))),
+        media,
     }
 }
 
@@ -596,6 +782,7 @@ fn build_selection_slider(
     root.set_vexpand(false);
 
     let top = GtkBox::new(Orientation::Horizontal, 8);
+    top.set_margin_start(30);
 
     let name_lbl = gtk4::Label::new(Some(empty_text));
     name_lbl.add_css_class("soundListName");
@@ -608,7 +795,6 @@ fn build_selection_slider(
     value_lbl.add_css_class("soundListValue");
 
     top.append(&name_lbl);
-    top.append(&value_lbl);
 
     let adjustment = gtk4::Adjustment::new(0.0, 0.0, 100.0, 1.0, 5.0, 0.0);
     let scale = gtk4::Scale::new(Orientation::Horizontal, Some(&adjustment));
@@ -617,6 +803,7 @@ fn build_selection_slider(
     scale.set_sensitive(false);
     scale.add_css_class("soundListSlider");
     scale.set_margin_end(20);
+    scale.set_margin_start(20);
 
     let selected:   Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
     let last_touch = Rc::new(Cell::new(
@@ -820,8 +1007,11 @@ fn update_app_rows(
             if handle.name_lbl.label().to_string() != app.label {
                 handle.name_lbl.set_label(&app.label);
             }
+            media_sync(&handle.media, app.label.clone(), None);
         } else {
-            let handle = build_app_row(app.id.clone(), app.label.clone(), app.icon_name.clone(), app.volume);
+            let handle = build_app_row(
+                app.id.clone(), app.label.clone(), app.icon_name.clone(), app.volume, app.binary.clone(), app.app_id.clone(),
+            );
             list_rc.append(&handle.row);
             map.insert(app.id.clone(), handle);
         }
